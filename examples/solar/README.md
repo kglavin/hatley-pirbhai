@@ -41,7 +41,7 @@ examples/solar/
 │   ├── dfd.{md,html,d2}              hand-written; canonical
 │   ├── dfd-{mermaid,d2}.svg          rendered
 │   ├── dfd.generated.*               generated from dictionary
-│   └── cspecs/energy-manager/
+│   └── cspecs/compute-balance/   (subdir name = stable id of proc_compute_balance)
 │       ├── README.md
 │       ├── proposal.md               ✅ locked
 │       ├── naming-review.md          ✅ resolved

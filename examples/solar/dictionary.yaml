@@ -174,7 +174,7 @@ entities:
       (proc_compute_balance, proc_serve_ui, proc_cloud_forward).
 
   # ─── Level 2 (CSPEC) — states inside proc_compute_balance / "Energy Manager" ───
-  # Locked 2026-05-22 via 01-level1/cspecs/energy-manager/proposal.md.
+  # Locked 2026-05-22 via 01-level1/cspecs/compute-balance/proposal.md.
   # Hierarchical state machine per Decisions 1–3. Working state names
   # below pending naming-review for state names.
 
