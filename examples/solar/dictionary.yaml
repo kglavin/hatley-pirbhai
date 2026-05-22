@@ -183,6 +183,7 @@ entities:
     label: "Initializing"
     level: 2
     parent: proc_compute_balance
+    is_initial: true       # entry point of the entire CSPEC
     description: |
       Startup state. Waiting for telemetry and Victron mode to settle
       before entering normal operation.
@@ -202,6 +203,7 @@ entities:
     level: 2
     parent: proc_compute_balance
     parent_state: state_grid_tie
+    is_initial: true       # initial sub-state of GridTie
     description: "Balanced — no surplus to divert, no import to discharge against."
 
   state_diverting:
@@ -244,6 +246,7 @@ entities:
     level: 2
     parent: proc_compute_balance
     parent_state: state_island
+    is_initial: true       # initial sub-state of Island
     description: "Running on battery only (no sun or sun insufficient). Victron drives the microgrid."
 
   state_ac_coupled_solar:
@@ -272,6 +275,7 @@ entities:
     level: 2
     parent: proc_compute_balance
     parent_state: state_fault
+    is_initial: true       # initial sub-state of Fault
     description: "Telemetry channels unavailable (Modbus down, Sub-1G RF lost, MQTT broker unreachable)."
 
   state_actuator_fault:
@@ -452,6 +456,143 @@ flows:
     kind: control
     level: 1
     notes: "Configuration changes (e.g., polling cadence, channel enablement)."
+
+# ─────────────────────────────────────────────────────────────────────
+# TRANSITIONS — state-machine transitions inside CSPECs
+# Each transition belongs to a parent_machine (the process whose CSPEC
+# contains it). Source/target reference state entities.
+# ─────────────────────────────────────────────────────────────────────
+transitions:
+
+  # ─── Energy Manager CSPEC (proc_compute_balance) — locked 2026-05-22 ───
+
+  tx_init_to_grid:
+    label: "telemetry healthy"
+    source_state: state_initializing
+    target_state: state_grid_tie
+    parent_machine: proc_compute_balance
+    event: "telemetry healthy + Victron mode = grid-tie"
+    action: "enable Acquire Telemetry; arm 1 Hz tick"
+
+  tx_init_to_fault:
+    label: "startup failure"
+    source_state: state_initializing
+    target_state: state_telemetry_fault
+    parent_machine: proc_compute_balance
+    event: "telemetry timeout at startup"
+    action: "emit event_alert (startup-fault)"
+
+  tx_idle_to_diverting:
+    label: "surplus detected"
+    source_state: state_idle
+    target_state: state_diverting
+    parent_machine: proc_compute_balance
+    event: "net_grid_power < -threshold"
+    action: "start raising battery max_charge_current"
+
+  tx_diverting_to_idle:
+    label: "balance reached"
+    source_state: state_diverting
+    target_state: state_idle
+    parent_machine: proc_compute_balance
+    event: "|net_grid_power| < deadband"
+    action: "hold current setpoint"
+
+  tx_diverting_to_holding:
+    label: "SoC ≥ max"
+    source_state: state_diverting
+    target_state: state_holding
+    parent_machine: proc_compute_balance
+    event: "battery_soc >= max_soc"
+    action: "clamp max_charge_current to zero"
+
+  tx_holding_to_diverting:
+    label: "surplus + headroom"
+    source_state: state_holding
+    target_state: state_diverting
+    parent_machine: proc_compute_balance
+    event: "surplus persists AND battery_soc < (max_soc - hysteresis)"
+    action: "resume diversion"
+
+  tx_idle_to_discharging:
+    label: "night import"
+    source_state: state_idle
+    target_state: state_discharging
+    parent_machine: proc_compute_balance
+    event: "net-import in night-rate window"
+    action: "set Victron grid_setpoint to track ≈ 0"
+
+  tx_discharging_to_idle:
+    label: "SoC ≤ min / sun returns"
+    source_state: state_discharging
+    target_state: state_idle
+    parent_machine: proc_compute_balance
+    event: "battery_soc ≤ min_soc OR sun rising"
+    action: "clear grid_setpoint; resume Idle"
+
+  tx_gridtie_to_island:
+    label: "Victron → island"
+    source_state: state_grid_tie
+    target_state: state_island
+    parent_machine: proc_compute_balance
+    event: "Victron reports mode == island"
+    action: "disable Cloud Forward; clamp Dispatch Commands to safe defaults"
+
+  tx_island_to_gridtie:
+    label: "Victron → grid-tie"
+    source_state: state_island
+    target_state: state_grid_tie
+    parent_machine: proc_compute_balance
+    event: "Victron reports mode == grid-tie"
+    action: "re-enable Cloud Forward (if configured)"
+
+  tx_battery_to_solar:
+    label: "sun present"
+    source_state: state_battery_discharge
+    target_state: state_ac_coupled_solar
+    parent_machine: proc_compute_balance
+    event: "sun rising + Victron AC-couples inverters"
+    action: "observe (no commands; Victron's frequency-shift drives)"
+
+  tx_solar_to_battery:
+    label: "sun gone / battery saturating"
+    source_state: state_ac_coupled_solar
+    target_state: state_battery_discharge
+    parent_machine: proc_compute_balance
+    event: "sun setting OR battery saturating"
+    action: "state change only; Victron handles physics"
+
+  tx_gridtie_to_fault:
+    label: "fault event"
+    source_state: state_grid_tie
+    target_state: state_fault
+    parent_machine: proc_compute_balance
+    event: "fault event of any category"
+    action: "emit event_alert (fault); clamp to safe defaults"
+
+  tx_island_to_fault:
+    label: "fault event"
+    source_state: state_island
+    target_state: state_fault
+    parent_machine: proc_compute_balance
+    event: "fault event of any category"
+    action: "emit event_alert (fault); clamp to safe defaults"
+
+  tx_fault_to_gridtie:
+    label: "cleared + grid present"
+    source_state: state_fault
+    target_state: state_grid_tie
+    parent_machine: proc_compute_balance
+    event: "fault cleared + Victron mode = grid-tie"
+    action: "resume normal operation in GridTie"
+
+  tx_fault_to_island:
+    label: "cleared + grid absent"
+    source_state: state_fault
+    target_state: state_island
+    parent_machine: proc_compute_balance
+    event: "fault cleared + Victron mode = island"
+    action: "resume normal operation in Island"
 
 # ─────────────────────────────────────────────────────────────────────
 # EDGES — non-data physical or implicit connections shown in diagrams
