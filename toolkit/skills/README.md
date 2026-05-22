@@ -37,9 +37,9 @@ description: One-line summary used to decide relevance.
 | [`hp-render`](hp-render.md) | ✅ drafted + code live | Regenerate diagram sources + SVGs from `dictionary.yaml` |
 | [`hp-init`](hp-init.md) | ✅ drafted + code live | Scaffold a new HP project (directory layout + dictionary template + Stage 1 proposal) |
 | [`hp-status`](hp-status.md) | ✅ drafted | Show what stages a project has reached + coverage metrics |
-| `hp-propose-context` | planned | Stage 1: form-based context-diagram proposal for a new project |
-| `hp-propose-decomp` | planned | Stage 2: form-based level-N+1 DFD decomposition proposal |
-| `hp-propose-cspec` | planned | Stage 3: form-based CSPEC state-machine proposal |
+| [`hp-propose-context`](hp-propose-context.md) | ✅ drafted | Stage 1: form-based context-diagram proposal for a new project |
+| [`hp-propose-decomp`](hp-propose-decomp.md) | ✅ drafted | Stage 2: form-based level-N+1 DFD decomposition proposal |
+| [`hp-propose-cspec`](hp-propose-cspec.md) | ✅ drafted | Stage 3: form-based CSPEC state-machine proposal |
 | `hp-propose-pspec` | planned | Stage 4: form-based PSPEC proposal for leaf bubbles |
 | `hp-ingest` | planned (phase 5) | Brownfield ingest — read existing proposals + code, propose an HP model |
 
