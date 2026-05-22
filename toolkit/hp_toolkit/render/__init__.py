@@ -19,6 +19,6 @@ Scope:
 - Planned: SVG orchestration (invoke d2 / mmdc on generated sources)
 """
 
-from . import mermaid, d2
+from . import mermaid, d2, cytoscape, svg
 
-__all__ = ["mermaid", "d2"]
+__all__ = ["mermaid", "d2", "cytoscape", "svg"]

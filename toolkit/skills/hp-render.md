@@ -24,8 +24,9 @@ Generates diagram sources from the Project model. Currently supports:
 | Level-0 Context Diagram (D2) | ✅ live | `render.d2.render_context_diagram(project)` |
 | Level-1 DFD (Mermaid / D2) | ✅ live | `render.mermaid.render_dfd(project, parent_id)` · `render.d2.render_dfd(project, parent_id)` — requires `refined_source` / `refined_target` populated on boundary flows |
 | State machine (Mermaid `stateDiagram-v2` / D2 containers) | ✅ live | `render.mermaid.render_state_machine(project, parent_machine_id)` · `render.d2.render_state_machine(project, parent_machine_id)` — requires `transitions:` populated, plus `is_initial: true` on the CSPEC entry state and each composite's initial sub-state |
-| Cytoscape elements JSON (any level) | planned | for HTML5 interactive workspaces |
-| SVG orchestration | planned | invoke `d2` and `mmdc` binaries on generated sources |
+| Cytoscape (Context HTML) | ✅ live | `render.cytoscape.render_context_elements(project)` + `wrap_context_html(project)` produces full HTML — Cytoscape script, side panel, navigation, legend, tap/dbltap event handlers |
+| Cytoscape (DFD HTML + CSPEC HTML) | planned | reuse the wrapper pattern with view-specific element generators, style arrays, and legends |
+| SVG orchestration | ✅ live | `render.svg.render_d2_to_svg(src, out)` invokes `d2`; `render.svg.render_mermaid_to_svg(src, out)` invokes `mmdc` (with `.puppeteer-config.json` for Ubuntu sandbox). Both raise `FileNotFoundError` if the binary isn't installed (point user at `bash toolkit/bootstrap.sh`). `mmdc` `-1` suffix is handled transparently. |
 
 Output is **deterministic** — same dictionary always produces byte-identical sources. Iteration order is YAML insertion order.
 
