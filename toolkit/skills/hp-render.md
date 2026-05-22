@@ -22,7 +22,7 @@ Generates diagram sources from the Project model. Currently supports:
 |---|---|---|
 | Level-0 Context Diagram (Mermaid) | ✅ live | `render.mermaid.render_context_diagram(project)` |
 | Level-0 Context Diagram (D2) | ✅ live | `render.d2.render_context_diagram(project)` |
-| Level-N≥1 DFD (Mermaid / D2) | planned | requires dictionary extension for boundary-flow refinement (which internal process at level N+1 consumes a level-N boundary flow) |
+| Level-1 DFD (Mermaid / D2) | ✅ live | `render.mermaid.render_dfd(project, parent_id)` · `render.d2.render_dfd(project, parent_id)` — requires `refined_source` / `refined_target` populated on boundary flows |
 | Cytoscape elements JSON (any level) | planned | for HTML5 interactive workspaces |
 | State machine (Mermaid `stateDiagram-v2` / D2 containers) | planned | requires `transitions:` schema addition to dictionary |
 | SVG orchestration | planned | invoke `d2` and `mmdc` binaries on generated sources |

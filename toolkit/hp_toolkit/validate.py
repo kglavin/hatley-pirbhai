@@ -100,6 +100,16 @@ def reference_integrity(project: Project) -> ValidationReport:
                 "error", "reference", f.id,
                 f"flow target {f.target!r} not in dictionary"
             ))
+        if f.refined_source and f.refined_source not in entity_ids:
+            report.issues.append(ValidationIssue(
+                "error", "reference", f.id,
+                f"flow refined_source {f.refined_source!r} not in dictionary"
+            ))
+        if f.refined_target and f.refined_target not in entity_ids:
+            report.issues.append(ValidationIssue(
+                "error", "reference", f.id,
+                f"flow refined_target {f.refined_target!r} not in dictionary"
+            ))
 
     for ed in project.all_edges():
         if ed.source not in entity_ids:
