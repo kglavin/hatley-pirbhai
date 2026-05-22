@@ -35,7 +35,7 @@ description: One-line summary used to decide relevance.
 | [`hp-confirm-naming`](hp-confirm-naming.md) | ✅ drafted | Cross-cutting — form-based naming review after any AI move that introduces named entities |
 | [`hp-validate`](hp-validate.md) | ✅ drafted + code live | Run validators (reference integrity, hierarchy, coverage metrics, orphan detection) |
 | [`hp-render`](hp-render.md) | ✅ drafted + code live | Regenerate diagram sources + SVGs from `dictionary.yaml` |
-| [`hp-init`](hp-init.md) | ✅ drafted | Scaffold a new HP project (directory layout + dictionary template + Stage 1 proposal) |
+| [`hp-init`](hp-init.md) | ✅ drafted + code live | Scaffold a new HP project (directory layout + dictionary template + Stage 1 proposal) |
 | [`hp-status`](hp-status.md) | ✅ drafted | Show what stages a project has reached + coverage metrics |
 | `hp-propose-context` | planned | Stage 1: form-based context-diagram proposal for a new project |
 | `hp-propose-decomp` | planned | Stage 2: form-based level-N+1 DFD decomposition proposal |

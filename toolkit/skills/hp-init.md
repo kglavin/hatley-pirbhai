@@ -84,21 +84,37 @@ When invoked, conversationally:
 
 ## Implementation status
 
-**Skill description: drafted.** Actual scaffolding code is not yet written. Until then, treat this skill as a *recipe*: the conversation runs the workflow by hand; the user creates the directories with `mkdir -p` and writes the YAML / markdown using the templates documented here.
+**Skill description + code: ✅ live.** Implemented at [`toolkit/scripts/hp_init.py`](../scripts/hp_init.py).
 
-This is the highest-priority skill to wire into actual code next, since it's the entry point for every new project. Sketched implementation:
+CLI usage:
+
+```bash
+cd toolkit
+uv run python scripts/hp_init.py <project-name> [--label "<Display>"] [--description "..."] [--dest PATH]
+```
+
+Programmatic:
 
 ```python
-# toolkit/scripts/hp_init.py (planned)
-def init_project(name: str, label: str, description: str, dest_dir: Path) -> None:
-    project_dir = dest_dir / name
-    project_dir.mkdir(parents=True, exist_ok=False)  # fail if exists
-    (project_dir / "00-context").mkdir()
+from pathlib import Path
+import sys; sys.path.insert(0, "toolkit/scripts")
+from hp_init import init_project
 
-    (project_dir / "dictionary.yaml").write_text(_DICT_TEMPLATE.format(...))
-    (project_dir / "00-context" / "proposal.md").write_text(_PROPOSAL_TEMPLATE.format(...))
-    (project_dir / "README.md").write_text(_README_TEMPLATE.format(...))
+project_dir = init_project(
+    project_name="doorbell",
+    label="Smart Doorbell",
+    description="A connected doorbell with motion detection...",
+)
 ```
+
+Templates are inline string constants in `hp_init.py`:
+- `_DICTIONARY_TEMPLATE` — produces a schema-valid skeleton with `sys_root` + commented templates for terminators, flows, edges, and transitions to copy-paste into
+- `_PROPOSAL_TEMPLATE` — Stage 1 form-based proposal with 7 standard decisions (system name, scope, terminator inventory, optional terminators, power modeling, flow naming, anything-else)
+- `_README_TEMPLATE` — project README with status + planned structure + how-to-advance instructions
+
+Refuses to overwrite an existing project directory (raises `FileExistsError`).
+
+**Lived example:** [`examples/doorbell/`](../../examples/doorbell/) — a tiny "Smart Doorbell" project created by `hp-init` as a working demonstration. Minimal dictionary (just `sys_root`); validates clean; renders a near-empty Context Diagram via `render_project.py`. Shows what a fresh-scaffolded project looks like before any Stage 1 work begins.
 
 ## See also
 
