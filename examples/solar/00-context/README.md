@@ -1,16 +1,34 @@
-# Context Diagram v0 — Presentation Experiment
+# Level 0 / Context Diagram v0 — Presentation Experiment
 
 Three renderings of the **same** Solar Local Stack Context Diagram, in different formats. Goal: feel the difference between presentation styles so we can decide which serves which moment.
+
+*This directory contains everything for HP's level-0 (Context). Sibling directories `01-level1/`, `02-level2/`, etc. will appear as we decompose. See repo `PLAN.md` > Methodology Tactics > B for the "repo hierarchy mirrors HP hierarchy" tactic.*
 
 All three render the identical underlying model (six terminators, one system bubble, eight flows F1–F8, two physical-AC connections from PG&E to Hoymiles and Victron). Differences are in the *view*, not the *content*.
 
 ## Files
 
+**Sources** (the model in three notation forms):
+
 | File | Format | How to view |
 |---|---|---|
-| `context.md` | Mermaid (embedded in markdown) | Open in VSCode → use the markdown preview pane (`Ctrl+Shift+V` / `Cmd+Shift+V`). GitHub also renders this natively. |
-| `context.html` | HTML5 + Cytoscape.js (CDN-loaded) | Open the file directly in any browser. No server, no install. Click nodes/edges for details, drag to rearrange. |
-| `context.d2` | D2 declarative diagram source | Needs the `d2` binary to render. Install: `curl -fsSL https://d2lang.com/install.sh \| sh -s --`. Then: `d2 context.d2 context.svg` — or `d2 --watch context.d2 context.svg` for live preview. |
+| `context.md` | Mermaid embedded in markdown | Open in VSCode → use the markdown preview pane (`Ctrl+Shift+V` / `Cmd+Shift+V`). GitHub also renders this natively. |
+| `context.html` | HTML5 + Cytoscape.js (CDN-loaded) | Open directly in any browser. No server, no install. Click nodes/edges for details, drag to rearrange. |
+| `context.d2` | D2 declarative diagram source | Needs `d2` binary. `bash toolkit/bootstrap.sh` installs it. Re-render with: `d2 context.d2 context-d2.svg`. |
+
+**Rendered SVGs** (static images, ready to compare side-by-side):
+
+| File | Format | How to view |
+|---|---|---|
+| `context-mermaid.svg` | Static SVG from Mermaid (rendered via `mmdc`) | Open in any browser or image viewer. |
+| `context-d2.svg` | Static SVG from D2 (rendered via `d2`) | Open in any browser or image viewer. |
+
+Re-render any time after sources change:
+```bash
+# from repo root, after toolkit/bootstrap.sh has been run
+mmdc -p toolkit/.puppeteer-config.json -i examples/solar/00-context/context.md -o examples/solar/00-context/context-mermaid.svg
+d2  examples/solar/00-context/context.d2 examples/solar/00-context/context-d2.svg
+```
 
 ## Comparison points worth feeling
 
