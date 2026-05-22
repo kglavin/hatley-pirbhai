@@ -17,7 +17,7 @@
 # Each flow carries:   source, target, kind, medium, level, optional notes.
 
 project: Solar Local Stack
-version: 0.1
+version: "0.1"
 last_updated: 2026-05-22
 
 # ─────────────────────────────────────────────────────────────────────
@@ -361,7 +361,7 @@ flows:
     level: 0
 
   flow_f8_cloud_forward:
-    label: "F8: optional telemetry fwd"
+    label: "F8: optional telemetry forward"
     source: sys_root
     target: term_smiles_cloud
     kind: data
