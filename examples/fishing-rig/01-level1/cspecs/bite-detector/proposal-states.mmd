@@ -1,0 +1,48 @@
+stateDiagram-v2
+    direction LR
+
+    [*] --> Initializing
+
+    Initializing --> Idle : self-test passed
+    Initializing --> Fault : startup failure
+
+    Idle --> Tightening : armed by angler
+    Tightening --> Armed : tension at setpoint
+    Tightening --> Idle : disarmed during tighten
+
+    Armed --> BiteDetected : tension spike<br/>(> bite_threshold)
+    Armed --> Tightening : slack detected<br/>(tension < setpoint - hysteresis)
+    Armed --> Idle : disarmed
+
+    BiteDetected --> SettingHook : after hook_set_delay
+    BiteDetected --> Armed : tension dropped<br/>(false bite within delay)
+
+    SettingHook --> Reeling : tension confirmed<br/>(fish on after sharp pull)
+    SettingHook --> Armed : tension dropped<br/>(missed strike — bait still on?)
+
+    Reeling --> Landed : line fully in<br/>(reel-encoder at limit)
+    Reeling --> Fault : line slack OR motor stall
+
+    Landed --> Idle : angler reset
+
+    Idle --> Fault : fault event
+    Armed --> Fault : fault event
+    Reeling --> Fault : fault event
+
+    Fault --> Idle : fault cleared + reset
+
+    note right of Armed
+        Holding line at setpoint;
+        watching for bite spike.
+    end note
+
+    note right of BiteDetected
+        Brief delay (configurable):
+        let fish swallow before
+        setting the hook.
+    end note
+
+    note right of Reeling
+        Slow controlled reel-in
+        to land the fish.
+    end note

@@ -289,6 +289,77 @@ _ALL_STYLES_JSON: list[dict[str, Any]] = [
             "text-background-padding": 2,
         }
     },
+    # ─── State machine styling (CSPEC views) ───
+    {
+        "selector": 'node[kind="state"]',
+        "style": {
+            "shape": "ellipse", "background-color": "#fff", "color": "#000",
+            "border-color": "#444", "border-width": 1,
+            "label": "data(label)", "text-valign": "center", "text-halign": "center",
+            "text-wrap": "wrap", "width": 110, "height": 70, "font-size": 11,
+        }
+    },
+    {
+        "selector": 'node[kind="state-init"]',
+        "style": {
+            "shape": "ellipse", "background-color": "#e8e8e8", "color": "#000",
+            "border-color": "#888", "border-width": 1,
+            "label": "data(label)", "text-valign": "center", "text-halign": "center",
+            "text-wrap": "wrap", "width": 110, "height": 70, "font-size": 11,
+        }
+    },
+    # Composite-state containers — per-mode coloring with fallback.
+    {
+        "selector": 'node[kind="mode-grid-tie"]',
+        "style": {
+            "shape": "round-rectangle", "background-color": "#e6f3ff",
+            "background-opacity": 0.5,
+            "border-color": "#2a70c2", "border-width": 2,
+            "label": "data(label)", "text-valign": "top", "text-halign": "center",
+            "font-size": 13, "font-weight": "bold", "color": "#1a5fa0", "padding": 15,
+        }
+    },
+    {
+        "selector": 'node[kind="mode-island"]',
+        "style": {
+            "shape": "round-rectangle", "background-color": "#fff3e6",
+            "background-opacity": 0.5,
+            "border-color": "#d68910", "border-width": 2,
+            "label": "data(label)", "text-valign": "top", "text-halign": "center",
+            "font-size": 13, "font-weight": "bold", "color": "#9a6707", "padding": 15,
+        }
+    },
+    {
+        "selector": 'node[kind="mode-fault"]',
+        "style": {
+            "shape": "round-rectangle", "background-color": "#fee6e6",
+            "background-opacity": 0.5,
+            "border-color": "#c0392b", "border-width": 2,
+            "label": "data(label)", "text-valign": "top", "text-halign": "center",
+            "font-size": 13, "font-weight": "bold", "color": "#7a1f12", "padding": 15,
+        }
+    },
+    # Generic transition edges (state machines)
+    {
+        "selector": 'edge[kind="tx"]',
+        "style": {
+            "curve-style": "bezier", "target-arrow-shape": "triangle",
+            "target-arrow-color": "#444", "line-color": "#444", "width": 1.5,
+            "label": "data(label)", "font-size": 9, "text-rotation": "autorotate",
+            "text-background-color": "#fafafa", "text-background-opacity": 0.9,
+            "text-background-padding": 2, "color": "#333",
+        }
+    },
+    {
+        "selector": 'edge[kind="tx-mode"]',
+        "style": {
+            "curve-style": "bezier", "target-arrow-shape": "triangle",
+            "target-arrow-color": "#9a6707", "line-color": "#9a6707", "width": 2,
+            "label": "data(label)", "font-size": 9, "text-rotation": "autorotate",
+            "text-background-color": "#fafafa", "text-background-opacity": 0.9,
+            "text-background-padding": 2, "color": "#7a4f00",
+        }
+    },
     {
         "selector": 'node[?decomposable]',
         "style": {"border-width": 4, "border-style": "double"},
@@ -654,6 +725,139 @@ def wrap_dfd_html(
         subtitle=f"Decomposition of {parent_id} · generated from dictionary.yaml · {project.last_updated}",
         nav_html=_build_dfd_nav(project),
         legend_html=_build_dfd_legend(project, parent_id),
+        elements_json=json.dumps(elements, indent=2),
+        styles_json=json.dumps(_ALL_STYLES_JSON, indent=2),
+    )
+
+
+# ─────────────────────────────────────────────────────────────────────
+# CSPEC state machine view — elements + HTML wrapper
+# ─────────────────────────────────────────────────────────────────────
+
+def render_state_machine_elements(
+    project: Project,
+    machine_id: str,
+) -> list[dict[str, Any]]:
+    """Produce Cytoscape elements for a CSPEC state machine.
+
+    Composite states become compound parent nodes; their substates get
+    `parent: <composite_id>` so Cytoscape draws them grouped inside.
+    Initial states (is_initial=true at top level) are styled distinctly.
+    """
+    machine = project.entities.get(machine_id)
+    if machine is None:
+        raise ValueError(f"machine {machine_id!r} not in project")
+
+    elements: list[dict[str, Any]] = []
+
+    all_states = [
+        e for e in project.all_entities()
+        if e.parent == machine_id
+        and e.kind in (EntityKind.STATE, EntityKind.STATE_COMPOSITE)
+    ]
+
+    # Composites first (parent nodes), then their substates
+    composites = [s for s in all_states if s.kind == EntityKind.STATE_COMPOSITE]
+    for c in composites:
+        elements.append({"data": {
+            "id": c.id,
+            "label": c.label,
+            "kind": _node_kind(c),
+            "description": c.description or "",
+        }})
+
+    # Atomic states (top-level or inside a composite)
+    atoms = [s for s in all_states if s.kind == EntityKind.STATE]
+    for s in atoms:
+        is_top_initial = s.is_initial and not s.parent_state
+        data: dict[str, Any] = {
+            "id": s.id,
+            "label": s.label,
+            "kind": "state-init" if is_top_initial else "state",
+            "description": s.description or "",
+        }
+        if s.parent_state:
+            data["parent"] = s.parent_state  # Cytoscape compound-node parent
+        elements.append({"data": data})
+
+    # Transitions — distinguish intra-composite from cross-composite
+    for t in project.transitions_for(machine_id):
+        src = project.entities.get(t.source_state)
+        tgt = project.entities.get(t.target_state)
+        same_composite = (
+            src is not None and tgt is not None
+            and src.parent_state and src.parent_state == tgt.parent_state
+        )
+        edge_data: dict[str, Any] = {
+            "id": t.id,
+            "source": t.source_state,
+            "target": t.target_state,
+            "label": t.label or t.event,
+            "kind": "tx" if same_composite else "tx-mode",
+            "event": t.event,
+        }
+        if t.action:
+            edge_data["action"] = t.action
+        elements.append({"data": edge_data})
+
+    return elements
+
+
+def _build_cspec_nav(project: Project, machine_id: str) -> str:
+    return (
+        '<p style="margin:4px 0 4px 0;"><strong>↑ Parent:</strong> '
+        '<a href="../../dfd.generated.html">Level-1 DFD</a> '
+        '&middot; <a href="../../../dictionary.yaml">Dictionary</a> '
+        '&middot; <a href="../../../../toolkit/reference/HP_QUICK_REF.md#cspec--control-specification">CSPEC reference</a></p>\n'
+        '    <p style="margin:0 0 12px 0;font-size:11px;color:#888;">'
+        'Click a state to see its description; click a transition arrow '
+        'for its event and action.</p>'
+    )
+
+
+def _build_cspec_legend(project: Project, machine_id: str) -> str:
+    all_states = [
+        e for e in project.all_entities()
+        if e.parent == machine_id
+        and e.kind in (EntityKind.STATE, EntityKind.STATE_COMPOSITE)
+    ]
+    has_composite = any(s.kind == EntityKind.STATE_COMPOSITE for s in all_states)
+    has_initial = any(s.is_initial and not s.parent_state for s in all_states)
+
+    items: list[str] = []
+    items.append('<div class="legend-item"><div class="legend-swatch" style="background:#fff; border:1px solid #444; border-radius:50%;"></div>State</div>')
+    if has_initial:
+        items.append('<div class="legend-item"><div class="legend-swatch" style="background:#e8e8e8; border:1px solid #888; border-radius:50%;"></div>Initial state</div>')
+    if has_composite:
+        items.append('<div class="legend-item"><div class="legend-swatch" style="background:#e6f3ff; border:2px solid #2a70c2;"></div>Composite mode (with sub-states)</div>')
+    items.append('<div class="legend-item"><svg width="28" height="6" style="margin-right:10px;"><line x1="0" y1="3" x2="24" y2="3" stroke="#444" stroke-width="1.5" /><polygon points="24,0 28,3 24,6" fill="#444"/></svg>Transition (event / action)</div>')
+    if has_composite:
+        items.append('<div class="legend-item"><svg width="28" height="6" style="margin-right:10px;"><line x1="0" y1="3" x2="24" y2="3" stroke="#9a6707" stroke-width="2" /><polygon points="24,0 28,3 24,6" fill="#9a6707"/></svg>Cross-mode transition</div>')
+
+    return "\n    ".join(items)
+
+
+def wrap_state_machine_html(
+    project: Project,
+    machine_id: str,
+    elements: list[dict[str, Any]] | None = None,
+) -> str:
+    """Wrap a CSPEC state machine's elements in the standard HTML template.
+
+    Uses Cytoscape compound nodes for composite states (substates get a
+    `parent` pointer back to their composite). The layout engine is the
+    same `cose` we use elsewhere; for state machines this works but is
+    less optimal than dedicated state-machine layout (acceptable for v1).
+    """
+    if elements is None:
+        elements = render_state_machine_elements(project, machine_id)
+
+    machine = project.entities[machine_id]
+    return _CONTEXT_HTML_TEMPLATE.format(
+        title=f"{machine.label} — CSPEC",
+        subtitle=f"State machine for {machine_id} · generated from dictionary.yaml · {project.last_updated}",
+        nav_html=_build_cspec_nav(project, machine_id),
+        legend_html=_build_cspec_legend(project, machine_id),
         elements_json=json.dumps(elements, indent=2),
         styles_json=json.dumps(_ALL_STYLES_JSON, indent=2),
     )
