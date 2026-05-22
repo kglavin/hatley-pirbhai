@@ -154,7 +154,7 @@ def render_context_elements(
 # HTML wrapper for the Context view
 # ─────────────────────────────────────────────────────────────────────
 
-_CONTEXT_STYLES_JSON = [
+_ALL_STYLES_JSON: list[dict[str, Any]] = [
     {
         "selector": 'node[kind="system"]',
         "style": {
@@ -163,6 +163,46 @@ _CONTEXT_STYLES_JSON = [
             "text-wrap": "wrap", "width": 170, "height": 170,
             "font-weight": "bold", "font-size": 13,
             "border-width": 2, "border-color": "#2a70c2",
+        }
+    },
+    {
+        "selector": 'node[kind="process"]',
+        "style": {
+            "shape": "ellipse", "background-color": "#cfe5ff", "color": "#000",
+            "border-color": "#2a70c2", "border-width": 1,
+            "label": "data(label)", "text-valign": "center", "text-halign": "center",
+            "text-wrap": "wrap", "width": 110, "height": 110, "font-size": 11,
+        }
+    },
+    {
+        "selector": 'node[kind="process-brain"]',
+        "style": {
+            "shape": "ellipse", "background-color": "#7fbff5", "color": "#000",
+            "border-color": "#1f5a99", "border-width": 2,
+            "label": "data(label)", "text-valign": "center", "text-halign": "center",
+            "text-wrap": "wrap", "width": 130, "height": 130,
+            "font-weight": "bold", "font-size": 12,
+        }
+    },
+    {
+        "selector": 'node[kind="process-optional"]',
+        "style": {
+            "shape": "ellipse", "background-color": "#e6f0ff", "color": "#444",
+            "border-color": "#888", "border-width": 1, "border-style": "dashed",
+            "label": "data(label)", "text-valign": "center", "text-halign": "center",
+            "text-wrap": "wrap", "width": 110, "height": 110,
+            "font-size": 11, "opacity": 0.85,
+        }
+    },
+    {
+        "selector": 'node[kind="datastore"]',
+        "style": {
+            # Cytoscape doesn't have a 'cylinder' shape (Mermaid/D2 do).
+            # 'barrel' is the closest visual analog for a data-store icon.
+            "shape": "barrel", "background-color": "#fff5cc", "color": "#222",
+            "border-color": "#b89800", "border-width": 1,
+            "label": "data(label)", "text-valign": "center", "text-halign": "center",
+            "text-wrap": "wrap", "width": 130, "height": 70, "font-size": 11,
         }
     },
     {
@@ -208,7 +248,7 @@ _CONTEXT_STYLES_JSON = [
         }
     },
     {
-        "selector": 'edge[kind="data-optional"], edge[kind="control-optional"]',
+        "selector": 'edge[kind="data-optional"], edge[kind="control-optional"], edge[kind="data+control-optional"]',
         "style": {
             "curve-style": "bezier", "target-arrow-shape": "triangle",
             "target-arrow-color": "#888", "line-color": "#888",
@@ -219,7 +259,7 @@ _CONTEXT_STYLES_JSON = [
         }
     },
     {
-        "selector": 'edge[kind="power"]',
+        "selector": 'edge[kind="power"], edge[kind="physical_ac_power"]',
         "style": {
             "curve-style": "bezier", "line-color": "#e74c3c", "width": 3,
             "opacity": 0.7, "label": "data(label)", "font-size": 8,
@@ -229,6 +269,31 @@ _CONTEXT_STYLES_JSON = [
         }
     },
     {
+        "selector": 'edge[kind="physical_dc_power"]',
+        "style": {
+            "curve-style": "bezier", "line-color": "#2a70c2", "width": 3,
+            "opacity": 0.6, "label": "data(label)", "font-size": 8,
+            "text-rotation": "autorotate", "color": "#1f5a99",
+            "text-background-color": "#fafafa", "text-background-opacity": 0.8,
+            "text-background-padding": 2,
+        }
+    },
+    {
+        "selector": 'edge[kind="physical_interaction"]',
+        "style": {
+            "curve-style": "bezier", "line-color": "#888", "width": 2,
+            "line-style": "dashed", "opacity": 0.6,
+            "label": "data(label)", "font-size": 8,
+            "text-rotation": "autorotate", "color": "#666",
+            "text-background-color": "#fafafa", "text-background-opacity": 0.8,
+            "text-background-padding": 2,
+        }
+    },
+    {
+        "selector": 'node[?decomposable]',
+        "style": {"border-width": 4, "border-style": "double"},
+    },
+    {
         "selector": ':selected',
         "style": {
             "border-color": "#f39c12", "border-width": 3,
@@ -236,6 +301,9 @@ _CONTEXT_STYLES_JSON = [
         }
     },
 ]
+
+# Back-compat alias for existing references (some scripts still import it)
+_CONTEXT_STYLES_JSON = _ALL_STYLES_JSON
 
 
 _CONTEXT_HTML_TEMPLATE = """<!DOCTYPE html>
@@ -408,5 +476,184 @@ def wrap_context_html(
         nav_html=_build_nav(project, drill_target),
         legend_html=_build_legend(project),
         elements_json=json.dumps(elements, indent=2),
-        styles_json=json.dumps(_CONTEXT_STYLES_JSON, indent=2),
+        styles_json=json.dumps(_ALL_STYLES_JSON, indent=2),
+    )
+
+
+# ─────────────────────────────────────────────────────────────────────
+# Level-N DFD (decomposition view) — elements + HTML wrapper
+# ─────────────────────────────────────────────────────────────────────
+
+def render_dfd_elements(
+    project: Project,
+    parent_id: str = "sys_root",
+) -> list[dict[str, Any]]:
+    """Produce the Cytoscape elements list for a level-N+1 DFD —
+    decomposition of `parent_id` into internal processes + data stores
+    + boundary flows refined + internal flows + physical edges.
+
+    Processes flagged with `needs_cspec` become decomposable nodes
+    that drill into their CSPEC HTML (path conventionally
+    `cspecs/<id-without-proc-prefix>/cspec.html`).
+    """
+    parent = project.entities.get(parent_id)
+    if parent is None:
+        raise ValueError(f"parent {parent_id!r} not in project")
+
+    elements: list[dict[str, Any]] = []
+
+    # Internal entities — direct children of parent at level 1
+    internal = [e for e in project.all_entities()
+                if e.parent == parent_id and e.level == 1]
+    processes = [e for e in internal if e.kind == EntityKind.PROCESS]
+    stores    = [e for e in internal if e.kind == EntityKind.DATA_STORE]
+
+    for p in processes:
+        data: dict[str, Any] = {
+            "id": p.id,
+            "label": p.label,
+            "kind": _node_kind(p),
+            "description": p.description or "",
+        }
+        if p.needs_cspec:
+            cspec_subdir = p.id.replace("proc_", "").replace("_", "-")
+            data["decomposable"] = True
+            data["decomposes_to"] = f"cspecs/{cspec_subdir}/cspec.html"
+            data["decomposes_label"] = f"{p.label} CSPEC"
+        elements.append({"data": data})
+
+    for s in stores:
+        elements.append({"data": {
+            "id": s.id, "label": s.label, "kind": _node_kind(s),
+            "description": s.description or "",
+        }})
+
+    # Boundary flows (touching parent_id at level 0)
+    boundary_flows = [f for f in project.flows_at_level(0)
+                      if f.source == parent_id or f.target == parent_id]
+
+    # Terminators referenced by boundary flows + physical edges
+    term_ids: set[str] = set()
+    for f in boundary_flows:
+        if f.source != parent_id: term_ids.add(f.source)
+        if f.target != parent_id: term_ids.add(f.target)
+    for ed in [e for e in project.all_edges() if e.level == 0]:
+        for endpoint in (ed.source, ed.target):
+            entity = project.entities.get(endpoint)
+            if entity and entity.kind == EntityKind.TERMINATOR:
+                term_ids.add(endpoint)
+
+    for tid in sorted(term_ids):
+        t = project.entity(tid)
+        label = t.label + ("\n(optional)" if t.optional else "")
+        elements.append({"data": {
+            "id": t.id, "label": label, "kind": _node_kind(t),
+            "description": t.description or "",
+        }})
+
+    # Boundary flows — refined endpoints to internal processes
+    for f in boundary_flows:
+        src = (f.refined_source if f.source == parent_id and f.refined_source
+               else f.source)
+        tgt = (f.refined_target if f.target == parent_id and f.refined_target
+               else f.target)
+        data = {
+            "id": f.id, "source": src, "target": tgt,
+            "label": f.label, "kind": _flow_kind(f),
+        }
+        if f.medium: data["medium"] = f.medium
+        if f.notes:  data["notes"]  = f.notes
+        elements.append({"data": data})
+
+    # Internal flows at level 1
+    for f in project.flows_at_level(1):
+        data = {
+            "id": f.id, "source": f.source, "target": f.target,
+            "label": f.label, "kind": _flow_kind(f),
+        }
+        if f.notes: data["notes"] = f.notes
+        elements.append({"data": data})
+
+    # Physical edges at level 0 — skip any that touch the parent (sys_root),
+    # since the parent doesn't exist as a visible node at level-1. Edges
+    # purely between terminators (e.g., fish ↔ line) survive.
+    # TODO future schema extension: refined_source / refined_target on Edge
+    # so that e.g. battery → controller can refine to battery → specific
+    # internal process. For now, omit-touching-parent is the cleanest fix.
+    for ed in [e for e in project.all_edges() if e.level == 0]:
+        if ed.source == parent_id or ed.target == parent_id:
+            continue  # edge references the decomposed parent; omit at level-1
+        elements.append({"data": {
+            "id": ed.id, "source": ed.source, "target": ed.target,
+            "label": ed.label or "", "kind": ed.kind.value,
+        }})
+
+    return elements
+
+
+def _build_dfd_nav(project: Project) -> str:
+    return (
+        '<p style="margin:4px 0 4px 0;"><strong>↑ Parent:</strong> '
+        '<a href="../00-context/context.html">Level-0 Context Diagram</a> '
+        '&middot; <a href="../dictionary.yaml">Dictionary</a> '
+        '&middot; <a href="../../../toolkit/reference/HP_QUICK_REF.md">HP Reference</a></p>\n'
+        '    <p style="margin:0 0 12px 0;font-size:11px;color:#888;">'
+        'Tip: <strong>double-click</strong> any double-bordered bubble '
+        '(the brain) to drill into its CSPEC.</p>'
+    )
+
+
+def _build_dfd_legend(project: Project, parent_id: str) -> str:
+    items: list[str] = []
+
+    internal = [e for e in project.all_entities()
+                if e.parent == parent_id and e.level == 1]
+    has_brain    = any(p.needs_cspec for p in internal if p.kind == EntityKind.PROCESS)
+    has_optional = any(p.optional    for p in internal if p.kind == EntityKind.PROCESS)
+    has_store    = any(e.kind == EntityKind.DATA_STORE for e in internal)
+    has_opt_term = any(t.optional for t in project.all_entities()
+                       if t.kind == EntityKind.TERMINATOR)
+    has_grid_term = any("grid" in e.id for e in project.all_entities()
+                        if e.kind == EntityKind.TERMINATOR)
+    edge_kinds = {ed.kind for ed in project.all_edges()}
+
+    items.append('<div class="legend-item"><div class="legend-swatch" style="background:#cfe5ff; border-radius:50%;"></div>Internal process</div>')
+    if has_brain:
+        items.append('<div class="legend-item"><div class="legend-swatch" style="background:#7fbff5; border:2px solid #1f5a99; border-radius:50%;"></div>Brain (process with CSPEC)</div>')
+    if has_optional:
+        items.append('<div class="legend-item"><div class="legend-swatch" style="background:#e6f0ff; border:1px dashed #888; border-radius:50%;"></div>Optional process</div>')
+    if has_store:
+        items.append('<div class="legend-item"><div class="legend-swatch" style="background:#fff5cc; border:1px solid #b89800;"></div>Data store</div>')
+    items.append('<div class="legend-item"><div class="legend-swatch" style="background:#fafafa; border:1px solid #444;"></div>Terminator</div>')
+    if has_opt_term:
+        items.append('<div class="legend-item"><div class="legend-swatch" style="background:#fafafa; border:1px dashed #888;"></div>Optional terminator</div>')
+    if has_grid_term:
+        items.append('<div class="legend-item"><div class="legend-swatch" style="background:#fef0ef; border:1px solid #e74c3c;"></div>Utility grid (physical)</div>')
+    if EdgeKind.PHYSICAL_AC_POWER in edge_kinds:
+        items.append('<div class="legend-item"><div class="legend-swatch" style="background:#e74c3c; height:3px; margin-top:8px;"></div>Physical AC power</div>')
+    if EdgeKind.PHYSICAL_DC_POWER in edge_kinds:
+        items.append('<div class="legend-item"><div class="legend-swatch" style="background:#2a70c2; height:3px; margin-top:8px;"></div>Physical DC power</div>')
+    if EdgeKind.PHYSICAL_INTERACTION in edge_kinds:
+        items.append('<div class="legend-item"><div class="legend-swatch" style="background:#888; height:2px; margin-top:8px;"></div>Physical interaction</div>')
+
+    return "\n    ".join(items)
+
+
+def wrap_dfd_html(
+    project: Project,
+    parent_id: str = "sys_root",
+    elements: list[dict[str, Any]] | None = None,
+) -> str:
+    """Wrap a level-N+1 DFD's elements in the same HTML template the
+    Context view uses, with DFD-specific navigation + legend."""
+    if elements is None:
+        elements = render_dfd_elements(project, parent_id)
+
+    return _CONTEXT_HTML_TEMPLATE.format(
+        title=f"{project.project} — Level-1 DFD",
+        subtitle=f"Decomposition of {parent_id} · generated from dictionary.yaml · {project.last_updated}",
+        nav_html=_build_dfd_nav(project),
+        legend_html=_build_dfd_legend(project, parent_id),
+        elements_json=json.dumps(elements, indent=2),
+        styles_json=json.dumps(_ALL_STYLES_JSON, indent=2),
     )

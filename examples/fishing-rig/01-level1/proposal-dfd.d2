@@ -1,0 +1,96 @@
+# AutoFishingRig — Level-1 DFD (PROPOSAL — pre-review)
+#
+# Draft decomposition. Names are working names; final review at
+# naming-review.md after lock. Render: d2 proposal-dfd.d2 proposal-dfd.svg
+
+direction: right
+
+# ─── External terminators ───
+ANGLER: "Angler"           { shape: rectangle }
+LINE:   "Hook & Line"      { shape: rectangle }
+FISH:   "Fish\n(external)" {
+  shape: rectangle
+  style.fill: "#fff4e6"
+  style.stroke: "#d68910"
+}
+POWER:  "Power" {
+  shape: rectangle
+  style.font-color: "#666"
+}
+CLOUD:  "Cloud Logger\n(optional)" {
+  shape: rectangle
+  style.stroke-dash: 5
+  style.opacity: 0.55
+  style.font-color: "#666"
+}
+
+# ─── Internal processes ───
+P1: "1. Acquire\nTension" {
+  shape: oval
+  style.fill: "#cfe5ff"
+}
+P2: "2. Bite\nDetector" {
+  shape: oval
+  style.fill: "#7fbff5"
+  style.bold: true
+}
+P3: "3. Reel\nController" {
+  shape: oval
+  style.fill: "#cfe5ff"
+}
+P4: "4. Serve UI" {
+  shape: oval
+  style.fill: "#cfe5ff"
+}
+P5: "5. Cloud Forward\n(optional)" {
+  shape: oval
+  style.fill: "#e6f0ff"
+  style.stroke-dash: 3
+  style.opacity: 0.7
+}
+
+# ─── Data store ───
+DS: "System State" {
+  shape: cylinder
+  style.fill: "#fff5cc"
+}
+
+# ─── Boundary-crossing flows (level-0 refined) ───
+ANGLER -> P4: "F1: config, arm/disarm"
+P4     -> ANGLER: "F2: status, alerts"
+LINE   -> P1: "F3: tension"
+P3     -> LINE: "F4: torque cmd"
+P5     -> CLOUD: "F6: catch log" {
+  style.stroke-dash: 5
+  style.opacity: 0.6
+}
+
+# ─── Physical context edges ───
+POWER -- P1: "DC power" {
+  style.stroke: "#2a70c2"
+  style.stroke-width: 3
+  style.opacity: 0.6
+}
+POWER -- P3: "DC power" {
+  style.stroke: "#2a70c2"
+  style.stroke-width: 3
+  style.opacity: 0.6
+}
+FISH -- LINE: "bite / fight" {
+  style.stroke: "#888"
+  style.stroke-width: 2
+  style.opacity: 0.6
+  style.stroke-dash: 4
+}
+
+# ─── Internal flows ───
+P1 -> DS: "writes tension"
+DS -> P2: "reads"
+DS -> P4: "reads"
+DS -> P5: "reads (optional)" {
+  style.stroke-dash: 3
+  style.opacity: 0.6
+}
+P2 -> P3: "motor commands"
+P2 -> P4: "alerts"
+P4 -> P2: "overrides / config"

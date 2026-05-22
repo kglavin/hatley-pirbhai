@@ -70,6 +70,77 @@ entities:
       Off by default; angler enables if desired. Same shape as solar's
       S-Miles Cloud terminator.
 
+  # ─── Level 1 — internal processes (children of sys_root) ───
+  # Decomposition locked 2026-05-22 via 01-level1/proposal.md.
+  # Working names pending naming review.
+
+  proc_acquire_tension:
+    kind: process
+    label: "Acquire Tension"             # working name
+    level: 1
+    parent: sys_root
+    description: |
+      Reads the line-tension sensor (analog) at 50–200 Hz, normalizes /
+      filters, writes samples + recent-history buffer into System State.
+      Single writer to the tension portion of the store.
+
+  proc_bite_detector:
+    kind: process
+    label: "Bite Detector"               # working name
+    level: 1
+    parent: sys_root
+    needs_cspec: true
+    description: |
+      The brain. Owns the fishing state machine (idle → arming → armed →
+      bite-detected → hook-setting → hooked → reeling-in → landed →
+      fault). Reads tension via System State; emits motor commands to
+      Reel Controller; emits alerts to Serve UI. Manages thresholds,
+      hysteresis, timers, and fault response (per Decision 6).
+      State-rich → CSPEC at Stage 3.
+
+  proc_reel_controller:
+    kind: process
+    label: "Reel Controller"             # working name
+    level: 1
+    parent: sys_root
+    description: |
+      Drives the reel motor — translates internal motor commands (direction,
+      torque, speed) into PWM / driver signals. Enforces safety limits
+      (max current, stall detection); may report back via the store.
+
+  proc_serve_ui:
+    kind: process
+    label: "Serve UI"                    # working name
+    level: 1
+    parent: sys_root
+    description: |
+      Presentation. Renders status + current tension + recent events;
+      surfaces alerts. Accepts angler config (tension setpoint, bite
+      threshold, hook-set delay) and arm/disarm/override commands.
+
+  proc_cloud_forward:
+    kind: process
+    label: "Cloud Forward"               # working name
+    level: 1
+    parent: sys_root
+    optional: true
+    description: |
+      Optional remote logging of catch events + session telemetry.
+      Off by default; angler enables.
+
+  # ─── Level 1 — data stores ───
+
+  store_system_state:
+    kind: data_store
+    label: "System State"                # working name
+    level: 1
+    parent: sys_root
+    description: |
+      Holds the latest tension sample + a small recent-history buffer
+      (per Decision 2) plus the current operational state and last
+      event. Single writer (Acquire Tension); multiple readers
+      (Bite Detector, Serve UI, optionally Cloud Forward).
+
 flows:
 
   # ─── Level 0 — boundary flows ───
@@ -78,6 +149,7 @@ flows:
     label: "F1: config, arm/disarm"
     source: term_angler
     target: sys_root
+    refined_target: proc_serve_ui        # internal endpoint at level 1
     kind: "data+control"
     medium: "UI"
     level: 0
@@ -89,6 +161,7 @@ flows:
     label: "F2: status, alerts"
     source: sys_root
     target: term_angler
+    refined_source: proc_serve_ui
     kind: data
     medium: "UI"
     level: 0
@@ -98,6 +171,7 @@ flows:
     label: "F3: tension feedback"
     source: term_line
     target: sys_root
+    refined_target: proc_acquire_tension
     kind: data
     medium: "analog sensor → ADC"
     level: 0
@@ -107,6 +181,7 @@ flows:
     label: "F4: reel torque cmd"
     source: sys_root
     target: term_line
+    refined_source: proc_reel_controller
     kind: control
     medium: "motor driver"
     level: 0
@@ -116,11 +191,71 @@ flows:
     label: "F6: catch log"
     source: sys_root
     target: term_cloud
+    refined_source: proc_cloud_forward
     kind: data
     medium: "HTTPS"
     level: 0
     optional: true
     notes: "Optional telemetry / catch event log."
+
+  # ─── Level 1 — internal flows (between processes / through the store) ───
+  # Style per Decision 5: event-driven for alerts + transitions; periodic
+  # (50–200 Hz) for tension sampling.
+
+  flow_tension_to_state:
+    label: "tension samples"
+    source: proc_acquire_tension
+    target: store_system_state
+    kind: data
+    level: 1
+    notes: "Sole writer path into store_system_state for tension data."
+
+  flow_state_to_brain:
+    label: "system_state"
+    source: store_system_state
+    target: proc_bite_detector
+    kind: data
+    level: 1
+    notes: "Brain reads current state + recent tension history for spike detection."
+
+  flow_state_to_ui:
+    label: "system_state"
+    source: store_system_state
+    target: proc_serve_ui
+    kind: data
+    level: 1
+
+  flow_state_to_cloud:
+    label: "system_state"
+    source: store_system_state
+    target: proc_cloud_forward
+    kind: data
+    level: 1
+    optional: true
+
+  flow_motor_command:
+    label: "motor cmd"
+    source: proc_bite_detector
+    target: proc_reel_controller
+    kind: control
+    level: 1
+    notes: "Direction + torque + speed limit, per current state."
+
+  flow_alert:
+    label: "event_alert"
+    source: proc_bite_detector
+    target: proc_serve_ui
+    kind: control
+    level: 1
+    notes: "Threshold-driven alerts: bite, hooked, landed, fault."
+
+  flow_override:
+    label: "event_override"
+    source: proc_serve_ui
+    target: proc_bite_detector
+    kind: control
+    level: 1
+    notes: "Angler config + arm/disarm + manual overrides."
 
 edges:
 

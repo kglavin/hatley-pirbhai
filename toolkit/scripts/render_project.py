@@ -107,17 +107,54 @@ def main(project_dir: Path) -> int:
     # Render the Context (always)
     render_context(project_dir, project, has_internals=has_internals)
 
-    # Level-1 DFD and CSPECs would be rendered here if present.
-    # For now they remain handled by the solar-specific render_dogfood.py.
+    # ─── Level-1 DFD (if internal processes exist) ───
     if has_internals:
+        render_level1_dfd(project_dir, project)
+
+    # CSPECs (next slice — for each process with needs_cspec=True)
+    cspec_processes = [
+        e for e in project.all_entities()
+        if e.kind == EntityKind.PROCESS and e.needs_cspec
+    ]
+    if cspec_processes:
         print(_color(
-            "  ℹ project has level-1 internals; DFD + CSPEC rendering "
-            "is not yet generic — use render_dogfood.py for solar.",
+            f"  ℹ {len(cspec_processes)} process(es) flagged for CSPEC; "
+            f"state-machine rendering not yet wired into render_project.py "
+            f"(use render_dogfood.py for solar's Energy Manager).",
             "36"
         ))
 
-    print(_color(f"Done. See *.generated.* files in {project_dir / '00-context'}/", "32"))
+    print(_color(f"Done.", "32"))
     return 0
+
+
+def render_level1_dfd(project_dir: Path, project) -> None:
+    """Render the level-1 DFD across all notations + SVGs."""
+    l1_dir = project_dir / "01-level1"
+    l1_dir.mkdir(parents=True, exist_ok=True)
+
+    print(_color("==> Level-1 DFD — Mermaid", "1"))
+    src = render_mermaid.render_dfd(project, parent_id="sys_root")
+    out = l1_dir / "dfd.generated.mmd"
+    out.write_text(src)
+    print(f"  wrote {out.name} ({len(src)} bytes)")
+    _try_svg(out, l1_dir / "dfd.generated-mermaid.svg", "mermaid")
+    print()
+
+    print(_color("==> Level-1 DFD — D2", "1"))
+    src = render_d2.render_dfd(project, parent_id="sys_root")
+    out = l1_dir / "dfd.generated.d2"
+    out.write_text(src)
+    print(f"  wrote {out.name} ({len(src)} bytes)")
+    _try_svg(out, l1_dir / "dfd.generated-d2.svg", "d2")
+    print()
+
+    print(_color("==> Level-1 DFD — HTML (Cytoscape)", "1"))
+    html = render_cytoscape.wrap_dfd_html(project, parent_id="sys_root")
+    out = l1_dir / "dfd.generated.html"
+    out.write_text(html)
+    print(f"  wrote {out.name} ({len(html)} bytes)")
+    print()
 
 
 if __name__ == "__main__":
