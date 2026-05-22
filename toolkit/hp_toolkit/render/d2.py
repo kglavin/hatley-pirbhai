@@ -67,15 +67,32 @@ def _flow_edge(f: Flow) -> str:
 
 
 def _edge_decl(ed: Edge) -> str:
-    label = _esc(ed.label) if ed.label else "AC power"
-    # Undirected (--) with red coloring for physical edges
-    return (
-        f'{ed.source} -- {ed.target}: "{label}" {{\n'
-        '  style.stroke: "#e74c3c"\n'
-        "  style.stroke-width: 3\n"
-        "  style.opacity: 0.7\n"
-        "}"
-    )
+    """D2 declaration for a non-data edge, styled by EdgeKind."""
+    label = _esc(ed.label) if ed.label else ""
+    from ..model import EdgeKind as _EK
+    if ed.kind == _EK.PHYSICAL_AC_POWER:
+        stroke, width, opacity, dash = "#e74c3c", 3, 0.7, None
+        if not label:
+            label = "AC power"
+    elif ed.kind == _EK.PHYSICAL_DC_POWER:
+        stroke, width, opacity, dash = "#2a70c2", 3, 0.7, None
+        if not label:
+            label = "DC power"
+    elif ed.kind == _EK.PHYSICAL_INTERACTION:
+        stroke, width, opacity, dash = "#888", 2, 0.6, 4
+        if not label:
+            label = ""
+    else:
+        stroke, width, opacity, dash = "#888", 2, 0.7, None
+
+    decl = [f'{ed.source} -- {ed.target}: "{label}" {{',
+            f'  style.stroke: "{stroke}"',
+            f'  style.stroke-width: {width}',
+            f'  style.opacity: {opacity}']
+    if dash is not None:
+        decl.append(f'  style.stroke-dash: {dash}')
+    decl.append("}")
+    return "\n".join(decl)
 
 
 def render_context_diagram(project: Project) -> str:

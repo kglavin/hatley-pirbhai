@@ -47,7 +47,8 @@ class FlowKind(str, Enum):
 class EdgeKind(str, Enum):
     """Kinds of non-data edge (shown for context but not modeled as data flow)."""
     PHYSICAL_AC_POWER = "physical_ac_power"
-    # Future: PHYSICAL_DC_POWER, MECHANICAL_LINK, etc.
+    PHYSICAL_DC_POWER = "physical_dc_power"
+    PHYSICAL_INTERACTION = "physical_interaction"  # e.g., fish acts on line
 
 
 # ─────────────────────────────────────────────────────────────────────
