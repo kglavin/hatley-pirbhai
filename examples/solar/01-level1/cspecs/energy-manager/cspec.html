@@ -1,0 +1,231 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Energy Manager — CSPEC</title>
+  <script src="https://unpkg.com/cytoscape@3.28.1/dist/cytoscape.min.js"></script>
+  <style>
+    * { box-sizing: border-box; }
+    html, body { margin: 0; padding: 0; height: 100%; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif; }
+    body { display: flex; }
+    #cy { flex: 1; background: #fafafa; }
+    #panel { width: 360px; padding: 18px; background: #fff; border-left: 1px solid #ddd; overflow-y: auto; font-size: 13px; line-height: 1.5; }
+    #panel h1 { font-size: 15px; margin: 0 0 6px; color: #222; }
+    #panel .sub { color: #888; font-size: 11px; margin-bottom: 16px; }
+    #panel h2 { font-size: 13px; margin: 18px 0 6px; color: #333; border-bottom: 1px solid #eee; padding-bottom: 4px; }
+    #panel p { margin: 6px 0; }
+    #panel .label { font-weight: 600; color: #444; }
+    #info { min-height: 80px; }
+    #info .placeholder { color: #999; font-style: italic; }
+    .legend-item { display: flex; align-items: center; margin: 6px 0; font-size: 12px; }
+    .legend-swatch { width: 28px; height: 16px; margin-right: 10px; border-radius: 2px; flex-shrink: 0; }
+    .controls button { padding: 4px 10px; margin: 2px 4px 2px 0; font-size: 11px; border: 1px solid #ccc; background: #f6f6f6; border-radius: 3px; cursor: pointer; }
+    .controls button:hover { background: #ececec; }
+  </style>
+</head>
+<body>
+  <div id="cy"></div>
+  <div id="panel">
+    <h1>Energy Manager — CSPEC</h1>
+    <div class="sub">Hierarchical state machine · locked 2026-05-22</div>
+
+    <h2>Navigation</h2>
+    <p style="margin:4px 0 4px 0;"><strong>↑ Parent:</strong> <a href="../../dfd.html">Level-1 DFD</a> &middot; <a href="../../../dictionary.yaml">Dictionary</a> &middot; <a href="../../../../toolkit/reference/HP_QUICK_REF.md#cspec--control-specification">CSPEC reference</a></p>
+    <p style="margin:0 0 12px 0;font-size:11px;color:#888;">Click a state to see its description and transitions. Click a transition arrow for its event/action.</p>
+
+    <h2>Selected</h2>
+    <div id="info"><div class="placeholder">Click a state or transition to see details.</div></div>
+
+    <h2>Legend</h2>
+    <div class="legend-item"><div class="legend-swatch" style="background:#e6f3ff; border:1px solid #2a70c2;"></div>GridTie mode (normal operation)</div>
+    <div class="legend-item"><div class="legend-swatch" style="background:#fff3e6; border:1px solid #d68910;"></div>Island mode (outage)</div>
+    <div class="legend-item"><div class="legend-swatch" style="background:#fee6e6; border:1px solid #c0392b;"></div>Fault mode</div>
+    <div class="legend-item"><div class="legend-swatch" style="background:#e8e8e8; border:1px solid #888; border-radius:50%;"></div>Initializing (startup)</div>
+    <div class="legend-item"><div class="legend-swatch" style="background:#fff; border:1px solid #444; border-radius:50%;"></div>Sub-state</div>
+
+    <h2>Controls</h2>
+    <div class="controls">
+      <button onclick="cy.fit(undefined, 30); cy.center();">Fit</button>
+      <button onclick="cy.layout({name:'cose', nodeRepulsion: 12000, idealEdgeLength: 90, padding: 30, animate: true}).run();">Re-layout</button>
+    </div>
+  </div>
+
+  <script>
+    var elements = [
+      // ─── Top-level modes (compound parents) ───
+      { data: { id: 'gridtie', label: 'GridTie', kind: 'mode-gridtie',
+        description: 'Normal grid-connected operation. Contains the diversion loop and night-discharge sub-states.' }},
+      { data: { id: 'island', label: 'Island', kind: 'mode-island',
+        description: 'Outage mode. Victron has transferred to microgrid. Energy Manager observes; Victron drives physics.' }},
+      { data: { id: 'fault', label: 'Fault', kind: 'mode-fault',
+        description: 'Fault mode with three sub-states by category. Recovery routes back to GridTie or Island depending on grid presence.' }},
+
+      // ─── Initializing (top-level, no parent) ───
+      { data: { id: 'init', label: 'Initializing', kind: 'state-init',
+        description: 'Startup state. Waiting for telemetry and Victron mode to settle.' }},
+
+      // ─── GridTie sub-states ───
+      { data: { id: 'idle', label: 'Idle', parent: 'gridtie', kind: 'state',
+        description: 'Balanced — no surplus to divert, no import to discharge against.' }},
+      { data: { id: 'diverting', label: 'Diverting', parent: 'gridtie', kind: 'state',
+        description: 'Solar surplus detected; commanding Battery System to absorb it via raising max-charge current.' }},
+      { data: { id: 'holding', label: 'Holding', parent: 'gridtie', kind: 'state',
+        description: 'Battery saturated; diversion paused. Awaits headroom return or surplus drop.' }},
+      { data: { id: 'discharging', label: 'Discharging', parent: 'gridtie', kind: 'state',
+        description: 'Night-discharge mode. Battery feeds loads via Victron ESS grid setpoint to keep net grid import ≈ 0.' }},
+
+      // ─── Island sub-states ───
+      { data: { id: 'battery_discharge', label: 'BatteryDischarge', parent: 'island', kind: 'state',
+        description: 'Running on battery only. Victron drives the microgrid.' }},
+      { data: { id: 'solar_assist', label: 'SolarAssist', parent: 'island', kind: 'state',
+        description: 'Sun present; Victron AC-couples Solar Inverters via frequency-shift. Battery absorbs surplus and releases as load demands.' }},
+
+      // ─── Fault sub-states ───
+      { data: { id: 'telemetry_fault', label: 'TelemetryFault', parent: 'fault', kind: 'state',
+        description: 'Telemetry channels unavailable (Modbus down, Sub-1G RF lost, MQTT broker unreachable).' }},
+      { data: { id: 'actuator_fault', label: 'ActuatorFault', parent: 'fault', kind: 'state',
+        description: 'Cannot command Battery System or Solar Inverters (MQTT publish failing, OpenDTU unreachable).' }},
+      { data: { id: 'policy_fault', label: 'PolicyFault', parent: 'fault', kind: 'state',
+        description: 'Policy violation (out-of-range setpoint, conflicting overrides, config error).' }},
+
+      // ─── Transitions ───
+      // Initializing
+      { data: { id: 't_init_gridtie', source: 'init', target: 'idle', label: 'telemetry healthy + grid-tie', kind: 'tx' }},
+      { data: { id: 't_init_fault', source: 'init', target: 'telemetry_fault', label: 'startup failure', kind: 'tx' }},
+
+      // GridTie internal
+      { data: { id: 't_idle_div', source: 'idle', target: 'diverting', label: 'surplus detected', kind: 'tx' }},
+      { data: { id: 't_div_idle', source: 'diverting', target: 'idle', label: 'balance reached', kind: 'tx' }},
+      { data: { id: 't_div_hold', source: 'diverting', target: 'holding', label: 'SoC ≥ max', kind: 'tx' }},
+      { data: { id: 't_hold_div', source: 'holding', target: 'diverting', label: 'surplus + headroom', kind: 'tx' }},
+      { data: { id: 't_idle_dis', source: 'idle', target: 'discharging', label: 'net import + night', kind: 'tx' }},
+      { data: { id: 't_dis_idle', source: 'discharging', target: 'idle', label: 'SoC ≤ min / sun returns', kind: 'tx' }},
+
+      // Island internal
+      { data: { id: 't_bd_sa', source: 'battery_discharge', target: 'solar_assist', label: 'sun present', kind: 'tx' }},
+      { data: { id: 't_sa_bd', source: 'solar_assist', target: 'battery_discharge', label: 'sun gone / battery saturating', kind: 'tx' }},
+
+      // Cross-mode
+      { data: { id: 't_gt_island', source: 'idle', target: 'battery_discharge', label: 'Victron → island', kind: 'tx-mode' }},
+      { data: { id: 't_island_gt', source: 'battery_discharge', target: 'idle', label: 'Victron → grid-tie', kind: 'tx-mode' }},
+      { data: { id: 't_gt_fault', source: 'idle', target: 'telemetry_fault', label: 'fault event', kind: 'tx-mode' }},
+      { data: { id: 't_island_fault', source: 'battery_discharge', target: 'actuator_fault', label: 'fault event', kind: 'tx-mode' }},
+      { data: { id: 't_fault_gt', source: 'telemetry_fault', target: 'idle', label: 'cleared + grid present', kind: 'tx-mode' }},
+      { data: { id: 't_fault_island', source: 'actuator_fault', target: 'battery_discharge', label: 'cleared + grid absent', kind: 'tx-mode' }},
+    ];
+
+    var cy = cytoscape({
+      container: document.getElementById('cy'),
+      elements: elements,
+      style: [
+        {
+          selector: 'node[kind="state"]',
+          style: {
+            'shape': 'ellipse', 'background-color': '#fff', 'color': '#000',
+            'border-color': '#444', 'border-width': 1,
+            'label': 'data(label)', 'text-valign': 'center', 'text-halign': 'center',
+            'text-wrap': 'wrap', 'width': 110, 'height': 70, 'font-size': 11,
+          }
+        },
+        {
+          selector: 'node[kind="state-init"]',
+          style: {
+            'shape': 'ellipse', 'background-color': '#e8e8e8', 'color': '#000',
+            'border-color': '#888', 'border-width': 1,
+            'label': 'data(label)', 'text-valign': 'center', 'text-halign': 'center',
+            'text-wrap': 'wrap', 'width': 110, 'height': 70, 'font-size': 11,
+          }
+        },
+        {
+          selector: 'node[kind="mode-gridtie"]',
+          style: {
+            'shape': 'round-rectangle', 'background-color': '#e6f3ff', 'background-opacity': 0.5,
+            'border-color': '#2a70c2', 'border-width': 2,
+            'label': 'data(label)', 'text-valign': 'top', 'text-halign': 'center',
+            'font-size': 13, 'font-weight': 'bold', 'color': '#1a5fa0',
+            'padding': 15,
+          }
+        },
+        {
+          selector: 'node[kind="mode-island"]',
+          style: {
+            'shape': 'round-rectangle', 'background-color': '#fff3e6', 'background-opacity': 0.5,
+            'border-color': '#d68910', 'border-width': 2,
+            'label': 'data(label)', 'text-valign': 'top', 'text-halign': 'center',
+            'font-size': 13, 'font-weight': 'bold', 'color': '#9a6707',
+            'padding': 15,
+          }
+        },
+        {
+          selector: 'node[kind="mode-fault"]',
+          style: {
+            'shape': 'round-rectangle', 'background-color': '#fee6e6', 'background-opacity': 0.5,
+            'border-color': '#c0392b', 'border-width': 2,
+            'label': 'data(label)', 'text-valign': 'top', 'text-halign': 'center',
+            'font-size': 13, 'font-weight': 'bold', 'color': '#7a1f12',
+            'padding': 15,
+          }
+        },
+        {
+          selector: 'edge[kind="tx"]',
+          style: {
+            'curve-style': 'bezier', 'target-arrow-shape': 'triangle',
+            'target-arrow-color': '#444', 'line-color': '#444', 'width': 1.5,
+            'label': 'data(label)', 'font-size': 9, 'text-rotation': 'autorotate',
+            'text-background-color': '#fafafa', 'text-background-opacity': 0.9,
+            'text-background-padding': 2, 'color': '#333',
+          }
+        },
+        {
+          selector: 'edge[kind="tx-mode"]',
+          style: {
+            'curve-style': 'bezier', 'target-arrow-shape': 'triangle',
+            'target-arrow-color': '#9a6707', 'line-color': '#9a6707', 'width': 2,
+            'line-style': 'solid',
+            'label': 'data(label)', 'font-size': 9, 'text-rotation': 'autorotate',
+            'text-background-color': '#fafafa', 'text-background-opacity': 0.9,
+            'text-background-padding': 2, 'color': '#7a4f00',
+          }
+        },
+        {
+          selector: ':selected',
+          style: {
+            'border-color': '#f39c12', 'border-width': 3,
+            'line-color': '#f39c12', 'target-arrow-color': '#f39c12',
+          }
+        }
+      ],
+      layout: { name: 'cose', nodeRepulsion: 12000, idealEdgeLength: 90, padding: 30 }
+    });
+
+    function render(html) { document.getElementById('info').innerHTML = html; }
+
+    cy.on('tap', 'node', function(evt) {
+      var d = evt.target.data();
+      var html = '<p><span class="label">State:</span> ' + d.label + '</p>';
+      html += '<p><span class="label">Kind:</span> ' + d.kind + '</p>';
+      if (d.description) html += '<p>' + d.description + '</p>';
+      html += '<p style="font-size:11px;color:#888;margin-top:10px;"><a href="../../../../toolkit/reference/HP_QUICK_REF.md#std--state-transition-diagram">[?] HP State Transition Diagram</a> &middot; <a href="../../../dictionary.yaml">dictionary entry</a></p>';
+      render(html);
+    });
+
+    cy.on('tap', 'edge', function(evt) {
+      var d = evt.target.data();
+      var src = cy.getElementById(d.source).data('label');
+      var tgt = cy.getElementById(d.target).data('label');
+      var html = '<p><span class="label">Transition</span></p>';
+      html += '<p><span class="label">From:</span> ' + src + '</p>';
+      html += '<p><span class="label">To:</span> ' + tgt + '</p>';
+      html += '<p><span class="label">Event:</span> ' + d.label + '</p>';
+      html += '<p style="font-size:11px;color:#888;margin-top:10px;">Stable event IDs and actions will be formalized in <code>events.yaml</code> + <code>actions.yaml</code> in the next sub-stage.</p>';
+      render(html);
+    });
+
+    cy.on('tap', function(evt) {
+      if (evt.target === cy) {
+        render('<div class="placeholder">Click a state or transition to see details.</div>');
+      }
+    });
+  </script>
+</body>
+</html>

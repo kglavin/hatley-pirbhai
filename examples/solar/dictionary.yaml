@@ -173,6 +173,123 @@ entities:
       writer (proc_acquire_telemetry); multiple readers
       (proc_compute_balance, proc_serve_ui, proc_cloud_forward).
 
+  # ─── Level 2 (CSPEC) — states inside proc_compute_balance / "Energy Manager" ───
+  # Locked 2026-05-22 via 01-level1/cspecs/energy-manager/proposal.md.
+  # Hierarchical state machine per Decisions 1–3. Working state names
+  # below pending naming-review for state names.
+
+  state_initializing:
+    kind: state
+    label: "Initializing"
+    level: 2
+    parent: proc_compute_balance
+    description: |
+      Startup state. Waiting for telemetry and Victron mode to settle
+      before entering normal operation.
+
+  state_grid_tie:
+    kind: state_composite
+    label: "GridTie"
+    level: 2
+    parent: proc_compute_balance
+    description: |
+      Top-level normal-operation mode. Grid is present. Contains the
+      diversion loop and night-discharge sub-states.
+
+  state_idle:
+    kind: state
+    label: "Idle"
+    level: 2
+    parent: proc_compute_balance
+    parent_state: state_grid_tie
+    description: "Balanced — no surplus to divert, no import to discharge against."
+
+  state_diverting:
+    kind: state
+    label: "Diverting"
+    level: 2
+    parent: proc_compute_balance
+    parent_state: state_grid_tie
+    description: "Solar surplus detected; commanding Battery System to absorb it via increasing max-charge current."
+
+  state_holding:
+    kind: state
+    label: "Holding"
+    level: 2
+    parent: proc_compute_balance
+    parent_state: state_grid_tie
+    description: "Battery at or near saturation; diversion paused. Awaits headroom return or surplus drop."
+
+  state_discharging:
+    kind: state
+    label: "Discharging"
+    level: 2
+    parent: proc_compute_balance
+    parent_state: state_grid_tie
+    description: "Night-discharge mode. Battery feeds loads via Victron ESS grid setpoint to keep net grid import near zero."
+
+  state_island:
+    kind: state_composite
+    label: "Island"
+    level: 2
+    parent: proc_compute_balance
+    description: |
+      Outage mode. Victron has transferred to microgrid via its <20 ms
+      transfer switch. Energy Manager observes and adjusts setpoints
+      but does NOT drive the transfer itself.
+
+  state_battery_discharge:
+    kind: state
+    label: "BatteryDischarge"
+    level: 2
+    parent: proc_compute_balance
+    parent_state: state_island
+    description: "Running on battery only (no sun or sun insufficient). Victron drives the microgrid."
+
+  state_ac_coupled_solar:
+    kind: state
+    label: "SolarAssist"                # renamed from "ACCoupledSolar" via naming-review
+    level: 2
+    parent: proc_compute_balance
+    parent_state: state_island
+    description: |
+      Sun present; Victron's frequency-shift signaling keeps Solar
+      Inverters alive on the microgrid. Battery absorbs surplus and
+      releases as load demands.
+
+  state_fault:
+    kind: state_composite
+    label: "Fault"
+    level: 2
+    parent: proc_compute_balance
+    description: |
+      Fault mode. Contains three sub-states by category. Recovery routes
+      back to GridTie or Island depending on whether grid is present.
+
+  state_telemetry_fault:
+    kind: state
+    label: "TelemetryFault"
+    level: 2
+    parent: proc_compute_balance
+    parent_state: state_fault
+    description: "Telemetry channels unavailable (Modbus down, Sub-1G RF lost, MQTT broker unreachable)."
+
+  state_actuator_fault:
+    kind: state
+    label: "ActuatorFault"
+    level: 2
+    parent: proc_compute_balance
+    parent_state: state_fault
+    description: "Cannot command Battery System or Solar Inverters (MQTT publish failing, OpenDTU unreachable)."
+
+  state_policy_fault:
+    kind: state
+    label: "PolicyFault"
+    level: 2
+    parent: proc_compute_balance
+    parent_state: state_fault
+    description: "Policy violation (out-of-range setpoint requested, conflicting overrides, configuration error)."
+
 # ─────────────────────────────────────────────────────────────────────
 # FLOWS — labeled data and control flows crossing entities.
 # Level-0 flows are between sys_root and terminators.

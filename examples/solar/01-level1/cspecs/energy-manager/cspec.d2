@@ -1,0 +1,72 @@
+# Energy Manager — CSPEC (locked 2026-05-22)
+#
+# Hierarchical state machine. 4 top-level modes + sub-states.
+# Render: d2 cspec.d2 cspec-d2.svg
+
+direction: right
+
+start: "●" {
+  shape: circle
+  style.fill: "#222"
+  width: 30
+  height: 30
+}
+
+Initializing: {
+  shape: oval
+  style.fill: "#e8e8e8"
+}
+
+GridTie: {
+  shape: rectangle
+  label: "GridTie"
+  style.fill: "#e6f3ff"
+  style.stroke: "#2a70c2"
+
+  Idle: { shape: oval; style.fill: "#fff" }
+  Diverting: { shape: oval; style.fill: "#fff" }
+  Holding: { shape: oval; style.fill: "#fff" }
+  Discharging: { shape: oval; style.fill: "#fff" }
+
+  Idle -> Diverting: "surplus detected"
+  Diverting -> Idle: "balance reached"
+  Diverting -> Holding: "SoC ≥ max"
+  Holding -> Diverting: "surplus + headroom"
+  Idle -> Discharging: "night import"
+  Discharging -> Idle: "SoC ≤ min / sun returns"
+}
+
+Island: {
+  shape: rectangle
+  label: "Island"
+  style.fill: "#fff3e6"
+  style.stroke: "#d68910"
+
+  BatteryDischarge: { shape: oval; style.fill: "#fff" }
+  SolarAssist: { shape: oval; style.fill: "#fff" }
+
+  BatteryDischarge -> SolarAssist: "sun present"
+  SolarAssist -> BatteryDischarge: "sun gone / battery saturating"
+}
+
+Fault: {
+  shape: rectangle
+  label: "Fault"
+  style.fill: "#fee6e6"
+  style.stroke: "#c0392b"
+
+  TelemetryFault: { shape: oval; style.fill: "#fff" }
+  ActuatorFault: { shape: oval; style.fill: "#fff" }
+  PolicyFault: { shape: oval; style.fill: "#fff" }
+}
+
+# Cross-state transitions
+start -> Initializing
+Initializing -> GridTie: "telemetry healthy"
+Initializing -> Fault: "startup failure"
+GridTie -> Island: "Victron mode = island"
+Island -> GridTie: "Victron mode = grid-tie"
+GridTie -> Fault: "fault event"
+Island -> Fault: "fault event"
+Fault -> GridTie: "cleared + grid present"
+Fault -> Island: "cleared + grid absent"

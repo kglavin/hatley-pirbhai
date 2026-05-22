@@ -1,0 +1,62 @@
+stateDiagram-v2
+    direction LR
+
+    [*] --> Initializing
+
+    Initializing --> GridTie : telemetry healthy<br/>Victron mode = grid-tie
+
+    state GridTie {
+        direction LR
+        [*] --> Idle
+        Idle --> Diverting : surplus detected<br/>(net_grid_power < -threshold)
+        Diverting --> Idle : balance reached<br/>(|net_grid_power| < deadband)
+        Diverting --> Holding : battery SoC ≥ max
+        Holding --> Diverting : surplus + battery headroom
+        Idle --> Discharging : net import + night<br/>(time-of-use rule)
+        Discharging --> Idle : battery SoC ≤ min<br/>OR sun returns
+    }
+
+    GridTie --> Island : Victron mode = island<br/>(grid lost)
+
+    state Island {
+        direction LR
+        [*] --> BatteryDischarge
+        BatteryDischarge --> SolarAssist : sun present<br/>+ Victron AC-couples
+        SolarAssist --> BatteryDischarge : sun gone<br/>OR battery saturating
+    }
+
+    Island --> GridTie : Victron mode = grid-tie<br/>(grid restored)
+
+    GridTie --> Fault : fault event
+    Island --> Fault : fault event
+    Initializing --> Fault : startup failure
+
+    state Fault {
+        direction LR
+        [*] --> TelemetryFault
+        TelemetryFault
+        ActuatorFault
+        PolicyFault
+    }
+
+    Fault --> GridTie : fault cleared<br/>+ grid present
+    Fault --> Island : fault cleared<br/>+ grid absent
+
+    note right of GridTie
+        Normal operation:
+        diversion loop + night
+        discharge live here
+    end note
+
+    note right of Island
+        Outage mode:
+        Victron drives microgrid;
+        Energy Manager observes
+        and adjusts setpoints
+    end note
+
+    note right of Fault
+        Three fault categories;
+        recovery routes back to
+        appropriate mode
+    end note
