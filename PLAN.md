@@ -8,18 +8,21 @@
 
 ## Status (2026-05-22)
 
-**Where we are:** exploring the AI+HP workflow on a real dogfood project (residential solar local stack). Methodology has been grounded; dogfood project picked and framed; Context Diagram v0 drafted.
+**Where we are:** end-to-end pipeline live and proven transferable. Two projects fully exercised through Stage 3 (solar, fishing-rig); a third (doorbell) scaffolded via `hp-init`. The form-based batch-review pattern has six clean lockings across the two projects and is now codified as skills. Toolkit dead-ends at Stage 3 — PSPECs (Stage 4) and the Architecture Model (Stage 5) are unimplemented.
 
-**Just finished:**
-- Graphified both HP books — 187 nodes / 234 edges / 20 communities (see `graphify-out/`).
-- Mapped Kevin's six AI-development pains 1:1 to specific HP work products (the "this is the right tool" moment).
-- Picked the dogfood project (solar) and its system-boundary framing — (b)+(d).
-- Drafted Context Diagram v0 (in chat; not yet on disk pending presentation-format decision).
+**Recently landed:**
+- Toolkit code spine: schemas (`model.py`) → loader → 4 validators → renderers for Mermaid + D2 + Cytoscape + SVG orchestration → status report. `dictionary.yaml` is the single source of truth; renames in one place propagate to all generated artifacts.
+- Transferability proof: same toolkit code drove solar (27 entities / 17 flows / 16 transitions) and fishing-rig (21 entities / 12 flows / 18 transitions) without schema changes. The fishing-rig pass caught two real gaps (additional `EdgeKind` variants; parameterized Cytoscape wrapper) and fixed them generically.
+- `hp-init` + `hp-status` skills wired to code: scaffold-new-project and stage-progress reporting both runnable from CLI + programmatic.
+- `hp-propose-{context,decomp,cspec}` skills drafted as the codified form of the form-based pattern (markdown design; no backing code needed — they're conversational).
+- Solar CSPEC directory realigned to id-based convention (`cspecs/energy-manager/` → `cspecs/compute-balance/`) so render + status agree.
 
-**In flight right now:**
-- Establishing this document of record (← this commit).
-- Next: iterate on presentation format (Mermaid vs HTML5-interactive vs D2 vs Excalidraw vs Obsidian Canvas).
-- After that: resolve the 6 Context Diagram v0 uncertainties; move to Stage 2 (level-1 DFD) on the solar dogfood.
+**In flight / next options:**
+- **Stage 4 (PSPECs)** — net-new methodology surface; would force schema decisions for spec content. Most leverage.
+- **`short_label:` field on Entity** — known recurring drift at level-N+ rendering (caught 8 cases on solar Stage 2). Small, bounded.
+- **Edge refinement** (`refined_source`/`refined_target` on Edge) — analogous to Flow refinement; current workaround skips parent-referencing physical edges.
+- **`hp-ingest` skill / brownfield phase** — Kevin's motivating use case; deferred to phase ≥ 5.
+- **Third real-project transferability extension** — beyond solar + fishing-rig; doorbell is scaffolded but unadvanced.
 
 ---
 
@@ -107,25 +110,35 @@ Chronological, most recent first.
 
 ## Open Questions (resolve as we go)
 
-**Context Diagram v0 — solar dogfood (drafted in chat 2026-05-22):**
-1. DTU choice — official DTU-Pro-S only, OpenDTU/AhoyDTU only, or both as variants? Affects flow F2 (power-limit setpoints).
-2. PG&E Utility Meter as a distinct terminator from PG&E Grid, or rolled together?
-3. EV charger / future loads — model now as placeholder, or defer?
-4. Weather forecast service — in or out for the b+d cut?
-5. S-Miles Cloud as optional terminator (F8) — keep dashed/optional, or drop entirely?
-6. Outage handling boundary — does the system **observe** outage state, **participate** in it (adjust setpoints during island mode), or **stay out of the way**? Big implication for the CSPEC.
+**Stage 4 / PSPEC schema:**
+- What fields does a PSPEC entry need in `dictionary.yaml`? Pseudocode? Structured input/output spec with pre/post-conditions? Trace requirements (which level-N flow this satisfies)?
+- One PSPEC per leaf bubble, or per (bubble × mode) combination for bubbles inside a CSPEC?
+- Rendering format — table per PSPEC? Structured Markdown? Code-like?
+- Probably resolved by drafting Stage 4 on fishing-rig (smaller surface) first.
 
-**Presentation format (in flight):**
-- Mermaid (rendered) vs HTML5-interactive (Cytoscape/D3/vis) vs D2 vs Excalidraw vs Obsidian Canvas vs static SVG.
-- Working hypothesis: model = source of truth (JSON/YAML); multiple derived views, each best for a different moment.
-- 2026-05-22 update: Kevin's read after seeing rendered versions of all three — "all three are good; the HTML5 begins to look like a graphical IDE." Workspace reframing captured.
+**Architecture Model (Stage 5):**
+- When do we cross from requirements (DFD/CSPEC/PSPEC) to architecture (AFD/AID/AMS/AIS)?
+- Does the dictionary carry architecture entities alongside requirements, or get a parallel `architecture.yaml`?
+- The 2000 HP book is the source — needs a re-read pass before answering.
 
-**Dictionary / naming architecture (deferred to Stage 2):**
-- Stable-id format — kebab-case? snake_case? prefix-by-kind (e.g., `term_*`, `flow_*`, `sys_*`)?
-- Dictionary file format — one `dictionary.yaml` at project root? per-stage files? embedded in `model.yaml`?
-- Provenance fields per entry — what to track (extracted-from / AI-inference / user-defined / default).
-- Rename command semantics — regenerate just the views, or also rewrite the model file? (Probably both, with backup.)
-- Defer detailed design until we hit enough entities to need it (likely Stage 2 — level-1 DFD on solar dogfood, with ~10–15 internal bubbles + dictionary entries for every flow).
+**Schema gaps caught during dogfooding:**
+- `short_label:` on Entity — per-level label abbreviation (caught 8 drifts on solar Stage 2). Per-level override or single short variant?
+- Edge refinement — `refined_source`/`refined_target` on Edge analogous to Flow refinement; current workaround skips physical edges that reference parent at level-N+1.
+
+**Brownfield ingest (`hp-ingest`, phase ≥ 5):**
+- How does the IP firewall work mechanically? Reads pattern observations, not content?
+- Output is a *proposed* HP model that the user reviews — same form-based pattern?
+
+**Trace matrix:**
+- Cross-cutting traceability view — what does it look like in the toolkit? Generated HTML? Programmatic query?
+
+---
+
+**Resolved earlier (historical):**
+
+- Context Diagram v0 ambiguities (DTU choice, PG&E split, EV/future loads, weather forecast, S-Miles optional flag, outage handling location) — all resolved in solar Stage 1 lock (see [`examples/solar/00-context/`](examples/solar/00-context/)).
+- Presentation format — resolved by building all three (Mermaid + D2 + Cytoscape HTML) from the dictionary; each serves a different moment. Cytoscape HTML reframed as the "graphical IDE."
+- Dictionary / naming architecture — resolved: single `dictionary.yaml` at project root; stable-ids use kind-prefix snake_case (`proc_*`, `term_*`, `flow_*`, `store_*`, `event_*`, `cmd_*`, `data_*`, `state_*`, `txn_*`); provenance lives in proposal.md's pre-checked-default labels, not in the dictionary itself (the dictionary is the locked artifact).
 
 ---
 
