@@ -71,13 +71,31 @@ Each project advances through stages, top to bottom. The toolkit's directory lay
 Each stage is locked through a **form-based proposal** rather than chat. The skill (`hp-propose-context`, `hp-propose-decomp`, `hp-propose-cspec`, `hp-propose-pspec`, `hp-propose-architecture`) drafts a `proposal.md` containing:
 
 - A rendered draft diagram (Mermaid inline + sidecar SVG)
-- 7–8 numbered decisions; each with alternatives as `- [ ]` checkboxes; Claude's recommended default **pre-checked** with provenance ("extracted from your description"; "matches solar's pattern"; "AI inference")
+- 7–12 numbered decisions; each with alternatives as `- [ ]` checkboxes; Claude's recommended default **pre-checked** with provenance ("extracted from your description"; "matches solar's pattern"; "AI inference")
 
 You open the proposal in MPE, click `[ ]` → `[x]` for any overrides, save **once**, and ping back. The skill parses the saved file in one pass and writes the `## ✅ Status: Locked YYYY-MM-DD` header + populates `dictionary.yaml` with the resulting entities.
 
 This replaces chat round-trips with a single-save batch review. The proposal becomes the locked audit record — every project has a permanent paper trail of what was decided, why (pre-checked defaults preserve Claude's reasoning), and what alternatives were considered.
 
 After lock, [`hp-confirm-naming`](skills/hp-confirm-naming.md) runs a second form-based pass on every working name (`accept / rename / alias`), so the naming review is explicit and reviewable.
+
+### 4. Modernization layer — design intent → runtime
+
+The 1988/2000 HP method nails *what* and *how*. The 21st-century reality is that "shipped" is not the end — the system runs in production, burns SLOs, gets attacked, evolves with the team. The toolkit adds a thin **modernization layer** on top of HP that wires the static spec to runtime reality, captured by ten items rolled out across [Commits 1–5](MODERNIZATION_DESIGN.md) + [Commits A–C](MODERNIZATION_TACTICS.md):
+
+- **Async/sync semantics** on every flow (#2)
+- **Trust zones + auth + encryption** on every module / interconnect (#8.1)
+- **STRIDE threat models** on every cross-trust-zone interconnect (#8.2) + **MITRE ATT&CK / CWE / compliance catalog refs** (#8.3)
+- **V&V plans** on every leaf process (#25)
+- **ADRs** captured mid-decision (#10)
+- **Design-time budgets** on architecture modules (#21) + **runtime TPMs** that track them over time (#22)
+- **Observability surface** on every leaf — metrics, traces, log categories, alerts with runbooks (#1 + #33)
+- **SLI / SLO / SLA chain** tied back to TPMs (#32)
+- **Bounded contexts** + Anti-Corruption Layers when multi-team / multi-vocabulary scale arrives (#5)
+
+This forms the **design-intent → runtime chain**: a Budget locks design-time → a TPM measures it over time → an Observability metric emits it → an SLO commits an external promise → a Runbook says what to do when burning. Every link is in the dictionary and the validator enforces the cross-references. The six new modernization skills (table below) each propose one slice through a form-based pass; the validator + renderer surface the rest.
+
+See [`MODERNIZATION_DESIGN.md`](MODERNIZATION_DESIGN.md) for the schema rationale, [`BOUNDED_CONTEXTS_DESIGN.md`](BOUNDED_CONTEXTS_DESIGN.md) for the DDD path, and [`MODERNIZATION_TACTICS.md`](MODERNIZATION_TACTICS.md) for the AI-interaction layer plan.
 
 ---
 
@@ -116,17 +134,30 @@ hp-confirm-naming              # review module + flow + interconnect names
    ↓
 hp-render                      # generate AFD/AID + AMS/AIS sidecars
    ↓
+─── modernization layer (interleave; order is roughly fixed by dependencies) ───
+   ↓
+hp-propose-threat-model        # per cross-trust-zone interconnect: full STRIDE pass + catalog refs
+hp-propose-budgets-and-tpms    # design-time budgets + tracked-over-time TPMs
+hp-propose-observability       # per leaf: metrics + traces + log categories + alerts + runbooks
+hp-propose-slos                # SLI / SLO / SLA chain, tied back to TPMs
+hp-propose-bounded-contexts    # paradigm shift; when team/vocabulary boundaries become visible
+hp-capture-adr                 # invoked mid-decision at any stage, not at a fixed point
+   ↓
 (hp-status anywhere to check progress)
 (hp-validate anywhere to check integrity)
 ```
 
 Each `hp-render` produces three views — Mermaid, D2, Cytoscape HTML — plus SVGs. The Cytoscape HTML is the **graphical IDE view**: single-click an entity for side-panel detail, double-click a decomposable bubble to navigate to its level-N+1 DFD, `↑ Parent` link to walk back up. Every entity links to its `dictionary.yaml` entry and to its HP reference card.
 
+The **modernization-layer skills are optional but recommended.** Validators (Commits 1–5) only *require* what's structurally implied — e.g., STRIDE mitigations on cross-trust-zone interconnects, ACLs on cross-context flows. The rest (budgets, TPMs, SLOs, observability, ADRs) are tracked as coverage metrics: declared once, the validator hardens the cross-references; declared incrementally, partial coverage is fine.
+
 ---
 
 ## Skills
 
-Ten skills make up the methodology surface. Each is documented in [`skills/`](skills/) as a Claude Code skill file (markdown + YAML frontmatter). Five have backing Python; five are conversational.
+Sixteen skills make up the methodology surface — ten core HP, six modernization. Each is documented in [`skills/`](skills/) as a Claude Code skill file (markdown + YAML frontmatter). Five have backing Python; eleven are conversational.
+
+**Core HP — one per stage + the cross-cutting tools:**
 
 | Skill | Stage / purpose | Backing code |
 |---|---|:---:|
@@ -137,11 +168,22 @@ Ten skills make up the methodology surface. Each is documented in [`skills/`](sk
 | [`hp-propose-pspec`](skills/hp-propose-pspec.md) | Stage 4 form-based proposal | ⬜ |
 | [`hp-propose-architecture`](skills/hp-propose-architecture.md) | Stage 5 form-based proposal | ⬜ |
 | [`hp-confirm-naming`](skills/hp-confirm-naming.md) | Form-based naming review after any move that introduces named entities | ⬜ |
-| [`hp-validate`](skills/hp-validate.md) | Reference integrity / hierarchy / coverage / orphan detection / PSPEC balancing / architecture allocation | ✅ |
-| [`hp-render`](skills/hp-render.md) | Regenerate diagrams + SVGs + PSPEC + AMS/AIS markdown from `dictionary.yaml` | ✅ |
+| [`hp-validate`](skills/hp-validate.md) | Reference integrity / hierarchy / coverage / orphan detection / PSPEC balancing / architecture allocation / modernization rules | ✅ |
+| [`hp-render`](skills/hp-render.md) | Regenerate diagrams + SVGs + PSPEC + AMS/AIS + ADR + Context Map + SLOs markdown from `dictionary.yaml` | ✅ |
 | [`hp-status`](skills/hp-status.md) | Report stages reached, validation, artifact freshness, open questions | ✅ |
 
-The conversational skills (`hp-propose-*`, `hp-confirm-naming`) work by Claude reading the skill markdown and following the behavior spec. They don't need a Python implementation to invoke — the markdown *is* the executable specification.
+**Modernization layer — six new skills (Commit C):**
+
+| Skill | Stage / purpose | Backing code |
+|---|---|:---:|
+| [`hp-capture-adr`](skills/hp-capture-adr.md) | Mid-decision ADR capture (#10) — Nygard-style record + MITRE/CWE refs | ⬜ |
+| [`hp-propose-threat-model`](skills/hp-propose-threat-model.md) | Per cross-trust-zone interconnect — full STRIDE pass + optional LINDDUN + MITRE/CWE/compliance refs (#8.2 + #8.3) | ⬜ |
+| [`hp-propose-budgets-and-tpms`](skills/hp-propose-budgets-and-tpms.md) | NASA-style design-time budgets + tracked-over-time TPMs (#21 + #22) | ⬜ |
+| [`hp-propose-observability`](skills/hp-propose-observability.md) | Per leaf — metrics + traces + log categories + alerts + runbooks (#1 + #33) | ⬜ |
+| [`hp-propose-slos`](skills/hp-propose-slos.md) | SLI → SLO → SLA chain anchored to TPMs (#32) | ⬜ |
+| [`hp-propose-bounded-contexts`](skills/hp-propose-bounded-contexts.md) | DDD bounded contexts + Anti-Corruption Layers when multi-team scale arrives (#5) | ⬜ |
+
+The conversational skills (`hp-propose-*`, `hp-confirm-naming`, `hp-capture-adr`) work by Claude reading the skill markdown and following the behavior spec. They don't need a Python implementation to invoke — the markdown *is* the executable specification. The schemas + validators + renderers they target *are* implemented in Python — declared values land in `dictionary.yaml`, `hp-validate` hardens cross-references, and `hp-render` emits the sidecars.
 
 ---
 
@@ -199,7 +241,7 @@ print(status_report("examples/solar").format())
 
 ## Dictionary schema
 
-A `dictionary.yaml` has ten top-level sections plus metadata. All keys are stable string IDs by convention (`proc_*`, `term_*`, `flow_*`, `store_*`, `event_*`, `cmd_*`, `data_*`, `state_*`, `tx_*`, `pspec_*`, `am_*`, `af_*`, `ai_*`, `ams_*`, `ais_*`).
+A `dictionary.yaml` has sixteen top-level sections plus metadata (ten core HP + six modernization). All keys are stable string IDs by convention (`proc_*`, `term_*`, `flow_*`, `store_*`, `event_*`, `cmd_*`, `data_*`, `state_*`, `tx_*`, `pspec_*`, `am_*`, `af_*`, `ai_*`, `ams_*`, `ais_*`, `adr_*`, `budget_*`, `tpm_*`, `slo_*`, `ctx_*`, `acl_*`).
 
 ```yaml
 project: "Solar Local Stack"
@@ -230,6 +272,9 @@ flows:
     notes: "..."
     refined_source: term_inverter            # level-N+1 endpoint refinement
     refined_target: proc_acquire_telemetry
+    synchronicity: async       # modernization #2 — async | sync | streaming | batch
+    delivery: at_least_once    # modernization #2 — at_least_once | at_most_once | exactly_once | best_effort
+    context: ctx_controller    # modernization #5 — only required in multi-context projects
 
 edges:                         # physical (non-data) connections; e.g., power, mechanical
   edge_power_to_sys:
@@ -277,6 +322,8 @@ architecture_modules:           # Stage 5 — 2000 §4.2.2.1
     allocated_processes:  [proc_acquire_telemetry, proc_dispatch_commands]
     allocated_cspecs:     [proc_compute_balance]
     allocated_stores:     [store_system_state]
+    trust_zone: internal_lan    # modernization #8.1 — public | internal_lan | privileged | air_gapped | …
+    context: ctx_controller     # modernization #5 — only in multi-context projects
 
 architecture_flows:             # Stage 5 — 2000 §4.2.2.3
   af_state_to_dashboard:
@@ -293,6 +340,15 @@ architecture_interconnects:     # Stage 5 — 2000 §4.2.6.1
     endpoints: [am_controller_host, am_dashboard_app]
     carries:   [af_state_to_dashboard, af_input_to_controller]
     description: "Wired/wireless LAN; WebSocket + HTTP over TCP/IP."
+    auth_required: mtls         # modernization #8.1 — none | password | api_key | oauth2 | mtls | …
+    encryption: tls13           # modernization #8.1 — none | tls12 | tls13 | wpa3 | …
+    stride_mitigations:         # modernization #8.2 — required when endpoints span trust zones
+      spoofing: "mTLS client certificates pinned at the controller; cert rotation every 90 days."
+      tampering: "TLS 1.3 record-layer MAC."
+      repudiation: out_of_scope  # single-user; no audit-trail requirement
+      info_disclosure: "TLS 1.3 with AEAD ciphersuites."
+      denial_of_service: "Connection rate limit at the controller's NGINX front-end."
+      elevation_of_privilege: "Capability tokens scoped to read-or-write per session."
 
 architecture_module_specs:      # Stage 5 — 2000 §4.2.5.4
   ams_controller_host:
@@ -311,9 +367,94 @@ architecture_interconnect_specs:  # Stage 5 — 2000 §4.2.6.2
     description: |
       The owner's local network connecting the dashboard browser to the controller host.
     protocol_standard: "HTTP/1.1 (RFC 7230) + WebSocket (RFC 6455); JSON messages."
+    # Modernization #8.3 — catalog references (also valid on AMS + ADR)
+    references_mitre_attack: ["T1190", "T1078"]
+    references_cwe:          ["CWE-306", "CWE-319"]
+    references_compliance:   ["CCPA-1798.100"]
+
+# ─── Modernization sections (post-2026-05-22) ───
+
+adrs:                            # modernization #10 — Nygard 2011
+  adr_001_local_only_dashboard:
+    title: "Dashboard is local-only; no cloud edition for v1"
+    status: accepted             # proposed | accepted | superseded | deprecated | rejected
+    date: 2026-05-22
+    deciders: ["Kevin"]
+    context: |
+      Telemetry data is privacy-sensitive; users do not want it leaving the LAN.
+    decision: |
+      The dashboard runs only on the local LAN. No cloud telemetry forwarding.
+    consequences: |
+      No remote monitoring; no cross-property aggregate views.
+    references_mitre_attack: ["T1078"]
+    references_cwe:          ["CWE-306"]
+
+verification_plans:              # modernization #25 — per leaf process
+  pspec_acquire_telemetry:
+    method: ground_truth_replay  # analysis | inspection | test | demonstration | simulation | …
+    description: |
+      Recorded inverter traces from 7-day periods get replayed; the
+      normalized state is diffed against the operator-blessed baseline.
+    success_criteria: "Normalized state matches baseline within ±1% over 7-day replay."
+
+budgets:                         # modernization #21 — NASA SE Handbook §6.7
+  budget_diversion_loop_latency:
+    name: "Diversion control loop latency"
+    description: "End-to-end p99 latency from telemetry sample to relay command."
+    ceiling: 1000                # design-time hard ceiling
+    unit: ms
+    allocated_to: [am_controller_host]
+
+tpms:                            # modernization #22 — NASA SE Handbook §6.7.2
+  tpm_diversion_response_p99:
+    name: "Diversion p99 response time (measured)"
+    derives_from_budget: budget_diversion_loop_latency
+    current_value: 720
+    threshold: 1000
+    direction: less_is_better    # less_is_better | more_is_better
+    unit: ms
+    measurement_method: "Histograms over rolling 24h window."
+    last_measured: 2026-05-22
+
+service_level_objectives:        # modernization #32 — Google SRE
+  slo_diversion_loop_latency:
+    name: "Diversion loop p99 < 1s"
+    sli:
+      query: 'histogram_quantile(0.99, rate(diversion_loop_seconds_bucket[5m]))'
+      unit: seconds
+      description: "p99 diversion-loop latency over a 5m rate window."
+    target: 1.0
+    window: 30d
+    error_budget_pct: 0.5
+    applies_to: [am_controller_host]
+    derives_from_tpm: tpm_diversion_response_p99
+    runbook_on_burn: runbooks/slo-diversion-burn.md
+    sla: "Diversion will respond within 1s for 99.5% of events over any 30-day window."
+
+bounded_contexts:                # modernization #5 — Evans 2003 (paradigm shift)
+  ctx_controller:
+    name: "Controller"
+    owner: "controller-team"
+    ubiquitous_language: |
+      Controller speaks setpoints, modes, and override events.
+  ctx_dashboard:
+    name: "Dashboard"
+    owner: "frontend-team"
+    ubiquitous_language: |
+      Dashboard speaks views, actions, and operator commands.
+# ACLs are entries in `entities:` with kind: translation:
+#   acl_user_action_to_config:
+#     kind: translation
+#     source_context: ctx_dashboard
+#     target_context: ctx_controller
+#     source_term: "user action"
+#     target_term: "override event"
+#     pattern: anti_corruption_layer
 ```
 
-Pydantic schemas in [`hp_toolkit/model.py`](hp_toolkit/model.py) are authoritative. Validation (`hp-validate`) catches dangling references, hierarchy inconsistencies, coverage gaps, PSPEC balancing violations, and Stage 5 allocation gaps; status (`hp-status`) reports stage progress against the same schema.
+PSPECs and architecture modules can also carry an `observability:` block (modernization #1 — metrics, traces, log categories, alerts → runbooks). See [`MODERNIZATION_DESIGN.md`](MODERNIZATION_DESIGN.md) §4.1 for the full shape and the [examples](../examples/) for lived instances.
+
+Pydantic schemas in [`hp_toolkit/model.py`](hp_toolkit/model.py) are authoritative. Validation (`hp-validate`) catches dangling references, hierarchy inconsistencies, coverage gaps, PSPEC balancing violations, Stage 5 allocation gaps, modernization cross-references (STRIDE on cross-trust-zone interconnects, TPMs vs budgets, SLO `derives_from_tpm` resolution, ACL routing on cross-context flows, runbook path existence, MITRE / CWE / compliance ID formats), and reports coverage metrics for every modernization section (`stride_coverage_pct`, `verification_coverage_pct`, `observability_coverage_pct`, `slo_coverage_pct`, …). Status (`hp-status`) reports stage progress against the same schema.
 
 ---
 
@@ -321,11 +462,11 @@ Pydantic schemas in [`hp_toolkit/model.py`](hp_toolkit/model.py) are authoritati
 
 Two example projects in [`../examples/`](../examples/) exercise the full pipeline; a third is scaffolded but unadvanced.
 
-- [`examples/solar/`](../examples/solar/) — Solar Local Stack (Hoymiles microinverters + Victron + grid orchestration). **All 5 stages locked**: 6 terminators, 6 processes + 1 CSPEC (Energy Manager — 13 states / 16 transitions), 5 PSPECs, 2 architecture modules (Controller Host + Dashboard App) + 1 interconnect (Local LAN). Original dogfood — most mature.
-- [`examples/fishing-rig/`](../examples/fishing-rig/) — AutoFishingRig. The transferability test — built from scratch on a completely different domain. **All 5 stages locked**: 5 terminators, 5 processes + 1 CSPEC (Bite Detector — 9 states / 18 transitions), 4 PSPECs, 2 architecture modules (Main Controller Board + Angler Mobile App) + 1 interconnect (BLE Link).
+- [`examples/solar/`](../examples/solar/) — Solar Local Stack (Hoymiles microinverters + Victron + grid orchestration). **All 5 stages locked + modernization layer**: 6 terminators, 6 processes + 1 CSPEC (Energy Manager — 13 states / 16 transitions), 5 PSPECs, 2 architecture modules (Controller Host + Dashboard App) + 1 interconnect (Local LAN), 2 ADRs, 2 budgets + 3 TPMs, 2 SLOs, full STRIDE on `ai_local_lan`, observability + V&V on `pspec_acquire_telemetry`, **2 bounded contexts + 1 ACL** (`ctx_controller` / `ctx_dashboard` joined by `acl_user_action_to_config`). Original dogfood — most mature.
+- [`examples/fishing-rig/`](../examples/fishing-rig/) — AutoFishingRig. The transferability test — built from scratch on a completely different domain. **All 5 stages locked + modernization layer**: 5 terminators, 5 processes + 1 CSPEC (Bite Detector — 9 states / 18 transitions), 4 PSPECs, 2 architecture modules (Main Controller Board + Angler Mobile App) + 1 interconnect (BLE Link), 1 ADR, 2 budgets + 2 TPMs, 1 SLO, full STRIDE on `ai_ble`, observability + V&V on `pspec_acquire_tension`. Intentionally single-context (demonstrates the backward-compatible no-`bounded_contexts` path).
 - [`examples/doorbell/`](../examples/doorbell/) — Smart Doorbell. Scaffolded via `hp-init`; Stage 1 in progress. Used as a reference for a fresh-scaffold project.
 
-Both solar and fishing-rig render their full Context + DFD + CSPEC + PSPEC + AFD/AID + AMS/AIS pipelines through `scripts/render_project.py` with no project-specific code.
+Both solar and fishing-rig render their full Context + DFD + CSPEC + PSPEC + AFD/AID + AMS/AIS + ADR + (solar) Context-Map + SLOs pipelines through `scripts/render_project.py` with no project-specific code.
 
 ---
 
@@ -339,55 +480,63 @@ A step-by-step read-along walkthrough of fishing-rig from `hp-init` through Stag
 
 ```
 toolkit/
-├── README.md                  ← this file
-├── TUTORIAL.md                ← worked end-to-end example (fishing-rig walk-through)
-├── PSPEC_DESIGN.md            ← Stage 4 design doc (book-faithful schema + validator rules)
-├── ARCH_DESIGN.md             ← Stage 5 design doc (book-faithful schema + validator rules)
-├── bootstrap.sh               ← environment setup (idempotent)
-├── .puppeteer-config.json     ← mmdc sandbox config for Ubuntu 23.10+
-├── pyproject.toml             ← uv-managed Python project
-├── uv.lock                    ← pinned dependencies
+├── README.md                       ← this file
+├── TUTORIAL.md                     ← worked end-to-end example (fishing-rig walk-through)
+├── PSPEC_DESIGN.md                 ← Stage 4 design doc (book-faithful schema + validator rules)
+├── ARCH_DESIGN.md                  ← Stage 5 design doc (book-faithful schema + validator rules)
+├── MODERNIZATION_DESIGN.md         ← modernization items #1, #2, #8.1–8.3, #10, #21, #22, #25, #32, #33 — schema + validator rules
+├── BOUNDED_CONTEXTS_DESIGN.md      ← modernization #5 — Evans-DDD paradigm shift; Path A vs B; ACL patterns
+├── MODERNIZATION_TACTICS.md        ← AI-interaction-layer plan (Commits A/B/C: tactics + skill extensions + 6 new skills)
+├── bootstrap.sh                    ← environment setup (idempotent)
+├── .puppeteer-config.json          ← mmdc sandbox config for Ubuntu 23.10+
+├── pyproject.toml                  ← uv-managed Python project
+├── uv.lock                         ← pinned dependencies
 │
-├── hp_toolkit/                ← Python package
+├── hp_toolkit/                     ← Python package
 │   ├── __init__.py
-│   ├── model.py               ← Pydantic schemas
-│   ├── load.py                ← dictionary.yaml → validated Project
-│   ├── validate.py            ← validators (reference / hierarchy / coverage / orphan / PSPEC balancing / architecture allocation) + CLI
-│   ├── status.py              ← stage-progress report (Stages 1–5) + CLI
+│   ├── model.py                    ← Pydantic schemas (core HP + modernization)
+│   ├── load.py                     ← dictionary.yaml → validated Project
+│   ├── validate.py                 ← validators: reference / hierarchy / coverage / orphan / PSPEC balancing / architecture allocation / modernization rules + CLI
+│   ├── status.py                   ← stage-progress report (Stages 1–5) + CLI
 │   └── render/
-│       ├── mermaid.py         ← Context + DFD + CSPEC + AFD + AID
-│       ├── d2.py              ← same
-│       ├── cytoscape.py       ← elements JSON + full HTML wrappers (Context, DFD, CSPEC, AFD, AID)
-│       ├── pspec.py           ← PSPEC markdown emitter (2000 Fig 4.46 format)
-│       ├── architecture.py    ← AMS + AIS markdown emitters (2000 §4.2.5.4 / §4.2.6.2)
-│       └── svg.py             ← orchestrate d2 + mmdc binaries
+│       ├── mermaid.py              ← Context + DFD + CSPEC + AFD + AID + Context-Map
+│       ├── d2.py                   ← same
+│       ├── cytoscape.py            ← elements JSON + full HTML wrappers
+│       ├── pspec.py                ← PSPEC markdown emitter + V&V + observability sections
+│       ├── architecture.py         ← AMS + AIS markdown emitters + Verification + Budgets + TPMs + Observability + SLOs + STRIDE + LINDDUN + Catalog Refs
+│       ├── adr.py                  ← per-ADR markdown sidecar (modernization #10)
+│       └── svg.py                  ← orchestrate d2 + mmdc binaries
 │
 ├── scripts/
-│   ├── hp_init.py             ← scaffold a new project
-│   ├── render_project.py      ← render any project end-to-end
-│   ├── render_dogfood.py      ← solar-specific (legacy; use render_project.py)
-│   └── check_dictionary.py    ← summary + hierarchy view
+│   ├── hp_init.py                  ← scaffold a new project
+│   ├── render_project.py           ← render any project end-to-end (incl. ADRs, slos.md, context-map)
+│   ├── render_dogfood.py           ← solar-specific (legacy; use render_project.py)
+│   └── check_dictionary.py         ← summary + hierarchy view
 │
-├── skills/                    ← Claude Code skill files (10 total)
-│   ├── README.md              ← skill catalog
+├── skills/                         ← Claude Code skill files (16 total: 10 core HP + 6 modernization)
+│   ├── README.md                   ← skill catalog
 │   ├── hp-init.md
 │   ├── hp-propose-{context,decomp,cspec,pspec,architecture}.md
 │   ├── hp-confirm-naming.md
-│   ├── hp-validate.md
-│   ├── hp-render.md
-│   └── hp-status.md
+│   ├── hp-validate.md  ·  hp-render.md  ·  hp-status.md
+│   ├── hp-capture-adr.md                            ← modernization #10
+│   ├── hp-propose-threat-model.md                   ← modernization #8.2 + #8.3
+│   ├── hp-propose-budgets-and-tpms.md               ← modernization #21 + #22
+│   ├── hp-propose-observability.md                  ← modernization #1 + #33
+│   ├── hp-propose-slos.md                           ← modernization #32
+│   └── hp-propose-bounded-contexts.md               ← modernization #5
 │
 └── reference/
-    └── HP_QUICK_REF.md        ← HP method vocabulary (60+ terms with modern analogs)
+    └── HP_QUICK_REF.md             ← HP method vocabulary (60+ terms with modern analogs)
 ```
 
 ---
 
 ## Status
 
-End-to-end render pipeline live and validated across two domains (solar, fishing-rig). Ten skills drafted (five with backing code). **All 5 HP stages supported end-to-end** — both demo projects locked from Stage 1 (Context Diagram) through Stage 5 (Architecture Model).
+End-to-end render pipeline live and validated across two domains (solar, fishing-rig). Sixteen skills drafted (five with backing code; eleven conversational). **All 5 HP stages + the modernization layer supported end-to-end** — both demo projects locked from Stage 1 (Context Diagram) through Stage 5 (Architecture Model) plus modernization sections (ADRs, budgets, TPMs, SLOs, observability, V&V, STRIDE, catalog refs; solar adds bounded contexts + ACL).
 
-See [`../PLAN.md`](../PLAN.md) for design rationale, methodology tactics, the AI moves catalog, and a chronological log of decisions.
+See [`../PLAN.md`](../PLAN.md) for design rationale, methodology tactics (including the post-2026-05-22 Modernization Tactics section), the AI moves catalog, and a chronological log of decisions.
 
 ---
 
