@@ -41,6 +41,12 @@ the owner's LAN without install.
 |---|---|---:|---:|---:|
 | `tpm_actual_monthly_cost` — Actual monthly cloud cost (last 30d) | USD | 2.3 | 2.7 | 5.0 |
 
+## SLOs (apply to this module)
+
+| SLO | Target | Window | Error budget |
+|---|---:|---|---:|
+| [`slo_monthly_cost`](../slos.md#slo_monthly_cost) — Monthly cloud cost SLO | 5.0 USD | 30d | 20.0% |
+
 ---
 
 *Format: 2000 §4.2.5.4 — typical AMS contents. See [`../../ARCH_DESIGN.md`](../../ARCH_DESIGN.md).*

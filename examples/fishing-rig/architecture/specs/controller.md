@@ -60,6 +60,12 @@ Outputs: F4 REEL TORQUE CMD (PWM H-bridge);
 |---|---|---:|---:|---:|
 | `tpm_bite_to_set_currently` — Measured bite-to-set latency (lab bench) | ms | 165.0 | 35.0 | 200.0 |
 
+## SLOs (apply to this module)
+
+| SLO | Target | Window | Error budget |
+|---|---:|---|---:|
+| [`slo_bite_to_set_latency`](../slos.md#slo_bite_to_set_latency) — Bite detection → hook-set latency | 0.2 seconds | 7d | 1.0% |
+
 ---
 
 *Format: 2000 §4.2.5.4 — typical AMS contents. See [`../../ARCH_DESIGN.md`](../../ARCH_DESIGN.md).*

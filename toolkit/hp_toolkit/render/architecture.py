@@ -168,11 +168,134 @@ def render_ams_markdown(project: Project, ams: ArchModuleSpec) -> str:
             )
         lines.append("")
 
+    # OBSERVABILITY (optional — modernization #1 + #33)
+    obs = module.observability
+    if obs is not None:
+        lines.append("## OBSERVABILITY")
+        lines.append("")
+        if obs.metrics:
+            lines.append("**Metrics:**")
+            lines.append("")
+            for m in obs.metrics:
+                unit = f" ({m.unit})" if m.unit else ""
+                desc = f" — {m.description}" if m.description else ""
+                lines.append(f"- `{m.name}` *{m.kind.value}*{unit}{desc}")
+            lines.append("")
+        if obs.traces:
+            lines.append("**Traces:**")
+            lines.append("")
+            for t in obs.traces:
+                desc = f" — {t.description}" if t.description else ""
+                lines.append(f"- `{t.span}`{desc}")
+            lines.append("")
+        if obs.logs:
+            lines.append("**Log categories:**")
+            lines.append("")
+            for log in obs.logs:
+                lines.append(f"- `{log.category}` *(level: {log.level})*")
+            lines.append("")
+        if obs.alerts:
+            lines.append("**Alerts:**")
+            lines.append("")
+            for a in obs.alerts:
+                runbook_link = f" → [runbook](../../{a.runbook})" if a.runbook else ""
+                lines.append(f"- `{a.name}` *({a.severity.value})* — when `{a.when}`{runbook_link}")
+            lines.append("")
+
+    # SLOs that apply to this module (modernization #32)
+    module_slos = project.slos_for_module(module.id)
+    if module_slos:
+        lines.append("## SLOs (apply to this module)")
+        lines.append("")
+        lines.append("| SLO | Target | Window | Error budget |")
+        lines.append("|---|---:|---|---:|")
+        for slo in module_slos:
+            lines.append(
+                f"| [`{slo.id}`](../slos.md#{slo.id}) — {slo.name} "
+                f"| {slo.target} {slo.sli.unit or ''} | {slo.window} | {slo.error_budget_pct}% |"
+            )
+        lines.append("")
+
     lines.append("---")
     lines.append("")
     lines.append(
         "*Format: 2000 §4.2.5.4 — typical AMS contents. "
         "See [`../../ARCH_DESIGN.md`](../../ARCH_DESIGN.md).*"
+    )
+    return "\n".join(lines) + "\n"
+
+
+def render_slos_summary(project: Project) -> str:
+    """Project-level SLO summary (modernization #32).
+
+    One markdown page listing every SLO with its cross-references to
+    TPMs (#22), modules, and the runbook to follow when the error
+    budget burns."""
+    if not project.service_level_objectives:
+        return ""
+
+    lines: list[str] = []
+    lines.append(f"# {project.project} — Service Level Objectives")
+    lines.append("")
+    lines.append("*Generated from `dictionary.yaml`. Do not hand-edit.*")
+    lines.append("")
+    lines.append(
+        "SLOs commit external promises about the runtime behavior of the "
+        "architecture model. Each declares the SLI being measured, the "
+        "target value, the rolling window, and the error budget that gates "
+        "release decisions (Google SRE Book 2016)."
+    )
+    lines.append("")
+
+    for slo in project.all_slos():
+        lines.append(f"## {slo.id}")
+        lines.append("")
+        lines.append(f"**{slo.name}**")
+        lines.append("")
+        lines.append(f"- **Target:** {slo.target} {slo.sli.unit or ''}")
+        lines.append(f"- **Window:** {slo.window}")
+        lines.append(f"- **Error budget:** {slo.error_budget_pct}%")
+        if slo.sla:
+            lines.append(f"- **SLA (customer-facing):** {slo.sla}")
+        lines.append("")
+        lines.append("### SLI")
+        lines.append("")
+        if slo.sli.description:
+            lines.append(slo.sli.description.rstrip())
+            lines.append("")
+        lines.append("```")
+        lines.append(slo.sli.query)
+        lines.append("```")
+        lines.append("")
+        if slo.applies_to:
+            lines.append("### Applies to")
+            lines.append("")
+            for kind, ids in slo.applies_to.items():
+                if not ids:
+                    continue
+                label = kind.replace("_", " ").title()
+                lines.append(f"- **{label}:** " + ", ".join(f"`{i}`" for i in ids))
+            lines.append("")
+        if slo.derives_from_tpm:
+            lines.append(f"### Derived from TPM")
+            lines.append("")
+            tpm = project.tpms.get(slo.derives_from_tpm)
+            if tpm is not None:
+                lines.append(f"[`{slo.derives_from_tpm}`](../dictionary.yaml) — "
+                             f"{tpm.name} (current {tpm.current_estimate} {tpm.unit})")
+            else:
+                lines.append(f"`{slo.derives_from_tpm}` *(not in dictionary)*")
+            lines.append("")
+        if slo.runbook_on_burn:
+            lines.append(f"### Runbook on budget burn")
+            lines.append("")
+            lines.append(f"[`{slo.runbook_on_burn}`](../{slo.runbook_on_burn})")
+            lines.append("")
+        lines.append("---")
+        lines.append("")
+
+    lines.append(
+        "*See [`../toolkit/MODERNIZATION_DESIGN.md`](../toolkit/MODERNIZATION_DESIGN.md) §4.3 — SLI/SLO/SLA chain.*"
     )
     return "\n".join(lines) + "\n"
 

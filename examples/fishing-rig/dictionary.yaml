@@ -534,6 +534,22 @@ pspecs:
         - "Sustained 200 Hz sampling for 10 minutes without buffer overflow"
         - "Calibration drift < 0.5% over 24-hour soak test"
         - "Recovery from transient ADC fault within one sample period"
+    # ─── Modernization #1 — runtime observability ───
+    observability:
+      metrics:
+        - { name: "tension_samples_total", kind: counter, description: "Total tension samples acquired" }
+        - { name: "tension_newtons", kind: gauge, unit: N, description: "Latest tension reading in Newtons" }
+        - { name: "tension_adc_read_seconds", kind: histogram, unit: s, description: "ADC read latency" }
+      traces:
+        - { span: "tension.acquire_cycle", description: "One full sample-and-write cycle" }
+      logs:
+        - { category: "tension.calibration", level: info }
+      alerts:
+        - name: tension_sensor_stuck
+          when: "rate(tension_samples_total[1m]) == 0"
+          severity: warning
+          runbook: runbooks/tension-sensor-stuck.md
+          escalation_after_min: 15
 
   pspec_reel_controller:
     parent_process: proc_reel_controller
@@ -833,3 +849,23 @@ tpms:
       Field beta: 99.2% uptime over 50 fishing sessions. Drops correlate
       with vest-pocket angle (signal blocked). Mitigation: improve
       antenna orientation in next enclosure rev.
+
+
+# ─── Modernization #32 — SLOs ───
+
+service_level_objectives:
+
+  slo_bite_to_set_latency:
+    name: "Bite detection → hook-set latency"
+    sli:
+      query: 'histogram_quantile(0.95, rate(bite_to_set_seconds_bucket[5m]))'
+      unit: seconds
+      description: "p95 latency from tension spike to motor command latch."
+    target: 0.200                        # = budget_bite_to_set_latency.system_target (200ms)
+    window: 7d
+    error_budget_pct: 1.0                # 1% of bites may exceed 200ms over 7d
+    applies_to:
+      modules: [am_controller]
+    sla: "Bite-to-set latency under 200 ms for 99% of detections over any 7-day window."
+    derives_from_tpm: tpm_bite_to_set_currently
+    runbook_on_burn: runbooks/slo-bite-to-set-burn.md
