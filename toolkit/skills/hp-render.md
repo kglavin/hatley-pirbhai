@@ -20,25 +20,36 @@ Generates diagram sources from the Project model. Currently supports:
 
 | View | Status | Function |
 |---|---|---|
-| Level-0 Context Diagram (Mermaid) | ✅ live | `render.mermaid.render_context_diagram(project)` |
-| Level-0 Context Diagram (D2) | ✅ live | `render.d2.render_context_diagram(project)` |
+| Level-0 Context Diagram (Mermaid / D2) | ✅ live | `render.mermaid.render_context_diagram(project)` · `render.d2.render_context_diagram(project)` |
 | Level-1 DFD (Mermaid / D2) | ✅ live | `render.mermaid.render_dfd(project, parent_id)` · `render.d2.render_dfd(project, parent_id)` — requires `refined_source` / `refined_target` populated on boundary flows |
-| State machine (Mermaid `stateDiagram-v2` / D2 containers) | ✅ live | `render.mermaid.render_state_machine(project, parent_machine_id)` · `render.d2.render_state_machine(project, parent_machine_id)` — requires `transitions:` populated, plus `is_initial: true` on the CSPEC entry state and each composite's initial sub-state |
-| Cytoscape (Context HTML) | ✅ live | `render.cytoscape.render_context_elements(project)` + `wrap_context_html(project)` produces full HTML — Cytoscape script, side panel, navigation, legend, tap/dbltap event handlers |
-| Cytoscape (DFD HTML + CSPEC HTML) | planned | reuse the wrapper pattern with view-specific element generators, style arrays, and legends |
-| SVG orchestration | ✅ live | `render.svg.render_d2_to_svg(src, out)` invokes `d2`; `render.svg.render_mermaid_to_svg(src, out)` invokes `mmdc` (with `.puppeteer-config.json` for Ubuntu sandbox). Both raise `FileNotFoundError` if the binary isn't installed (point user at `bash toolkit/bootstrap.sh`). `mmdc` `-1` suffix is handled transparently. |
+| CSPEC state machine (Mermaid `stateDiagram-v2` / D2 containers) | ✅ live | `render.mermaid.render_state_machine` · `render.d2.render_state_machine` — requires `transitions:` populated, plus `is_initial: true` on the CSPEC entry state and each composite's initial sub-state |
+| AFD + AID (Mermaid / D2) | ✅ live | `render.mermaid.render_afd` · `render.d2.render_afd` · `render.mermaid.render_aid` · `render.d2.render_aid` |
+| Context Map (Mermaid / D2) | ✅ live | `render.mermaid.render_context_map` · `render.d2.render_context_map` — bounded contexts + ACLs |
+| Cytoscape interactive HTML (Context / DFD / CSPEC / AFD / AID) | ✅ live | `render.cytoscape.wrap_*_html(project, tree=..., current_path=...)` — sidebar-aware; without the tree kwarg, back-compat sidebar-less output |
+| PSPEC / AMS / AIS / ADR / SLOs / runbook markdown sidecars | ✅ live | `render.pspec.render_pspec_markdown` · `render.architecture.render_ams_markdown` / `render_ais_markdown` / `render_slos_summary` · `render.adr.render_adr_markdown` |
+| Markdown sidecars → sidebar'd `.generated.html` wrappers | ✅ live | `render.markdown_artifact.render_markdown_artifact_html(md_text, tree, current_path, title)` — uniform left-sidebar navigation across every artifact |
+| Project portal index | ✅ live | `render.index.render_project_index_html(project, project_dir)` → `project_index.generated.html` at project root |
+| Project PDF (cover + TOC + per-stage + sidecars + HP Quick Ref appendix) | ✅ live | `render.pdf.render_project_pdf(project, project_dir)` → `project.generated.pdf` via WeasyPrint |
+| SVG orchestration | ✅ live | `render.svg.render_d2_to_svg(src, out)` invokes `d2`; `render.svg.render_mermaid_to_svg(src, out)` invokes `mmdc` (with `.puppeteer-config.json` for Ubuntu sandbox). Both raise `FileNotFoundError` if the binary isn't installed (point user at `bash toolkit/bootstrap.sh`). |
 
 Output is **deterministic** — same dictionary always produces byte-identical sources. Iteration order is YAML insertion order.
 
 ## Behavior
 
-**CLI** (regenerate everything in the dogfood):
+**CLI** (regenerate every artifact for a project):
 
 ```bash
-cd toolkit && uv run python scripts/render_dogfood.py
+cd toolkit
+uv run python scripts/render_project.py <project-dir>                 # diagrams + sidebar'd HTML + index + PDF
+uv run python scripts/render_project.py <project-dir> --pdf-only      # only the PDF (uses existing HTML/SVG)
+uv run python scripts/render_project.py <project-dir> --no-pdf        # everything except the PDF (fast iteration)
 ```
 
-Writes `*.generated.{mmd,d2}` sidecars next to the hand-written originals and diffs them so drift is visible without overwriting.
+Output:
+- `*.generated.{mmd,d2,html,svg}` next to each diagram source.
+- `*.md` sidecars (PSPEC / AMS / AIS / ADR / SLOs / runbook) + a sibling `*.generated.html` wrapper carrying the project sidebar.
+- `project_index.generated.html` at the project root (front-door page).
+- `project.generated.pdf` at the project root (single-file shareable PDF).
 
 **Programmatic** (from another skill or script):
 

@@ -31,7 +31,11 @@ from hp_toolkit.render import (
     pspec as render_pspec,
     architecture as render_arch,
     adr as render_adr,
+    index as render_index,
+    markdown_artifact as render_md,
+    pdf as render_pdf,
 )
+from hp_toolkit.render.tree import build_project_tree, TreeNode
 
 
 def _color(text: str, code: str) -> str:
@@ -55,7 +59,7 @@ def _try_svg(source: Path, output: Path, kind: str) -> None:
         print(_color(f"  ⚠ SVG skipped: {e}", "33"))
 
 
-def render_context(project_dir: Path, project, has_internals: bool) -> None:
+def render_context(project_dir: Path, project, has_internals: bool, *, tree: TreeNode | None = None) -> None:
     """Render the level-0 Context across all notations + SVGs."""
     ctx_dir = project_dir / "00-context"
     ctx_dir.mkdir(parents=True, exist_ok=True)
@@ -79,14 +83,19 @@ def render_context(project_dir: Path, project, has_internals: bool) -> None:
     print()
 
     print(_color("==> Level-0 Context — HTML (Cytoscape)", "1"))
-    html = render_cytoscape.wrap_context_html(project, drill_target=drill_target)
+    html = render_cytoscape.wrap_context_html(
+        project,
+        drill_target=drill_target,
+        tree=tree,
+        current_path="00-context/context.generated.html",
+    )
     out = ctx_dir / "context.generated.html"
     out.write_text(html)
     print(f"  wrote {out.name} ({len(html)} bytes)")
     print()
 
 
-def main(project_dir: Path) -> int:
+def main(project_dir: Path, *, pdf_only: bool = False, no_pdf: bool = False) -> int:
     if not project_dir.is_dir():
         print(_color(f"ERROR: {project_dir} is not a directory", "31"), file=sys.stderr)
         return 2
@@ -101,6 +110,16 @@ def main(project_dir: Path) -> int:
     print(_color(f"  ✓ {project.project} v{project.version}", "32"))
     print()
 
+    if pdf_only:
+        # Assume HTML/SVG artifacts already rendered; just regenerate the PDF.
+        render_project_pdf(project_dir, project)
+        print(_color("Done (PDF only).", "32"))
+        return 0
+
+    # Build the project tree once. Both the per-page sidebar and the
+    # index page (and the PDF, Commit 3) consume the same tree.
+    tree = build_project_tree(project, project_dir)
+
     # Discover structure: does this project have level-1 internal processes?
     has_internals = any(
         e.parent == "sys_root" and e.level == 1
@@ -108,11 +127,11 @@ def main(project_dir: Path) -> int:
     )
 
     # Render the Context (always)
-    render_context(project_dir, project, has_internals=has_internals)
+    render_context(project_dir, project, has_internals=has_internals, tree=tree)
 
     # ─── Level-1 DFD (if internal processes exist) ───
     if has_internals:
-        render_level1_dfd(project_dir, project)
+        render_level1_dfd(project_dir, project, tree=tree)
 
     # ─── CSPECs (one per process flagged needs_cspec) ───
     cspec_processes = [
@@ -120,26 +139,91 @@ def main(project_dir: Path) -> int:
         if e.kind == EntityKind.PROCESS and e.needs_cspec
     ]
     for proc in cspec_processes:
-        render_cspec(project_dir, project, proc)
+        render_cspec(project_dir, project, proc, tree=tree)
 
     # ─── PSPECs (one per leaf process that has one declared) ───
     if project.pspecs:
-        render_pspecs(project_dir, project)
+        render_pspecs(project_dir, project, tree=tree)
 
     # ─── Architecture Model (Stage 5) ───
     if project.architecture_modules:
-        render_architecture(project_dir, project)
+        render_architecture(project_dir, project, tree=tree)
 
     # ─── ADRs (Modernization #10) ───
     if project.adrs:
-        render_adrs(project_dir, project)
+        render_adrs(project_dir, project, tree=tree)
 
     # ─── Context Map (Modernization #5) ───
     if project.bounded_contexts:
         render_context_map(project_dir, project)
 
+    # ─── Runbook .generated.html wrappers ───
+    runbook_dir = project_dir / "runbooks"
+    if runbook_dir.is_dir() and any(runbook_dir.glob("*.md")):
+        render_runbook_htmls(project_dir, tree=tree)
+
+    # ─── Project portal index ───
+    render_project_index(project_dir, project)
+
+    # ─── PDF (default: yes; opt out with --no-pdf) ───
+    if not no_pdf:
+        render_project_pdf(project_dir, project)
+
     print(_color(f"Done.", "32"))
     return 0
+
+
+def render_project_pdf(project_dir: Path, project) -> None:
+    """Render the single-file portable PDF (Portal — Commit 3)."""
+    print(_color("==> Project PDF", "1"))
+    out = render_pdf.render_project_pdf(project, project_dir)
+    print(f"  wrote {out.name} ({out.stat().st_size} bytes)")
+    print()
+
+
+def render_runbook_htmls(project_dir: Path, *, tree: TreeNode | None = None) -> None:
+    """For every runbook .md, emit a sidebar'd .generated.html sibling."""
+    if tree is None:
+        return
+    runbook_dir = project_dir / "runbooks"
+    md_files = sorted(runbook_dir.glob("*.md"))
+    if not md_files:
+        return
+    print(_color(f"==> Runbook HTML wrappers ({len(md_files)})", "1"))
+    for md_path in md_files:
+        md_text = md_path.read_text()
+        title = _extract_title(md_text) or md_path.stem.replace("-", " ").title()
+        html = render_md.render_markdown_artifact_html(
+            md_text=md_text, tree=tree,
+            current_path=f"runbooks/{md_path.stem}.generated.html",
+            title=title,
+        )
+        out_html = runbook_dir / f"{md_path.stem}.generated.html"
+        out_html.write_text(html)
+        print(f"  wrote runbooks/{out_html.name} ({len(html)} bytes)")
+    print()
+
+
+def _extract_title(md_text: str) -> str | None:
+    """Pull the first H1 from a markdown document, if any."""
+    for line in md_text.splitlines():
+        line = line.strip()
+        if line.startswith("# ") and not line.startswith("## "):
+            return line[2:].strip()
+        if line:
+            # First non-empty line is not an H1 — give up
+            return None
+    return None
+
+
+def render_project_index(project_dir: Path, project) -> None:
+    """Render the project_index.generated.html landing page (Portal — Commit 1)."""
+    print(_color("==> Project index (portal landing)", "1"))
+    html = render_index.render_project_index_html(project, project_dir)
+    out = project_dir / "project_index.generated.html"
+    out.write_text(html)
+    print(f"  wrote {out.name} ({len(html)} bytes)")
+    print()
 
 
 def render_context_map(project_dir: Path, project) -> None:
@@ -161,20 +245,32 @@ def render_context_map(project_dir: Path, project) -> None:
     print()
 
 
-def render_adrs(project_dir: Path, project) -> None:
-    """Render each ADR into a sidecar markdown file at adrs/."""
+def render_adrs(project_dir: Path, project, *, tree: TreeNode | None = None) -> None:
+    """Render each ADR into a sidecar markdown file + sidebar'd HTML at adrs/."""
     adr_dir = project_dir / "adrs"
     adr_dir.mkdir(parents=True, exist_ok=True)
     print(_color(f"==> ADRs ({len(project.adrs)})", "1"))
     for adr in project.all_adrs():
         md = render_adr.render_adr_markdown(project, adr)
-        out = adr_dir / render_adr.adr_filename(adr.id)
-        out.write_text(md)
-        print(f"  wrote adrs/{out.name} ({len(md)} bytes)")
+        out_md = adr_dir / render_adr.adr_filename(adr.id)
+        out_md.write_text(md)
+        print(f"  wrote adrs/{out_md.name} ({len(md)} bytes)")
+
+        if tree is not None:
+            short = out_md.stem
+            html = render_md.render_markdown_artifact_html(
+                md_text=md,
+                tree=tree,
+                current_path=f"adrs/{short}.generated.html",
+                title=adr.title,
+            )
+            out_html = adr_dir / f"{short}.generated.html"
+            out_html.write_text(html)
+            print(f"  wrote adrs/{out_html.name} ({len(html)} bytes)")
     print()
 
 
-def render_architecture(project_dir: Path, project) -> None:
+def render_architecture(project_dir: Path, project, *, tree: TreeNode | None = None) -> None:
     """Render the Stage 5 architecture surface: AFD + AID across all three
     notations, plus AMS + AIS markdown sidecars."""
     arch_dir = project_dir / "architecture"
@@ -203,7 +299,10 @@ def render_architecture(project_dir: Path, project) -> None:
     print()
 
     print(_color("==> AFD (root) — HTML (Cytoscape)", "1"))
-    html = render_cytoscape.wrap_afd_html(project, parent_id=None)
+    html = render_cytoscape.wrap_afd_html(
+        project, parent_id=None,
+        tree=tree, current_path="architecture/afd.generated.html",
+    )
     out = arch_dir / "afd.generated.html"
     out.write_text(html)
     print(f"  wrote {out.name} ({len(html)} bytes)")
@@ -228,60 +327,113 @@ def render_architecture(project_dir: Path, project) -> None:
         print()
 
         print(_color("==> AID (root) — HTML (Cytoscape)", "1"))
-        html = render_cytoscape.wrap_aid_html(project, parent_id=None)
+        html = render_cytoscape.wrap_aid_html(
+            project, parent_id=None,
+            tree=tree, current_path="architecture/aid.generated.html",
+        )
         out = arch_dir / "aid.generated.html"
         out.write_text(html)
         print(f"  wrote {out.name} ({len(html)} bytes)")
         print()
 
-    # AMS markdown sidecars
+    # AMS markdown sidecars + .generated.html wrappers
     if project.architecture_module_specs:
         print(_color(f"==> AMS sidecars ({len(project.architecture_module_specs)})", "1"))
         for ams in project.all_architecture_module_specs():
+            short = render_arch.ams_subdir_name(ams.parent_module)
             md = render_arch.render_ams_markdown(project, ams)
-            out = specs_dir / f"{render_arch.ams_subdir_name(ams.parent_module)}.md"
-            out.write_text(md)
-            print(f"  wrote specs/{out.name} ({len(md)} bytes)")
+            out_md = specs_dir / f"{short}.md"
+            out_md.write_text(md)
+            print(f"  wrote specs/{out_md.name} ({len(md)} bytes)")
+
+            if tree is not None:
+                m = project.architecture_modules.get(ams.parent_module)
+                title = f"{m.name} — AMS" if m else f"{ams.parent_module} — AMS"
+                html = render_md.render_markdown_artifact_html(
+                    md_text=md, tree=tree,
+                    current_path=f"architecture/specs/{short}.generated.html",
+                    title=title,
+                )
+                out_html = specs_dir / f"{short}.generated.html"
+                out_html.write_text(html)
+                print(f"  wrote specs/{out_html.name} ({len(html)} bytes)")
         print()
 
-    # AIS markdown sidecars
+    # AIS markdown sidecars + .generated.html wrappers
     if project.architecture_interconnect_specs:
         print(_color(f"==> AIS sidecars ({len(project.architecture_interconnect_specs)})", "1"))
         for ais in project.all_architecture_interconnect_specs():
+            short = render_arch.ais_subdir_name(ais.parent_interconnect)
             md = render_arch.render_ais_markdown(project, ais)
-            out = ic_dir / f"{render_arch.ais_subdir_name(ais.parent_interconnect)}.md"
-            out.write_text(md)
-            print(f"  wrote specs/interconnects/{out.name} ({len(md)} bytes)")
+            out_md = ic_dir / f"{short}.md"
+            out_md.write_text(md)
+            print(f"  wrote specs/interconnects/{out_md.name} ({len(md)} bytes)")
+
+            if tree is not None:
+                ic = project.architecture_interconnects.get(ais.parent_interconnect)
+                title = f"{ic.name} — AIS" if ic else f"{ais.parent_interconnect} — AIS"
+                html = render_md.render_markdown_artifact_html(
+                    md_text=md, tree=tree,
+                    current_path=f"architecture/specs/interconnects/{short}.generated.html",
+                    title=title,
+                )
+                out_html = ic_dir / f"{short}.generated.html"
+                out_html.write_text(html)
+                print(f"  wrote specs/interconnects/{out_html.name} ({len(html)} bytes)")
         print()
 
     # SLOs project-level summary (modernization #32)
     if project.service_level_objectives:
         print(_color(f"==> SLOs summary ({len(project.service_level_objectives)} SLO(s))", "1"))
         md = render_arch.render_slos_summary(project)
-        out = arch_dir / "slos.md"
-        out.write_text(md)
-        print(f"  wrote {out.name} ({len(md)} bytes)")
+        out_md = arch_dir / "slos.md"
+        out_md.write_text(md)
+        print(f"  wrote {out_md.name} ({len(md)} bytes)")
+
+        if tree is not None:
+            html = render_md.render_markdown_artifact_html(
+                md_text=md, tree=tree,
+                current_path="architecture/slos.generated.html",
+                title=f"{project.project} — SLOs Summary",
+            )
+            out_html = arch_dir / "slos.generated.html"
+            out_html.write_text(html)
+            print(f"  wrote {out_html.name} ({len(html)} bytes)")
         print()
 
 
-def render_pspecs(project_dir: Path, project) -> None:
-    """Render each declared PSPEC into its own markdown sidecar.
+def render_pspecs(project_dir: Path, project, *, tree: TreeNode | None = None) -> None:
+    """Render each declared PSPEC into its own markdown sidecar + sidebar'd HTML.
 
-    Output: ``01-level1/pspecs/<process-id-short>.md``.
+    Outputs: ``01-level1/pspecs/<short>.md`` + ``01-level1/pspecs/<short>.generated.html``.
     """
     pspec_dir = project_dir / "01-level1" / "pspecs"
     pspec_dir.mkdir(parents=True, exist_ok=True)
 
     print(_color(f"==> PSPECs ({len(project.pspecs)})", "1"))
     for ps in project.all_pspecs():
+        short = render_pspec.pspec_subdir_name(ps.parent_process)
         md = render_pspec.render_pspec_markdown(project, ps)
-        out = pspec_dir / f"{render_pspec.pspec_subdir_name(ps.parent_process)}.md"
-        out.write_text(md)
-        print(f"  wrote {out.name} ({len(md)} bytes)")
+        out_md = pspec_dir / f"{short}.md"
+        out_md.write_text(md)
+        print(f"  wrote {out_md.name} ({len(md)} bytes)")
+
+        if tree is not None:
+            proc = project.entities.get(ps.parent_process)
+            title = f"{proc.label} — PSPEC" if proc else f"{ps.parent_process} — PSPEC"
+            html = render_md.render_markdown_artifact_html(
+                md_text=md,
+                tree=tree,
+                current_path=f"01-level1/pspecs/{short}.generated.html",
+                title=title,
+            )
+            out_html = pspec_dir / f"{short}.generated.html"
+            out_html.write_text(html)
+            print(f"  wrote {out_html.name} ({len(html)} bytes)")
     print()
 
 
-def render_level1_dfd(project_dir: Path, project) -> None:
+def render_level1_dfd(project_dir: Path, project, *, tree: TreeNode | None = None) -> None:
     """Render the level-1 DFD across all notations + SVGs."""
     l1_dir = project_dir / "01-level1"
     l1_dir.mkdir(parents=True, exist_ok=True)
@@ -303,18 +455,24 @@ def render_level1_dfd(project_dir: Path, project) -> None:
     print()
 
     print(_color("==> Level-1 DFD — HTML (Cytoscape)", "1"))
-    html = render_cytoscape.wrap_dfd_html(project, parent_id="sys_root")
+    html = render_cytoscape.wrap_dfd_html(
+        project,
+        parent_id="sys_root",
+        tree=tree,
+        current_path="01-level1/dfd.generated.html",
+    )
     out = l1_dir / "dfd.generated.html"
     out.write_text(html)
     print(f"  wrote {out.name} ({len(html)} bytes)")
     print()
 
 
-def render_cspec(project_dir: Path, project, proc) -> None:
+def render_cspec(project_dir: Path, project, proc, *, tree: TreeNode | None = None) -> None:
     """Render a CSPEC for one process (needs_cspec=True): Mermaid + D2 + HTML + SVGs."""
     subdir = proc.id.replace("proc_", "").replace("_", "-")
     cspec_dir = project_dir / "01-level1" / "cspecs" / subdir
     cspec_dir.mkdir(parents=True, exist_ok=True)
+    current_path = f"01-level1/cspecs/{subdir}/cspec.generated.html"
 
     print(_color(f"==> CSPEC for {proc.label} — Mermaid", "1"))
     src = render_mermaid.render_state_machine(project, proc.id)
@@ -333,7 +491,9 @@ def render_cspec(project_dir: Path, project, proc) -> None:
     print()
 
     print(_color(f"==> CSPEC for {proc.label} — HTML (Cytoscape)", "1"))
-    html = render_cytoscape.wrap_state_machine_html(project, proc.id)
+    html = render_cytoscape.wrap_state_machine_html(
+        project, proc.id, tree=tree, current_path=current_path,
+    )
     out = cspec_dir / "cspec.generated.html"
     out.write_text(html)
     print(f"  wrote {out.name} ({len(html)} bytes)")
@@ -341,7 +501,14 @@ def render_cspec(project_dir: Path, project, proc) -> None:
 
 
 if __name__ == "__main__":
-    if len(sys.argv) < 2:
-        print("usage: render_project.py <project-directory>", file=sys.stderr)
+    args = [a for a in sys.argv[1:] if not a.startswith("-")]
+    flags = {a for a in sys.argv[1:] if a.startswith("-")}
+    if not args:
+        print("usage: render_project.py <project-directory> [--no-pdf] [--pdf-only]",
+              file=sys.stderr)
         sys.exit(2)
-    sys.exit(main(Path(sys.argv[1]).resolve()))
+    sys.exit(main(
+        Path(args[0]).resolve(),
+        pdf_only="--pdf-only" in flags,
+        no_pdf="--no-pdf" in flags,
+    ))
