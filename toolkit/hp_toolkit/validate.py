@@ -16,7 +16,7 @@ from __future__ import annotations
 
 from collections import defaultdict
 from dataclasses import dataclass, field
-from typing import Literal
+from typing import Literal, Optional
 
 import re
 
@@ -27,6 +27,7 @@ from .model import (
     AuthRequired, Encryption, Budget, TPM, TPMDirection,
     Observability, Alert, SLO, STRIDEMitigations,
     ArchInterconnect, ArchModuleSpec, ArchInterconnectSpec,
+    BoundedContext, ACLPattern,
 )
 
 
@@ -1056,6 +1057,147 @@ def modernization_validation(project: Project, project_dir: Path | None = None) 
     for adr in project.all_adrs():
         _check_catalog_refs(adr.id, adr)
 
+    # ─── #5: Bounded Contexts (BOUNDED_CONTEXTS_DESIGN.md §5) ───
+    context_ids = set(project.bounded_contexts.keys())
+
+    def _entity_context(eid: str) -> Optional[str]:
+        e = project.entities.get(eid)
+        return e.context if e is not None else None
+
+    def _holders_with_context():
+        """Yield (id, holder) for every type that can carry a `context:` field."""
+        for e in project.all_entities():
+            yield e.id, e
+        for f in project.all_flows():
+            yield f.id, f
+        for am in project.all_architecture_modules():
+            yield am.id, am
+        for af in project.all_architecture_flows():
+            yield af.id, af
+
+    # Rule 1: every entity with `context:` references a real BoundedContext
+    if project.bounded_contexts:
+        for hid, holder in _holders_with_context():
+            ctx = getattr(holder, "context", None)
+            if ctx is not None and ctx not in context_ids:
+                report.issues.append(ValidationIssue(
+                    "error", "modernization", hid,
+                    f"context {ctx!r} not in bounded_contexts"))
+
+    # Translation entity validation (rules 4, 5)
+    translations = project.all_translations()
+    for t in translations:
+        # Rule 4: source_term + target_term exist in respective contexts
+        for field_name, ctx_name in [("source_term", "source_context"),
+                                     ("target_term", "target_context")]:
+            term_id = getattr(t, field_name, None)
+            ctx_id = getattr(t, ctx_name, None)
+            if term_id is None:
+                report.issues.append(ValidationIssue(
+                    "error", "modernization", t.id,
+                    f"translation entity missing required {field_name!r} field"))
+                continue
+            if ctx_id is None:
+                report.issues.append(ValidationIssue(
+                    "error", "modernization", t.id,
+                    f"translation entity missing required {ctx_name!r} field"))
+                continue
+            # Cross-check: the referenced term exists and lives in the named context
+            referenced = project.entities.get(term_id)
+            if referenced is None:
+                # Could be a flow / arch entity — accept if it exists with the right context
+                found = False
+                for collection in (project.flows, project.architecture_modules,
+                                   project.architecture_flows):
+                    obj = collection.get(term_id)
+                    if obj is not None:
+                        found = True
+                        if getattr(obj, "context", None) != ctx_id:
+                            report.issues.append(ValidationIssue(
+                                "error", "modernization", t.id,
+                                f"{field_name} {term_id!r} is not in context {ctx_id!r}"))
+                        break
+                if not found:
+                    report.issues.append(ValidationIssue(
+                        "error", "modernization", t.id,
+                        f"translation {field_name} {term_id!r} not in dictionary"))
+            elif referenced.context != ctx_id:
+                report.issues.append(ValidationIssue(
+                    "error", "modernization", t.id,
+                    f"{field_name} {term_id!r} (context={referenced.context!r}) does not live in "
+                    f"declared {ctx_name}={ctx_id!r}"))
+
+        # Rule 5: source_context != target_context
+        if t.source_context is not None and t.source_context == t.target_context:
+            report.issues.append(ValidationIssue(
+                "error", "modernization", t.id,
+                f"translation source_context and target_context are both "
+                f"{t.source_context!r} (translations must bridge *different* contexts)"))
+
+        # Rule 7: cross-context refs should declare ACL pattern
+        if t.pattern is None:
+            report.issues.append(ValidationIssue(
+                "warning", "modernization", t.id,
+                "translation entity has no ACL pattern declared (Evans 2003)"))
+
+    # Rules 2, 3: Flow and ArchFlow endpoints must share context OR route through translation
+    translation_pairs: set[tuple[str, str]] = set()
+    for t in translations:
+        if t.source_context and t.target_context:
+            translation_pairs.add((t.source_context, t.target_context))
+            translation_pairs.add((t.target_context, t.source_context))  # bidirectional
+
+    if project.bounded_contexts:
+        # Flow rule
+        for f in project.all_flows():
+            src_ctx = _entity_context(f.refined_source or f.source)
+            tgt_ctx = _entity_context(f.refined_target or f.target)
+            if src_ctx and tgt_ctx and src_ctx != tgt_ctx:
+                if (src_ctx, tgt_ctx) not in translation_pairs:
+                    report.issues.append(ValidationIssue(
+                        "error", "modernization", f.id,
+                        f"flow crosses contexts {src_ctx!r}→{tgt_ctx!r} but no "
+                        f"translation entity bridges them"))
+
+        # ArchFlow rule
+        for af in project.all_architecture_flows():
+            src = project.architecture_modules.get(af.source)
+            tgt = project.architecture_modules.get(af.target)
+            src_ctx = getattr(src, "context", None) if src else None
+            tgt_ctx = getattr(tgt, "context", None) if tgt else None
+            if src_ctx and tgt_ctx and src_ctx != tgt_ctx:
+                if (src_ctx, tgt_ctx) not in translation_pairs:
+                    report.issues.append(ValidationIssue(
+                        "error", "modernization", af.id,
+                        f"architecture flow crosses contexts {src_ctx!r}→{tgt_ctx!r} but no "
+                        f"translation entity bridges them"))
+
+    # Rule 6: BoundedContexts with no entities (warning)
+    if project.bounded_contexts:
+        ctx_in_use: set[str] = set()
+        for _, holder in _holders_with_context():
+            ctx = getattr(holder, "context", None)
+            if ctx:
+                ctx_in_use.add(ctx)
+        for ctx_id in context_ids:
+            if ctx_id not in ctx_in_use:
+                report.issues.append(ValidationIssue(
+                    "warning", "modernization", ctx_id,
+                    f"bounded context {ctx_id!r} has no entities assigned to it"))
+
+    # Coverage metrics + counts
+    if project.bounded_contexts:
+        report.counts["bounded_contexts_total"] = len(project.bounded_contexts)
+        report.counts["acl_translations_total"] = len(translations)
+        # Per-context entity count
+        per_context: dict[str, int] = {ctx_id: 0 for ctx_id in context_ids}
+        for _, holder in _holders_with_context():
+            ctx = getattr(holder, "context", None)
+            if ctx in per_context:
+                per_context[ctx] += 1
+        for ctx_id, n in per_context.items():
+            report.counts[f"entities_in_{ctx_id}"] = n
+
     return report
 
 
@@ -1085,7 +1227,10 @@ def find_orphans(project: Project) -> ValidationReport:
             continue
         # States get a pass — they're not referenced by flows (yet — we don't
         # model transitions in dictionary.yaml as flows).
-        if e.kind in (EntityKind.STATE, EntityKind.STATE_COMPOSITE):
+        # Translation entities (Modernization #5) are boundary objects, not
+        # orphans — their references live in source_term/target_term fields.
+        if e.kind in (EntityKind.STATE, EntityKind.STATE_COMPOSITE,
+                      EntityKind.TRANSLATION):
             continue
         report.issues.append(ValidationIssue(
             "info", "orphan", e.id,

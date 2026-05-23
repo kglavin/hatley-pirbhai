@@ -28,6 +28,7 @@ class EntityKind(str, Enum):
     Level-0: system, terminator(s).
     Level-N (N≥1): process, data_store.
     CSPEC-level (typically level-2 inside a process): state, state_composite.
+    Cross-cutting: translation (Anti-Corruption Layer between bounded contexts).
     """
     SYSTEM = "system"
     TERMINATOR = "terminator"
@@ -35,6 +36,20 @@ class EntityKind(str, Enum):
     DATA_STORE = "data_store"
     STATE = "state"
     STATE_COMPOSITE = "state_composite"
+    TRANSLATION = "translation"     # ACL — modernization #5 (Bounded Contexts)
+
+
+class ACLPattern(str, Enum):
+    """Context-mapping patterns from Evans 2003, hardened by Vernon 2013.
+
+    Modernization #5 — see BOUNDED_CONTEXTS_DESIGN.md."""
+    SHARED_KERNEL          = "shared_kernel"
+    CUSTOMER_SUPPLIER      = "customer_supplier"
+    CONFORMIST             = "conformist"
+    ANTI_CORRUPTION_LAYER  = "anti_corruption_layer"
+    OPEN_HOST_SERVICE      = "open_host_service"
+    PUBLISHED_LANGUAGE     = "published_language"
+    SEPARATE_WAYS          = "separate_ways"
 
 
 class FlowKind(str, Enum):
@@ -193,12 +208,16 @@ LevelType = Union[int, float]
 
 
 class Entity(BaseModel):
-    """An entity in the HP model — system, terminator, process, store, or state.
+    """An entity in the HP model — system, terminator, process, store, state, or translation.
 
     Stable identity is the dict key in dictionary.yaml (populated as `id`
     by the loader). The `label` is the human-readable display name and can
     be changed without affecting references elsewhere.
-    """
+
+    Modernization #5 — every entity may carry a `context:` tag declaring
+    which bounded context (Evans 2003) it belongs to. Untagged entities
+    belong to the synthetic `default` context. Translation entities
+    (`kind: translation`) act as Anti-Corruption Layers between contexts."""
     model_config = ConfigDict(extra="allow")  # forward-compat for added fields
 
     id: str
@@ -211,6 +230,14 @@ class Entity(BaseModel):
     optional: bool = False
     needs_cspec: bool = False            # process bubbles flagged for CSPEC
     is_initial: bool = False             # for states: this is the initial state of its parent composite (or of the whole CSPEC if no parent_state)
+    # ─── Modernization #5 — Bounded Contexts ───
+    context: Optional[str] = None        # which BoundedContext id this entity belongs to
+    # Translation-entity fields (required when kind == translation):
+    source_context: Optional[str] = None
+    target_context: Optional[str] = None
+    source_term: Optional[str] = None
+    target_term: Optional[str] = None
+    pattern: Optional[ACLPattern] = None
 
 
 class Flow(BaseModel):
@@ -242,6 +269,8 @@ class Flow(BaseModel):
     # ─── Modernization #2 — flow semantics ───
     synchronicity: Optional[FlowSynchronicity] = None
     delivery: Optional[FlowDelivery] = None
+    # ─── Modernization #5 — Bounded Contexts ───
+    context: Optional[str] = None
 
 
 class Edge(BaseModel):
@@ -343,6 +372,8 @@ class ArchModule(BaseModel):
     trust_zone: Optional[TrustZone] = None
     # ─── Modernization #1 — runtime observability surface ───
     observability: Optional[Observability] = None
+    # ─── Modernization #5 — Bounded Contexts ───
+    context: Optional[str] = None
 
 
 class ArchFlow(BaseModel):
@@ -360,6 +391,8 @@ class ArchFlow(BaseModel):
     # ─── Modernization #2 — flow semantics ───
     synchronicity: Optional[FlowSynchronicity] = None
     delivery: Optional[FlowDelivery] = None
+    # ─── Modernization #5 — Bounded Contexts ───
+    context: Optional[str] = None
 
 
 class ArchInterconnect(BaseModel):
@@ -554,6 +587,24 @@ class TPM(BaseModel):
     trend_notes: Optional[str] = None             # narrative trend
 
 
+class BoundedContext(BaseModel):
+    """A bounded context per Evans 2003 / Vernon 2013 / Khononov 2021.
+
+    A region of the dictionary where a ubiquitous language applies
+    consistently. Cross-context references must route through an
+    explicit Anti-Corruption Layer (a `kind: translation` entity).
+
+    Modernization #5 — see BOUNDED_CONTEXTS_DESIGN.md.
+    """
+    model_config = ConfigDict(extra="allow")
+
+    id: str
+    name: str
+    description: Optional[str] = None
+    owner: Optional[str] = None              # team or person (CODEOWNERS-style)
+    ubiquitous_language: Optional[str] = None  # narrative of the context's lexicon
+
+
 class STRIDEMitigations(BaseModel):
     """Per-interconnect STRIDE threat-category mitigations.
 
@@ -691,6 +742,8 @@ class Project(BaseModel):
     tpms: dict[str, TPM] = Field(default_factory=dict)
     # ─── Modernization #32 — SLI/SLO/SLA ───
     service_level_objectives: dict[str, SLO] = Field(default_factory=dict)
+    # ─── Modernization #5 — Bounded Contexts ───
+    bounded_contexts: dict[str, BoundedContext] = Field(default_factory=dict)
 
     # ─── Convenience accessors ───
 
@@ -765,6 +818,25 @@ class Project(BaseModel):
     def slos_for_tpm(self, tpm_id: str) -> list[SLO]:
         return [s for s in self.service_level_objectives.values()
                 if s.derives_from_tpm == tpm_id]
+
+    def all_bounded_contexts(self) -> list[BoundedContext]:
+        return list(self.bounded_contexts.values())
+
+    def all_translations(self) -> list[Entity]:
+        """All translation entities (Anti-Corruption Layers between contexts)."""
+        return [e for e in self.entities.values() if e.kind == EntityKind.TRANSLATION]
+
+    def context_of(self, entity_id: str) -> Optional[str]:
+        """Return the bounded-context id an entity belongs to (None = default)."""
+        e = self.entities.get(entity_id)
+        if e is not None:
+            return e.context
+        # Try flows, architecture modules, etc.
+        for collection in (self.flows, self.architecture_modules, self.architecture_flows):
+            obj = collection.get(entity_id)
+            if obj is not None:
+                return getattr(obj, "context", None)
+        return None
 
     def entity(self, id: str) -> Entity:
         return self.entities[id]

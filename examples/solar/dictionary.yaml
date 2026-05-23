@@ -102,6 +102,7 @@ entities:
     label: "Acquire Telemetry"          # working name
     level: 1
     parent: sys_root
+    context: ctx_controller             # modernization #5
     description: |
       Multi-protocol ingest layer. Owns the device-facing protocols
       (Sub-1G RF or OpenDTU, Modbus RTU, MQTT/Modbus TCP); normalizes
@@ -114,6 +115,7 @@ entities:
     level: 1
     parent: sys_root
     needs_cspec: true
+    context: ctx_controller             # modernization #5
     description: |
       The brain. Implements the diversion control loop, the night-
       discharge logic, and the outage handling (per Decision 2: outage
@@ -126,6 +128,7 @@ entities:
     label: "Dispatch Commands"          # working name
     level: 1
     parent: sys_root
+    context: ctx_controller             # modernization #5
     description: |
       Output-side adapter. Translates internal commands (cmd_setpoint,
       cmd_inverter_limit) into vendor-specific protocols and writes
@@ -136,6 +139,7 @@ entities:
     label: "Serve UI"                   # working name
     level: 1
     parent: sys_root
+    context: ctx_dashboard              # modernization #5
     description: |
       Presentation. Renders dashboards from store_system_state, surfaces
       alerts emitted by proc_compute_balance.
@@ -145,6 +149,7 @@ entities:
     label: "Handle Input"               # renamed from "Handle User Input" via naming-review
     level: 1
     parent: sys_root
+    context: ctx_dashboard              # modernization #5
     description: |
       Owner-facing input — configuration, manual overrides, enable/
       disable.
@@ -155,6 +160,7 @@ entities:
     level: 1
     parent: sys_root
     optional: true
+    context: ctx_controller             # modernization #5
     description: |
       Optional telemetry forward to S-Miles Cloud when enabled.
       Separated from proc_acquire_telemetry to make optionality
@@ -167,11 +173,33 @@ entities:
     label: "System State"               # working name
     level: 1
     parent: sys_root
+    context: ctx_controller             # modernization #5 — controller owns the store
     description: |
       Normalized, unified system-state snapshot. Per Decision 4, modeled
       as an explicit data store rather than implicit flows. Single
       writer (proc_acquire_telemetry); multiple readers
       (proc_compute_balance, proc_serve_ui, proc_cloud_forward).
+
+  # ─── Modernization #5 — Anti-Corruption Layer between contexts ───
+
+  acl_user_action_to_config:
+    kind: translation
+    label: "user action → config/override event"
+    level: 1                              # peer to the level-1 processes it bridges
+    source_context: ctx_dashboard
+    target_context: ctx_controller
+    source_term: proc_handle_user_input   # dashboard-side input gatherer
+    target_term: proc_compute_balance     # controller-side consumer of config/override events
+    pattern: anti_corruption_layer        # Evans 2003
+    description: |
+      The dashboard speaks the owner's language: clicks, form submits,
+      manual override actions. The controller speaks the language of
+      modes, setpoints, and event types. This ACL is the *conceptual*
+      translation between the two — implemented as the JSON-schema
+      contract on the WebSocket / HTTP boundary that converts
+      "user_action {kind: 'disable'}" into a typed `EVENT OVERRIDE`
+      with a validated payload. Bidirectional (also translates
+      controller events into dashboard-friendly notifications).
 
   # ─── Level 2 (CSPEC) — states inside proc_compute_balance / "Energy Manager" ───
   # Locked 2026-05-22 via 01-level1/cspecs/compute-balance/proposal.md.
@@ -774,6 +802,7 @@ architecture_modules:
     allocated_stores:
       - store_system_state
     trust_zone: privileged             # modernization #8.1 — owns inverter/battery commands
+    context: ctx_controller            # modernization #5
 
   am_dashboard_app:
     name: "Dashboard Web App"
@@ -788,6 +817,7 @@ architecture_modules:
       - proc_serve_ui
       - proc_handle_user_input
     trust_zone: internal_lan           # modernization #8.1 — owner's browser on LAN
+    context: ctx_dashboard             # modernization #5
 
 architecture_flows:
 
@@ -1120,3 +1150,36 @@ service_level_objectives:
     applies_to:
       modules: [am_controller_host, am_dashboard_app]
     derives_from_tpm: tpm_actual_monthly_cost
+
+
+# ─── Modernization #5 — Bounded Contexts (Evans 2003 / Vernon 2013) ───
+# Per BOUNDED_CONTEXTS_DESIGN.md — context labels within one file (Path B).
+# Existing untagged entities remain in the synthetic `default` context.
+
+bounded_contexts:
+
+  ctx_controller:
+    name: "Controller Service"
+    owner: "controller-team"
+    description: |
+      The Linux-side controller. Owns telemetry ingest, the energy-
+      manager state machine, output dispatch to inverter and battery,
+      and the optional cloud forwarder. Ubiquitous language is oriented
+      around power flows, modes, setpoints, and event-driven state
+      transitions.
+    ubiquitous_language: |
+      Terms: telemetry, sample, setpoint, mode (GridTie / Island /
+      Fault), diversion, surplus, deficit, transition.
+
+  ctx_dashboard:
+    name: "Dashboard App"
+    owner: "frontend-team"
+    description: |
+      The browser-side single-page app. Renders dashboards, surfaces
+      alerts, accepts owner configuration and manual overrides.
+      Ubiquitous language is oriented around views, panels, click
+      actions, and human-readable status.
+    ubiquitous_language: |
+      Terms: view, panel, action (button/form), banner (alert),
+      session, refresh. The owner thinks in these terms; the
+      controller thinks in setpoints.
