@@ -32,6 +32,22 @@ from ..model import (
     ArchInterconnect,
     ArchModuleKind,
 )
+from .sidebar import SIDEBAR_CSS, SIDEBAR_JS, render_sidebar_html
+from .tree import TreeNode
+
+
+def _sidebar_fields(tree: TreeNode | None, current_path: str | None) -> dict[str, str]:
+    """Build the three `{sidebar_*}` placeholder values for the HTML template.
+
+    Returns empty strings when `tree` is None — preserves back-compat for
+    direct callers of wrap_*_html that don't yet pass a tree."""
+    if tree is None:
+        return {"sidebar_html": "", "sidebar_css": "", "sidebar_js": ""}
+    return {
+        "sidebar_html": render_sidebar_html(tree, current_path),
+        "sidebar_css": SIDEBAR_CSS,
+        "sidebar_js": SIDEBAR_JS,
+    }
 
 
 # ─────────────────────────────────────────────────────────────────────
@@ -391,7 +407,7 @@ _CONTEXT_HTML_TEMPLATE = """<!DOCTYPE html>
     * {{ box-sizing: border-box; }}
     html, body {{ margin: 0; padding: 0; height: 100%; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif; }}
     body {{ display: flex; }}
-    #cy {{ flex: 1; background: #fafafa; }}
+    #cy {{ flex: 1; background: #fafafa; min-width: 0; }}
     #panel {{ width: 340px; padding: 18px; background: #fff; border-left: 1px solid #ddd; overflow-y: auto; font-size: 13px; line-height: 1.5; }}
     #panel h1 {{ font-size: 15px; margin: 0 0 6px; color: #222; }}
     #panel .sub {{ color: #888; font-size: 11px; margin-bottom: 16px; }}
@@ -403,9 +419,11 @@ _CONTEXT_HTML_TEMPLATE = """<!DOCTYPE html>
     .legend-item {{ display: flex; align-items: center; margin: 6px 0; font-size: 12px; }}
     .legend-swatch {{ width: 28px; height: 16px; margin-right: 10px; border-radius: 2px; flex-shrink: 0; }}
     .controls button {{ padding: 4px 10px; margin: 2px 4px 2px 0; font-size: 11px; border: 1px solid #ccc; background: #f6f6f6; border-radius: 3px; cursor: pointer; }}
+{sidebar_css}
   </style>
 </head>
 <body>
+  {sidebar_html}
   <div id="cy"></div>
   <div id="panel">
     <h1>{title}</h1>
@@ -492,6 +510,7 @@ _CONTEXT_HTML_TEMPLATE = """<!DOCTYPE html>
       }}
     }});
   </script>
+  <script>{sidebar_js}</script>
 </body>
 </html>
 """
@@ -537,6 +556,9 @@ def wrap_context_html(
     project: Project,
     elements: list[dict[str, Any]] | None = None,
     drill_target: str | None = "../01-level1/dfd.generated.html",
+    *,
+    tree: TreeNode | None = None,
+    current_path: str | None = None,
 ) -> str:
     """Wrap the level-0 Context Diagram's elements list in the full HTML
     template — Cytoscape script + side panel + legend + navigation.
@@ -544,6 +566,9 @@ def wrap_context_html(
     `drill_target` controls whether the system bubble is decomposable
     (and where double-click navigates). Pass None for projects without
     a level-1 DFD yet.
+
+    When `tree` is provided, a collapsible left-sidebar with the project
+    portal navigation is injected.
     """
     if elements is None:
         elements = render_context_elements(project, drill_target=drill_target)
@@ -555,6 +580,7 @@ def wrap_context_html(
         legend_html=_build_legend(project),
         elements_json=json.dumps(elements, indent=2),
         styles_json=json.dumps(_ALL_STYLES_JSON, indent=2),
+        **_sidebar_fields(tree, current_path),
     )
 
 
@@ -726,9 +752,15 @@ def wrap_dfd_html(
     project: Project,
     parent_id: str = "sys_root",
     elements: list[dict[str, Any]] | None = None,
+    *,
+    tree: TreeNode | None = None,
+    current_path: str | None = None,
 ) -> str:
     """Wrap a level-N+1 DFD's elements in the same HTML template the
-    Context view uses, with DFD-specific navigation + legend."""
+    Context view uses, with DFD-specific navigation + legend.
+
+    When `tree` is provided, a collapsible left-sidebar with the project
+    portal navigation is injected."""
     if elements is None:
         elements = render_dfd_elements(project, parent_id)
 
@@ -739,6 +771,7 @@ def wrap_dfd_html(
         legend_html=_build_dfd_legend(project, parent_id),
         elements_json=json.dumps(elements, indent=2),
         styles_json=json.dumps(_ALL_STYLES_JSON, indent=2),
+        **_sidebar_fields(tree, current_path),
     )
 
 
@@ -853,6 +886,9 @@ def wrap_state_machine_html(
     project: Project,
     machine_id: str,
     elements: list[dict[str, Any]] | None = None,
+    *,
+    tree: TreeNode | None = None,
+    current_path: str | None = None,
 ) -> str:
     """Wrap a CSPEC state machine's elements in the standard HTML template.
 
@@ -860,6 +896,9 @@ def wrap_state_machine_html(
     `parent` pointer back to their composite). The layout engine is the
     same `cose` we use elsewhere; for state machines this works but is
     less optimal than dedicated state-machine layout (acceptable for v1).
+
+    When `tree` is provided, a collapsible left-sidebar with the project
+    portal navigation is injected.
     """
     if elements is None:
         elements = render_state_machine_elements(project, machine_id)
@@ -872,6 +911,7 @@ def wrap_state_machine_html(
         legend_html=_build_cspec_legend(project, machine_id),
         elements_json=json.dumps(elements, indent=2),
         styles_json=json.dumps(_ALL_STYLES_JSON, indent=2),
+        **_sidebar_fields(tree, current_path),
     )
 
 
@@ -1063,8 +1103,14 @@ def wrap_afd_html(
     project: Project,
     parent_id: str | None = None,
     elements: list[dict[str, Any]] | None = None,
+    *,
+    tree: TreeNode | None = None,
+    current_path: str | None = None,
 ) -> str:
-    """Wrap an AFD's elements in the same HTML template the other views use."""
+    """Wrap an AFD's elements in the same HTML template the other views use.
+
+    When `tree` is provided, a collapsible left-sidebar with the project
+    portal navigation is injected."""
     if elements is None:
         elements = render_afd_elements(project, parent_id)
 
@@ -1077,6 +1123,7 @@ def wrap_afd_html(
         legend_html=_build_arch_legend("AFD"),
         elements_json=json.dumps(elements, indent=2),
         styles_json=json.dumps(styles, indent=2),
+        **_sidebar_fields(tree, current_path),
     )
 
 
@@ -1084,8 +1131,14 @@ def wrap_aid_html(
     project: Project,
     parent_id: str | None = None,
     elements: list[dict[str, Any]] | None = None,
+    *,
+    tree: TreeNode | None = None,
+    current_path: str | None = None,
 ) -> str:
-    """Wrap an AID's elements in the same HTML template."""
+    """Wrap an AID's elements in the same HTML template.
+
+    When `tree` is provided, a collapsible left-sidebar with the project
+    portal navigation is injected."""
     if elements is None:
         elements = render_aid_elements(project, parent_id)
 
@@ -1098,4 +1151,5 @@ def wrap_aid_html(
         legend_html=_build_arch_legend("AID"),
         elements_json=json.dumps(elements, indent=2),
         styles_json=json.dumps(styles, indent=2),
+        **_sidebar_fields(tree, current_path),
     )

@@ -137,7 +137,7 @@ def _build_stage4(project: Project) -> TreeNode:
             s.add(TreeNode(
                 label=label,
                 kind="artifact",
-                href=f"01-level1/pspecs/{pspec_subdir_name(ps.parent_process)}.md",
+                href=f"01-level1/pspecs/{pspec_subdir_name(ps.parent_process)}.generated.html",
             ))
     return s
 
@@ -165,7 +165,7 @@ def _build_stage5(project: Project) -> TreeNode:
             modules_sub.add(TreeNode(
                 label=label,
                 kind="artifact",
-                href=f"architecture/specs/{ams_subdir_name(ams.parent_module)}.md",
+                href=f"architecture/specs/{ams_subdir_name(ams.parent_module)}.generated.html",
             ))
 
     if project.architecture_interconnect_specs:
@@ -176,7 +176,7 @@ def _build_stage5(project: Project) -> TreeNode:
             ic_sub.add(TreeNode(
                 label=label,
                 kind="artifact",
-                href=f"architecture/specs/interconnects/{ais_subdir_name(ais.parent_interconnect)}.md",
+                href=f"architecture/specs/interconnects/{ais_subdir_name(ais.parent_interconnect)}.generated.html",
             ))
 
     return s
@@ -197,14 +197,14 @@ def _build_modernization(project: Project, project_dir: Path) -> TreeNode:
             adrs_sub.add(TreeNode(
                 label=adr.title,
                 kind="artifact",
-                href=f"adrs/{adr_filename(adr.id)}",
+                href=f"adrs/{adr_filename(adr.id).replace('.md', '.generated.html')}",
             ))
 
     if project.service_level_objectives:
         s.add(TreeNode(
             label="SLOs Summary",
             kind="artifact",
-            href="architecture/slos.md",
+            href="architecture/slos.generated.html",
             badge=f"{len(project.service_level_objectives)} SLO(s)",
         ))
 
@@ -235,7 +235,7 @@ def _build_modernization(project: Project, project_dir: Path) -> TreeNode:
                 rb_sub.add(TreeNode(
                     label=label,
                     kind="artifact",
-                    href=f"runbooks/{rb.name}",
+                    href=f"runbooks/{rb.stem}.generated.html",
                 ))
 
     return s
