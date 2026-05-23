@@ -71,6 +71,25 @@ def render_adr_markdown(project: Project, adr: ADR) -> str:
             lines.append(f"- **{label}:** " + ", ".join(f"`{i}`" for i in ids))
         lines.append("")
 
+    # CATALOG REFERENCES (modernization #8.3)
+    mitre = adr.references_mitre_attack
+    cwe   = adr.references_cwe
+    compl = adr.references_compliance
+    if mitre or cwe or compl:
+        lines.append("## CATALOG REFERENCES")
+        lines.append("")
+        if mitre:
+            lines.append("**MITRE ATT&CK:** " + ", ".join(
+                f"[`{t}`](https://attack.mitre.org/techniques/{t.replace('.', '/')}/)" for t in mitre))
+            lines.append("")
+        if cwe:
+            lines.append("**CWE:** " + ", ".join(
+                f"[`{c}`](https://cwe.mitre.org/data/definitions/{c.split('-')[1]}.html)" for c in cwe))
+            lines.append("")
+        if compl:
+            lines.append("**Compliance:** " + ", ".join(f"`{c}`" for c in compl))
+            lines.append("")
+
     lines.append("---")
     lines.append("")
     lines.append(

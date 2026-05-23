@@ -216,6 +216,9 @@ def render_ams_markdown(project: Project, ams: ArchModuleSpec) -> str:
             )
         lines.append("")
 
+    # CATALOG REFERENCES (modernization #8.3)
+    _append_catalog_refs(lines, ams)
+
     lines.append("---")
     lines.append("")
     lines.append(
@@ -363,6 +366,51 @@ def render_ais_markdown(project: Project, ais: ArchInterconnectSpec) -> str:
         lines.extend(cons)
         lines.append("")
 
+    # THREAT MODEL (STRIDE) — modernization #8.2
+    stride = ic.stride_mitigations
+    if stride is not None:
+        lines.append("## THREAT MODEL (STRIDE)")
+        lines.append("")
+        lines.append("Per Microsoft SDL (Howard & Lipner 2006). Each row is the "
+                     "narrative describing how the threat category is addressed.")
+        lines.append("")
+        lines.append("| Category | Mitigation |")
+        lines.append("|---|---|")
+        for label, val in [
+            ("**S**poofing",          stride.spoofing),
+            ("**T**ampering",         stride.tampering),
+            ("**R**epudiation",       stride.repudiation),
+            ("**I**nfo disclosure",   stride.info_disclosure),
+            ("**D**enial of service", stride.denial_of_service),
+            ("**E**lev. of privilege", stride.elev_of_privilege),
+        ]:
+            v = val.replace("\n", " ") if val else "*(not addressed)*"
+            lines.append(f"| {label} | {v} |")
+        lines.append("")
+
+    # LINDDUN (optional — privacy threat model)
+    linddun = ic.linddun_mitigations
+    if linddun is not None:
+        lines.append("## PRIVACY THREAT MODEL (LINDDUN)")
+        lines.append("")
+        lines.append("| Category | Mitigation |")
+        lines.append("|---|---|")
+        for label, val in [
+            ("**L**inkability",     linddun.linkability),
+            ("**I**dentifiability", linddun.identifiability),
+            ("**N**on-repudiation", linddun.non_repudiation),
+            ("**D**etectability",   linddun.detectability),
+            ("**D**isclosure",      linddun.disclosure),
+            ("**U**nawareness",     linddun.unawareness),
+            ("**N**on-compliance",  linddun.non_compliance),
+        ]:
+            v = val.replace("\n", " ") if val else "*(not addressed)*"
+            lines.append(f"| {label} | {v} |")
+        lines.append("")
+
+    # CATALOG REFERENCES (modernization #8.3)
+    _append_catalog_refs(lines, ais)
+
     lines.append("---")
     lines.append("")
     lines.append(
@@ -370,3 +418,27 @@ def render_ais_markdown(project: Project, ais: ArchInterconnectSpec) -> str:
         "See [`../../../ARCH_DESIGN.md`](../../../ARCH_DESIGN.md).*"
     )
     return "\n".join(lines) + "\n"
+
+
+def _append_catalog_refs(lines: list[str], holder) -> None:
+    """Append a CATALOG REFERENCES section if any of the three reference
+    lists is non-empty. Used by AMS, AIS, and ADR markdown emitters
+    (modernization #8.3)."""
+    mitre = getattr(holder, "references_mitre_attack", []) or []
+    cwe   = getattr(holder, "references_cwe", []) or []
+    compl = getattr(holder, "references_compliance", []) or []
+    if not (mitre or cwe or compl):
+        return
+    lines.append("## CATALOG REFERENCES")
+    lines.append("")
+    if mitre:
+        lines.append("**MITRE ATT&CK:** " + ", ".join(
+            f"[`{t}`](https://attack.mitre.org/techniques/{t.replace('.', '/')}/)" for t in mitre))
+        lines.append("")
+    if cwe:
+        lines.append("**CWE:** " + ", ".join(
+            f"[`{c}`](https://cwe.mitre.org/data/definitions/{c.split('-')[1]}.html)" for c in cwe))
+        lines.append("")
+    if compl:
+        lines.append("**Compliance:** " + ", ".join(f"`{c}`" for c in compl))
+        lines.append("")

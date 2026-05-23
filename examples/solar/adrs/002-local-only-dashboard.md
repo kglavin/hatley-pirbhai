@@ -41,6 +41,14 @@ an opt-in, but it is out of scope for the supported configuration.
 - **Modules:** `am_dashboard_app`, `am_controller_host`
 - **Interconnects:** `ai_local_lan`
 
+## CATALOG REFERENCES
+
+**MITRE ATT&CK:** [`T1190`](https://attack.mitre.org/techniques/T1190/), [`T1078`](https://attack.mitre.org/techniques/T1078/)
+
+**CWE:** [`CWE-306`](https://cwe.mitre.org/data/definitions/306.html), [`CWE-319`](https://cwe.mitre.org/data/definitions/319.html)
+
+**Compliance:** `CCPA-1798.100`
+
 ---
 
 *Format: Michael Nygard 2011 — Context / Decision / Consequences / Alternatives. See [`../toolkit/MODERNIZATION_DESIGN.md`](../toolkit/MODERNIZATION_DESIGN.md).*
