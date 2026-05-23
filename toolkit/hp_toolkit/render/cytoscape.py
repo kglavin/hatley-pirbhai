@@ -32,18 +32,31 @@ from ..model import (
     ArchInterconnect,
     ArchModuleKind,
 )
-from .sidebar import SIDEBAR_CSS, SIDEBAR_JS, render_sidebar_html
+from .sidebar import SIDEBAR_CSS, SIDEBAR_JS, _path_prefix_for, render_sidebar_html
 from .tree import TreeNode
 
 
-def _sidebar_fields(tree: TreeNode | None, current_path: str | None) -> dict[str, str]:
-    """Build the three `{sidebar_*}` placeholder values for the HTML template.
+def _hp_ref_base(current_path: str | None) -> str:
+    """Compute the host-page-relative path to toolkit/reference/HP_QUICK_REF.md.
 
-    Returns empty strings when `tree` is None — preserves back-compat for
-    direct callers of wrap_*_html that don't yet pass a tree."""
+    Project layout is `<repo>/examples/<project>/<current_path>`, so we need
+    `_path_prefix_for(current_path)` (to reach project root) plus `../../` (to
+    cross examples/<project> to repo root) plus `toolkit/reference/...`."""
+    prefix = _path_prefix_for(current_path or "")
+    return prefix + "../../toolkit/reference/HP_QUICK_REF.md"
+
+
+def _sidebar_fields(tree: TreeNode | None, current_path: str | None) -> dict[str, str]:
+    """Build the placeholder values for the HTML template.
+
+    Returns empty strings for sidebar fields when `tree` is None — preserves
+    back-compat for direct callers that don't yet pass a tree. `hp_ref_base`
+    is always computed since the JS reference link uses it."""
+    base = {"hp_ref_base": _hp_ref_base(current_path)}
     if tree is None:
-        return {"sidebar_html": "", "sidebar_css": "", "sidebar_js": ""}
+        return {**base, "sidebar_html": "", "sidebar_css": "", "sidebar_js": ""}
     return {
+        **base,
         "sidebar_html": render_sidebar_html(tree, current_path),
         "sidebar_css": SIDEBAR_CSS,
         "sidebar_js": SIDEBAR_JS,
@@ -462,7 +475,7 @@ _CONTEXT_HTML_TEMPLATE = """<!DOCTYPE html>
       'terminator-grid': '#terminator',
       'terminator-optional': '#terminator',
     }};
-    var hpRefBase = '../../../toolkit/reference/HP_QUICK_REF.md';
+    var hpRefBase = '{hp_ref_base}';
 
     function render(html) {{ document.getElementById('info').innerHTML = html; }}
 
@@ -849,11 +862,13 @@ def render_state_machine_elements(
 
 
 def _build_cspec_nav(project: Project, machine_id: str) -> str:
+    # CSPEC pages live at 01-level1/cspecs/<id>/cspec.generated.html (depth 3),
+    # so the path back to <repo>/toolkit/reference/ is five `../` segments.
     return (
         '<p style="margin:4px 0 4px 0;"><strong>↑ Parent:</strong> '
         '<a href="../../dfd.generated.html">Level-1 DFD</a> '
         '&middot; <a href="../../../dictionary.yaml">Dictionary</a> '
-        '&middot; <a href="../../../../toolkit/reference/HP_QUICK_REF.md#cspec--control-specification">CSPEC reference</a></p>\n'
+        '&middot; <a href="../../../../../toolkit/reference/HP_QUICK_REF.md#cspec--control-specification">CSPEC reference</a></p>\n'
         '    <p style="margin:0 0 12px 0;font-size:11px;color:#888;">'
         'Click a state to see its description; click a transition arrow '
         'for its event and action.</p>'

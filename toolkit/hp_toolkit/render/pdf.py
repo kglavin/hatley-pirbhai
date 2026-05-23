@@ -26,13 +26,24 @@ from __future__ import annotations
 from datetime import datetime
 from pathlib import Path
 
+import subprocess
+
+import cairosvg
 import markdown
 import weasyprint
 
 from ..model import Project
 from ..status import modernization_summary
 from ..validate import validate
+from .svg import _find_binary
 from .tree import TreeNode, build_project_tree
+
+
+# Width of cairosvg-rendered PNGs from SVGs (pixels). Only used as a fallback
+# when the d2/mmdc binaries aren't available — the binaries render at their
+# native viewBox dimensions via Chromium, which produces a much higher-
+# fidelity result.
+_PNG_WIDTH_PX = 2400
 
 
 _MD_EXTENSIONS = ["tables", "fenced_code", "attr_list", "sane_lists", "toc"]
@@ -129,7 +140,7 @@ def _render_toc(tree: TreeNode, anchors: dict[int, str]) -> str:
                 f'    <p class="toc-row toc-depth-{depth}">'
                 f'<a href="#{anchor}">{_html_escape(child.label)}'
                 f'<span class="toc-leader"></span>'
-                f'<span class="toc-page" data-target="#{anchor}"></span></a></p>\n'
+                f'<span class="toc-pageno" data-target="#{anchor}"></span></a></p>\n'
             )
             visit(child, depth + 1)
 
@@ -193,15 +204,24 @@ def _render_artifact(node: TreeNode, anchors: dict[int, str], project_dir: Path)
     href = node.href
 
     if href.endswith(".generated.html"):
-        # Markdown sidecar wrapper — embed the .md source
-        md_path = project_dir / href.replace(".generated.html", ".md")
-        if md_path.exists():
-            return _embed_markdown(md_path, node.label, anchor)
-        # Cytoscape diagram wrapper — fall through to SVG sibling
-        for suffix in ["-mermaid.svg", "-d2.svg"]:
+        # Cytoscape diagram pages have a generated SVG sibling — check first
+        # because legacy projects may have a hand-written `.md` next to a
+        # diagram (e.g., solar's `context.md`), which would incorrectly shadow
+        # the SVG embed if we checked markdown first.
+        #
+        # Prefer D2 over Mermaid for PDF rendering: Mermaid SVGs put node text
+        # inside <foreignObject> with HTML, which WeasyPrint can't render —
+        # shapes appear but text labels go missing. D2 uses native SVG <text>,
+        # which WeasyPrint handles correctly when the SVG is *inlined* (not
+        # loaded via <img>, which loses the SVG's internal <style> classes).
+        for suffix in ["-d2.svg", "-mermaid.svg"]:
             svg_path = project_dir / href.replace(".html", suffix)
             if svg_path.exists():
                 return _embed_diagram(svg_path, node.label, anchor)
+        # Otherwise this is a markdown sidecar wrapper — embed the .md source
+        md_path = project_dir / href.replace(".generated.html", ".md")
+        if md_path.exists():
+            return _embed_markdown(md_path, node.label, anchor)
         return ""
 
     if href.endswith(".svg"):
@@ -231,16 +251,87 @@ def _embed_markdown(md_path: Path, label: str, anchor: str) -> str:
 
 
 def _embed_diagram(svg_path: Path, label: str, anchor: str) -> str:
-    """Wrap an SVG on a landscape diagram page (per Q2)."""
+    """Render the diagram source to PNG and embed the PNG on a landscape
+    page (per Q2).
+
+    Why PNG instead of inline SVG or <img src=...svg>:
+    WeasyPrint's PDF output of SVG (whether via <img> or inline) doesn't
+    reliably reproduce D2's class-based fills/strokes or Mermaid's
+    foreignObject text. The result across viewers (Chrome's pdf.js, VS
+    Code pdf extension, etc.) is missing shapes plus 'redacted' (black
+    bar) text glyphs.
+
+    Why two PNG render paths:
+    - Primary: invoke the `d2` or `mmdc` binary on the original source file
+      (`.d2` / `.mmd`). Both use headless Chromium internally — the same
+      pipeline that produces the in-browser preview. Fonts and styling
+      render identically to what you'd see in a browser.
+    - Fallback: cairosvg on the SVG. Lower fidelity (cairo loses D2's
+      class-based styling) but works when binaries aren't installed.
+
+    PNG is cached next to the SVG (`*.png`) so subsequent `--pdf-only`
+    builds skip the regen unless the source has changed.
+    """
+    png_path = svg_path.with_suffix(".png")
+    fresh = (png_path.exists()
+             and png_path.stat().st_mtime >= svg_path.stat().st_mtime)
+    if not fresh:
+        rendered = _render_png_from_source(svg_path, png_path)
+        if not rendered:
+            # Fallback: cairosvg on the SVG itself.
+            cairosvg.svg2png(
+                url=svg_path.as_uri(),
+                write_to=str(png_path),
+                output_width=_PNG_WIDTH_PX,
+            )
+
     anchor_attr = f' id="{anchor}"' if anchor else ""
-    # Convert to a file URL so WeasyPrint resolves regardless of base_url
-    src = svg_path.as_uri()
+    src = png_path.as_uri()
     return (
         f'<section class="diagram-page"{anchor_attr}>\n'
         f'  <h2 class="diagram-title">{_html_escape(label)}</h2>\n'
         f'  <img class="diagram" src="{src}" alt="{_html_escape(label)}" />\n'
         '</section>\n'
     )
+
+
+def _render_png_from_source(svg_path: Path, png_path: Path) -> bool:
+    """Render a high-fidelity PNG by invoking the same binary that produced
+    the SVG (`d2` for `*-d2.svg`, `mmdc` for `*-mermaid.svg`) on the
+    original source file. Both binaries use headless Chromium internally.
+
+    Returns True if a PNG was successfully written, False otherwise."""
+    name = svg_path.name
+    if name.endswith("-d2.svg"):
+        source = svg_path.with_name(name[:-len("-d2.svg")] + ".d2")
+        binary = _find_binary("d2")
+        if binary is None or not source.exists():
+            return False
+        result = subprocess.run(
+            [binary, str(source.resolve()), str(png_path.resolve())],
+            capture_output=True, text=True,
+        )
+        return result.returncode == 0 and png_path.exists()
+
+    if name.endswith("-mermaid.svg"):
+        source = svg_path.with_name(name[:-len("-mermaid.svg")] + ".mmd")
+        binary = _find_binary("mmdc")
+        if binary is None or not source.exists():
+            return False
+        cmd = [binary, "-i", str(source.resolve()), "-o", str(png_path.resolve())]
+        # Auto-locate puppeteer config (Ubuntu 23.10+ sandbox quirk)
+        pkg_dir = Path(__file__).resolve().parent.parent.parent
+        ppt = pkg_dir / ".puppeteer-config.json"
+        if ppt.exists():
+            cmd.extend(["-p", str(ppt)])
+        result = subprocess.run(cmd, capture_output=True, text=True)
+        # mmdc sometimes appends `-1` to the output name; handle that.
+        suffix_output = png_path.with_name(png_path.stem + "-1" + png_path.suffix)
+        if suffix_output.exists() and not png_path.exists():
+            suffix_output.rename(png_path)
+        return result.returncode == 0 and png_path.exists()
+
+    return False
 
 
 def _render_appendix(project_dir: Path) -> str:
@@ -332,9 +423,8 @@ body { margin: 0; padding: 0; }
 .toc-row { margin: 0.18cm 0; padding: 0; }
 .toc-row a { color: #222; text-decoration: none; display: flex; align-items: baseline; }
 .toc-leader { flex: 1; border-bottom: 1px dotted #aaa; margin: 0 0.3em; transform: translateY(-2pt); }
-.toc-page[data-target]::after { content: target-counter(attr(data-target), page); }
-.toc-row a > .toc-page { font-variant-numeric: tabular-nums; }
-.toc-row a > .toc-page::after { content: target-counter(attr(data-target), page); }
+.toc-row a > .toc-pageno { font-variant-numeric: tabular-nums; }
+.toc-row a > .toc-pageno::after { content: target-counter(attr(data-target), page); }
 .toc-depth-0 { font-weight: 600; font-size: 11pt; margin-top: 0.32cm; }
 .toc-depth-1 { font-size: 10pt; padding-left: 1cm; }
 .toc-depth-2 { font-size: 9.5pt; padding-left: 2cm; color: #555; }
@@ -366,7 +456,14 @@ body { margin: 0; padding: 0; }
   text-align: center;
 }
 .diagram-title { font-size: 14pt; margin: 0 0 0.4cm 0; color: #333; }
-.diagram { max-width: 100%; max-height: 17cm; height: auto; width: auto; }
+.diagram {
+  display: block;
+  width: 100%;
+  height: auto;
+  max-height: 17cm;
+  margin: 0 auto;
+  object-fit: contain;
+}
 
 /* Prose / markdown sections */
 .prose-section {
