@@ -21,7 +21,7 @@ This is the **Propose + Surface Ambiguity** AI move applied to a single-level de
 
 Drafts `<level-dir>/proposal.md` as a form-based batch-review document — same shape as [`examples/solar/01-level1/proposal.md`](../../examples/solar/01-level1/proposal.md) and [`examples/fishing-rig/01-level1/proposal.md`](../../examples/fishing-rig/01-level1/proposal.md).
 
-Standard decision set (7–8 decisions; project-shape varies the exact list):
+Standard decision set (7–8 base + 2 modernization decisions):
 
 | # | Decision | What it pins down |
 |---|---|---|
@@ -33,6 +33,8 @@ Standard decision set (7–8 decisions; project-shape varies the exact list):
 | 6 | Boundary flow refinement | Each level-N flow's level-N+1 endpoint (which internal consumes/produces) |
 | 7 | Naming convention | Keep `proc_*` / `store_*` / `event_*` / `data_*` / `cmd_*` prefixes? |
 | 8 | Anything else | Free-form escape hatch |
+| 9 | **Per-flow synchronicity** *(modernization #2)* | For each internal flow, declare its delivery semantic: `sync_request_response` / `async_fire_and_forget` / `push_notification` / `streaming` / `batched_event` / `continuous` (HP-classical default). Optional `delivery:` (at_most_once / at_least_once / exactly_once) for non-continuous flows. |
+| 10 | **Per-process bounded context** *(modernization #5)* | If `bounded_contexts:` is declared at the project level, tag every internal process + data store with its `context:` (e.g., `ctx_controller`, `ctx_dashboard`). Internal flows that cross contexts must route through a translation entity (an `acl_*` entry). |
 
 Each decision lists alternatives with Claude's recommended default **pre-checked** and provenance noted ("matches solar's pattern"; "minimum bubbles consistent with single-responsibility"; "AI inference from your description"). The user toggles overrides in MPE, saves once, pings back.
 
@@ -57,6 +59,8 @@ When invoked, conversationally:
 - **Exactly one state-rich bubble per decomposition (typical).** Decisions 4 and 5 collude — overrides, alerts, and faults usually live with the state-rich bubble's CSPEC, not scattered across the DFD. Stage 3 is easier when the locus is unambiguous.
 - **Don't write internal flows that bypass the boundary.** Every internal process either consumes or produces something visible at level-N (via refinement) or talks only to the data store. Free-floating internal-only processes that touch nothing observable from outside are usually missed responsibilities.
 - **Working names are still throwaway.** As at Stage 1, names get reviewed in the follow-up `hp-confirm-naming` pass. Don't pre-litigate naming in this skill.
+- **Flow synchronicity is an architectural decision, not a comment** *(modernization #2)*. The default `continuous` is correct for HP-classical sensor/control flows; modern data flows (event streams, RPC calls, push notifications) need explicit declaration. Mismatched assumptions on synchronicity are the most common source of operational surprises ("we thought it was push, it was poll").
+- **Cross-context flows require translations** *(modernization #5)*. If two internal processes are in different bounded contexts and exchange a flow, that flow must be bridged by a translation entity (`kind: translation`, with `pattern: anti_corruption_layer` typically). Commit 5's validator enforces this — don't leave unmediated cross-context flows lying around.
 
 ## Lived examples
 
