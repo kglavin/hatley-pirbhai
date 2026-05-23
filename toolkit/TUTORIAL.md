@@ -1,8 +1,8 @@
 # Tutorial — Walking through an HP project
 
-This tutorial walks you through a complete HP project from scaffold to Stage 4 lock, using the **fishing-rig** example that ships with this repo. You'll run real toolkit commands against artifacts that already exist, see how each stage produces its outputs, and understand the form-based proposal pattern by inspecting how the decisions were made.
+This tutorial walks you through a complete HP project from scaffold to Stage 5 lock, using the **fishing-rig** example that ships with this repo. You'll run real toolkit commands against artifacts that already exist, see how each stage produces its outputs, and understand the form-based proposal pattern by inspecting how the decisions were made.
 
-**Estimated time:** 35 minutes reading + running.
+**Estimated time:** 45 minutes reading + running.
 **Prerequisite:** install completed (`bash toolkit/bootstrap.sh`); VS Code + Markdown Preview Enhanced recommended.
 **Reference:** [README.md](README.md) for concepts; [`reference/HP_QUICK_REF.md`](reference/HP_QUICK_REF.md) for HP terminology.
 
@@ -46,10 +46,10 @@ Stages
   ✅ Stage 2 — Level-1 DFD                    5 internal process(es); proposal locked
   ✅ Stage 3 — CSPECs                         1 locked CSPEC(s); 9 states + 18 transitions
   ✅ Stage 4 — PSPECs                         4/4 leaf processes have PSPECs
-  — Stage 5 — Architecture model             stage not yet implemented in toolkit
+  ✅ Stage 5 — Architecture model             2 module(s); 2 flow(s); 1 interconnect(s); 5/5 leaf processes allocated; 2/2 AMS
 ```
 
-All four implemented stages are locked. We'll walk through them in order.
+All five implemented stages are locked. We'll walk through them in order.
 
 ---
 
@@ -316,6 +316,85 @@ Revert the change when you're done.
 
 ---
 
+## Stage 5 — Architecture Model
+
+**Goal of this stage:** map the *what* (Stages 1–4) onto the *how* — the actual hardware, software, and organizational modules the system is built from. The bridge is **allocation**: every leaf requirements process / CSPEC / data store gets assigned to one or more architecture modules.
+
+> "The architecture model shows the physical reality of the system as it is, or will be, built." — 2000 §4.2.1
+
+The Architecture Model has six core element types (per [`ARCH_DESIGN.md`](ARCH_DESIGN.md)): Architecture Module, Architecture Flow, Architecture Interconnect, AMS (per-module spec), AIS (per-interconnect spec), and the Architecture Dictionary (integrated into the existing `dictionary.yaml`).
+
+### What was decided
+
+Fishing-rig's architecture is intentionally small: an ESP32-based controller board and a mobile app. Open [`../examples/fishing-rig/dictionary.yaml`](../examples/fishing-rig/dictionary.yaml) and scroll to `architecture_modules:`. Two modules:
+
+| Module | Kind | Allocations |
+|---|---|---|
+| `am_controller` (AM 1) — Main Controller Board | hardware | `proc_acquire_tension`, `proc_reel_controller`, `proc_cloud_forward`, `proc_bite_detector` (CSPEC), `store_system_state` |
+| `am_angler_app` (AM 2) — Angler Mobile App | software | `proc_serve_ui` |
+
+Notice the **allocation bridge**: every leaf process from Stages 1–4 lands on exactly one architecture module here. `proc_bite_detector` is listed under `allocated_cspecs:` (state-rich) rather than `allocated_processes:` (book convention: 2000 §4.2.5.4).
+
+### Architecture flows
+
+Two flows between the modules, carrying the requirements-level flows:
+
+```yaml
+af_telemetry_to_app:        # controller → app (BLE notifications)
+  allocated_flows: [flow_state_to_ui, flow_alert, flow_f2_status]
+
+af_config_to_ctrl:          # app → controller (BLE writes)
+  allocated_flows: [flow_f1_angler_config, flow_override]
+```
+
+`allocated_flows:` is the architecture dictionary's record of which requirements flows ride each architecture flow (2000 §4.2.8). The validator's `architecture_flow_coverage_pct` reports how many requirements flows are accounted for.
+
+### Architecture interconnects
+
+One physical channel — BLE — carries both architecture flows. Interconnects can also exist without flows (e.g., power/ground buses) per 2000 §4.2.6.1.
+
+```yaml
+ai_ble:
+  endpoints: [am_controller, am_angler_app]
+  carries:   [af_telemetry_to_app, af_config_to_ctrl]
+  description: "Bluetooth Low Energy 5.0 link ..."
+```
+
+### AMS — Architecture Module Specification
+
+Open [`../examples/fishing-rig/architecture/specs/controller.md`](../examples/fishing-rig/architecture/specs/controller.md). This is the rendered sidecar for `am_controller`. The format follows the 2000 §4.2.5.4 typical-contents layout: DESCRIPTION → CROSS-REFERENCE (the allocation table) → DESIGN RATIONALE → DESIGN JUSTIFICATION → REQUIRED CONSTRAINTS (reliability/safety/physical/cost/...) → INTERFACES.
+
+The CROSS-REFERENCE table is derived from the module entry's `allocated_*` lists — you don't repeat them in the AMS prose. The spec captures the *prose around* the allocation: why this design was chosen, what constraints it must meet, what its external interfaces look like.
+
+### AIS — Architecture Interconnect Specification
+
+Open [`../examples/fishing-rig/architecture/specs/interconnects/ble.md`](../examples/fishing-rig/architecture/specs/interconnects/ble.md). This is `ai_ble`'s AIS. It describes the physical channel — protocol standard, design rationale, timing/physical constraints — and lists which architecture flows ride on it. Per 2000 §4.2.6.2, the AIS describes the *channel*; the dictionary records *what rides on it*.
+
+### Rendering
+
+**Open [`../examples/fishing-rig/architecture/afd.generated.html`](../examples/fishing-rig/architecture/afd.generated.html) in a browser.** The AFD shows the two modules as bubtangles (rounded rectangles, distinct from DFD process circles), color-coded by kind (hardware = orange tint; software = blue tint). The architecture flows are labeled arrows.
+
+**Open [`../examples/fishing-rig/architecture/aid.generated.html`](../examples/fishing-rig/architecture/aid.generated.html).** Same modules but with the BLE interconnect as a thick blue undirected link — the physical channel view.
+
+### Allocation as a hard validator rule
+
+Try breaking allocation to see the error. Open [`../examples/fishing-rig/dictionary.yaml`](../examples/fishing-rig/dictionary.yaml), find `am_controller`, and temporarily remove `proc_acquire_tension` from its `allocated_processes:` list. Then:
+
+```bash
+cd toolkit
+uv run python -m hp_toolkit.validate ../examples/fishing-rig/dictionary.yaml
+```
+
+You should see:
+
+```
+✗ architecture [proc_acquire_tension]: leaf requirements process not allocated to any architecture module (2000 §4.2.5.4)
+```
+
+Revert the change when you're done. This is the **allocation completeness rule** — every leaf process / CSPEC / data store from Stages 1–4 must end up assigned to ≥ 1 architecture module.
+
+---
+
 ## Closing the loop
 
 You've now seen what each stage produces. Two more commands close the loop.
@@ -336,6 +415,9 @@ Output (truncated):
   flow_notes_coverage_pct            [████████████████░░░░]  83.3%
 
 == Counts ==
+  architecture_flows                 2
+  architecture_interconnects         1
+  architecture_modules               2
   entities__terminator               5
   entities__process                  5
   entities__state                    9
@@ -346,7 +428,7 @@ Output (truncated):
 VALID — no errors
 ```
 
-Note the additional `pspec_coverage_pct` metric (100% — every leaf process has a PSPEC) and the `leaf_processes` / `pspecs_total` counts. `hp-validate` catches dangling references, hierarchy inconsistencies (e.g., `parent_state` on a non-state entity), orphan entities, coverage gaps, and PSPEC balancing violations. Run it after every dictionary edit.
+Note the four Stage-5 coverage metrics (`architecture_module_coverage_pct`, `architecture_flow_coverage_pct`, `ams_coverage_pct`, `ais_coverage_pct` — all at 100% on fishing-rig) and the Stage-4 `pspec_coverage_pct` (also 100%). `hp-validate` catches dangling references, hierarchy inconsistencies (e.g., `parent_state` on a non-state entity), orphan entities, coverage gaps, PSPEC balancing violations, and Stage-5 allocation gaps. Run it after every dictionary edit.
 
 ### Try the dictionary-as-source-of-truth payoff
 
@@ -357,20 +439,21 @@ cd toolkit
 uv run python scripts/render_project.py ../examples/fishing-rig
 ```
 
-Every generated artifact (Mermaid, D2, Cytoscape HTML, SVG, PSPEC markdown) — at all four stages — picks up the new label. Revert the change when you're done.
+Every generated artifact (Mermaid, D2, Cytoscape HTML, SVG, PSPEC markdown, AMS markdown) — at all five stages — picks up the new label. Revert the change when you're done.
 
 ---
 
 ## What you've seen
 
-Six ideas, all grounded in the artifacts you just walked through:
+Seven ideas, all grounded in the artifacts you just walked through:
 
-1. **`dictionary.yaml` is the only file you hand-edit.** Every diagram and PSPEC sidecar is derived.
+1. **`dictionary.yaml` is the only file you hand-edit.** Every diagram, PSPEC, AMS, and AIS sidecar is derived.
 2. **Each stage locks through a form-based proposal**, not a chat conversation. The proposal is the audit record: decisions, alternatives considered, defaults pre-checked, provenance attached.
 3. **Three views per artifact** (Mermaid, D2, Cytoscape HTML) serve three moments: docs, declarative, interactive IDE.
-4. **The Cytoscape HTML is hypertext.** Drill down on decomposable bubbles, walk up via `↑ Parent`, link to dictionary entries, PSPEC sidecars, and HP reference cards.
+4. **The Cytoscape HTML is hypertext.** Drill down on decomposable bubbles, walk up via `↑ Parent`, link to dictionary entries, PSPEC sidecars, AMS sidecars, and HP reference cards.
 5. **PSPECs follow 2000 Fig 4.46 exactly** — INPUTS / OUTPUTS / TRANSFORMATION. INPUTS and OUTPUTS are derived from `dictionary.flows`; the PSPEC only carries the transformation body, optional constraints, and optional comments. The validator enforces balancing (1988 §13.1).
-6. **`hp-validate` and `hp-status` keep you honest** — reference integrity, hierarchy consistency, PSPEC balancing, stage progress, artifact freshness.
+6. **Stage 5 is the bridge from requirements to architecture.** Every leaf process / CSPEC / data store from Stages 1–4 gets *allocated* to an architecture module. The validator's allocation-completeness rule (2000 §4.2.5.4) catches every leak.
+7. **`hp-validate` and `hp-status` keep you honest** — reference integrity, hierarchy consistency, PSPEC balancing, architecture allocation, stage progress, artifact freshness.
 
 ---
 
