@@ -111,6 +111,23 @@ def render_pspec_markdown(project: Project, pspec: PSpec) -> str:
             lines.append(f"- **Timing:** {cc.timing}")
         lines.append("")
 
+    # VERIFICATION (optional — modernization #25)
+    v = pspec.verification
+    if v is not None:
+        lines.append("## VERIFICATION")
+        lines.append("")
+        methods = ", ".join(m.value for m in v.methods)
+        lines.append(f"- **Methods:** {methods}")
+        if v.test_suite:
+            lines.append(f"- **Test suite:** [`{v.test_suite}`](../../../{v.test_suite})")
+        if v.coverage_target is not None:
+            lines.append(f"- **Coverage target:** {v.coverage_target}%")
+        if v.validation_scenarios:
+            lines.append("- **Validation scenarios:**")
+            for s in v.validation_scenarios:
+                lines.append(f"  - {s}")
+        lines.append("")
+
     # COMMENTS (optional)
     if pspec.comments:
         lines.append("## COMMENTS")

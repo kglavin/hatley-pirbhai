@@ -31,6 +31,15 @@ Every sampling cycle:
 - **Accuracy:** ±1% of measured tension
 - **Timing:** Sample → store_system_state write latency < 5 ms
 
+## VERIFICATION
+
+- **Methods:** test, analysis
+- **Coverage target:** 95.0%
+- **Validation scenarios:**
+  - Sustained 200 Hz sampling for 10 minutes without buffer overflow
+  - Calibration drift < 0.5% over 24-hour soak test
+  - Recovery from transient ADC fault within one sample period
+
 ## COMMENTS
 
 First-cut PSPEC. Recent-history buffer size N pending Stage 5 sizing —

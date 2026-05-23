@@ -526,6 +526,14 @@ pspecs:
     comments: |
       First-cut PSPEC. Recent-history buffer size N pending Stage 5 sizing —
       see TSPEC notes once that artifact exists.
+    # ─── Modernization #25 — V&V ───
+    verification:
+      methods: [test, analysis]
+      coverage_target: 95.0
+      validation_scenarios:
+        - "Sustained 200 Hz sampling for 10 minutes without buffer overflow"
+        - "Calibration drift < 0.5% over 24-hour soak test"
+        - "Recovery from transient ADC fault within one sample period"
 
   pspec_reel_controller:
     parent_process: proc_reel_controller
@@ -604,6 +612,7 @@ architecture_modules:
       - proc_bite_detector
     allocated_stores:
       - store_system_state
+    trust_zone: privileged             # modernization #8.1 — owns motor + sensor
 
   am_angler_app:
     name: "Angler Mobile App"
@@ -615,6 +624,7 @@ architecture_modules:
       and manual overrides.
     allocated_processes:
       - proc_serve_ui
+    trust_zone: internal_lan           # modernization #8.1 — angler-held device
 
 architecture_flows:
 
@@ -630,6 +640,8 @@ architecture_flows:
       - flow_state_to_ui
       - flow_alert
       - flow_f2_status
+    synchronicity: push_notification   # modernization #2 — controller pushes
+    delivery: at_most_once             # BLE GATT notifications are not retried
 
   af_config_to_ctrl:
     name: "angler config + override"
@@ -642,6 +654,8 @@ architecture_flows:
     allocated_flows:
       - flow_f1_angler_config
       - flow_override
+    synchronicity: sync_request_response   # modernization #2 — write + ack
+    delivery: at_least_once
 
 architecture_interconnects:
 
@@ -653,6 +667,8 @@ architecture_interconnects:
       Bluetooth Low Energy 5.0 link between the controller and the angler
       app. Custom GATT service carries telemetry notifications and
       config writes.
+    auth_required: paired_device       # modernization #8.1 — BLE pairing required
+    encryption: bluetooth_le_secure    # BLE 5.0 LE Secure Connections
 
 architecture_module_specs:
 
@@ -720,3 +736,41 @@ architecture_interconnect_specs:
       timing: "Notification → app render latency < 100 ms (one BLE
         connection interval at 7.5 ms minimum)."
       physical: "Range ≥ 30 m line-of-sight; ≥ 10 m through a vest pocket."
+
+
+# ─── Modernization #10 — Architecture Decision Records ───
+
+adrs:
+
+  adr_001_ble_transport:
+    title: "BLE chosen for controller ↔ app transport"
+    status: accepted
+    date: 2026-05-22
+    author: "controller team"
+    context: |
+      The controller needs a wireless link to the angler's mobile device
+      that satisfies three constraints simultaneously: low controller-side
+      power draw (battery-powered enclosure), simple no-account pairing
+      (no cloud login required), and adequate range from a vest pocket.
+      WiFi Direct, classic Bluetooth, and a custom 433 MHz radio were
+      candidates.
+    decision: |
+      Use Bluetooth Low Energy 5.0 with a custom GATT service. BLE LE
+      Secure Connections (P-256 ECDH) handles pairing + encryption;
+      paired-device authentication is sufficient for the threat model
+      (single-user session, no audit requirement).
+    consequences: |
+      - Controller-side power budget is met (~10 µA average BLE current).
+      - Angler app must support BLE on iOS 15+ / Android 11+.
+      - Range is range-limited to ~30 m line-of-sight, ~10 m through
+        clothing. Acceptable for the angling use case.
+      - Future expansion to remote-monitoring (cloud forwarding) is
+        independent: the cloud_forward bubble uses WiFi/HTTPS, not BLE.
+    alternatives:
+      - "WiFi Direct — rejected: power budget on controller side."
+      - "Classic Bluetooth — rejected: pairing UX worse than BLE; higher power."
+      - "Custom 433 MHz LoRa-style radio — rejected: regulatory complexity, certification cost."
+    affects:
+      modules: [am_controller, am_angler_app]
+      interconnects: [ai_ble]
+      flows: [af_telemetry_to_app, af_config_to_ctrl]

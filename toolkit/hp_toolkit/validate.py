@@ -20,7 +20,12 @@ from typing import Literal
 
 import re
 
-from .model import Project, Entity, EntityKind, Flow, PSpec
+from pathlib import Path
+
+from .model import (
+    Project, Entity, EntityKind, Flow, PSpec, ADR, ADRStatus,
+    AuthRequired, Encryption,
+)
 
 
 Severity = Literal["error", "warning", "info"]
@@ -699,6 +704,122 @@ def architecture_validation(project: Project) -> ValidationReport:
     return report
 
 
+# ─────────────────────────────────────────────────────────────────────
+# Modernization validators (Commit 1 — items #2, #8.1, #10, #25)
+#
+# Sources cited per-rule below. All rules treat the modernization fields
+# as optional — projects without modernization data still validate.
+# ─────────────────────────────────────────────────────────────────────
+
+
+def modernization_validation(project: Project, project_dir: Path | None = None) -> ValidationReport:
+    """Validate the Commit-1 modernization additions.
+
+    - #2:   Flow / ArchFlow synchronicity — warn if unset on ArchFlow
+    - #8.1: Trust boundaries + interconnect security — warn on cross-
+            trust-zone interconnects without auth/encryption
+    - #10:  ADRs — reference integrity on `affects` and `supersedes`
+    - #25:  V&V plans — warn if `test_suite` path doesn't exist
+    """
+    report = ValidationReport()
+    entity_ids = set(project.entities.keys())
+    am_ids = set(project.architecture_modules.keys())
+    af_ids = set(project.architecture_flows.keys())
+    ai_ids = set(project.architecture_interconnects.keys())
+
+    # ─── #2: synchronicity coverage on architecture flows ───
+    arch_flows = project.all_architecture_flows()
+    if arch_flows:
+        n_with_sync = sum(1 for f in arch_flows if f.synchronicity is not None)
+        report.metrics["synchronicity_coverage_pct"] = round(100 * n_with_sync / len(arch_flows), 1)
+        for f in arch_flows:
+            if f.synchronicity is None:
+                report.issues.append(ValidationIssue(
+                    "info", "modernization", f.id,
+                    "architecture flow has no synchronicity declared (modernization #2)"))
+
+    # ─── #8.1: cross-trust-zone interconnects need auth + encryption ───
+    for ic in project.all_architecture_interconnects():
+        # Find trust zones of endpoints
+        ep_zones = set()
+        for ep_id in ic.endpoints:
+            m = project.architecture_modules.get(ep_id)
+            if m is not None and m.trust_zone is not None:
+                ep_zones.add(m.trust_zone)
+
+        if len(ep_zones) > 1:
+            # Crosses trust zones
+            if ic.auth_required is None or ic.auth_required == AuthRequired.NONE:
+                report.issues.append(ValidationIssue(
+                    "warning", "modernization", ic.id,
+                    f"interconnect crosses trust zones {sorted(z.value for z in ep_zones)!r} "
+                    f"but has no auth_required (modernization #8.1)"))
+            if ic.encryption is None or ic.encryption == Encryption.NONE:
+                report.issues.append(ValidationIssue(
+                    "warning", "modernization", ic.id,
+                    f"interconnect crosses trust zones {sorted(z.value for z in ep_zones)!r} "
+                    f"but has no encryption (modernization #8.1)"))
+
+    # ─── #10: ADR reference integrity ───
+    adr_ids = set(project.adrs.keys())
+    for adr in project.all_adrs():
+        # supersedes references a real ADR
+        if adr.supersedes is not None and adr.supersedes not in adr_ids:
+            report.issues.append(ValidationIssue(
+                "error", "modernization", adr.id,
+                f"ADR supersedes {adr.supersedes!r} but that ADR is not in the dictionary"))
+        # `affects` references resolve. Targets can be entities, flows, edges,
+        # transitions, architecture modules / flows / interconnects.
+        all_refable = (entity_ids | set(project.flows.keys())
+                       | set(project.edges.keys()) | set(project.transitions.keys())
+                       | am_ids | af_ids | ai_ids)
+        for kind, ids in adr.affects.items():
+            for ref_id in ids:
+                if ref_id not in all_refable:
+                    report.issues.append(ValidationIssue(
+                        "error", "modernization", adr.id,
+                        f"ADR.affects[{kind!r}] references {ref_id!r} which is not in the dictionary"))
+
+    if project.adrs:
+        n_accepted = sum(1 for a in project.all_adrs() if a.status == ADRStatus.ACCEPTED)
+        report.counts["adrs_total"] = len(project.adrs)
+        report.counts["adrs_accepted"] = n_accepted
+
+    # ─── #25: V&V — verification block coverage + test_suite path check ───
+    n_specs_total = len(project.pspecs) + len(project.architecture_module_specs)
+    if n_specs_total > 0:
+        n_with_verif = (
+            sum(1 for p in project.all_pspecs() if p.verification is not None)
+            + sum(1 for a in project.all_architecture_module_specs() if a.verification is not None)
+        )
+        report.metrics["verification_coverage_pct"] = round(100 * n_with_verif / n_specs_total, 1)
+
+        # Path-existence check (only if project_dir is provided)
+        if project_dir is not None:
+            def _check_paths(spec_id: str, spec_verif):
+                if spec_verif is None or spec_verif.test_suite is None:
+                    return
+                test_path = spec_verif.test_suite
+                # Reject absolute paths and parent-directory escape
+                if test_path.startswith("/") or ".." in Path(test_path).parts:
+                    report.issues.append(ValidationIssue(
+                        "error", "modernization", spec_id,
+                        f"V&V test_suite path {test_path!r} must be relative and within project"))
+                    return
+                full_path = project_dir / test_path
+                if not full_path.exists():
+                    report.issues.append(ValidationIssue(
+                        "warning", "modernization", spec_id,
+                        f"V&V test_suite {test_path!r} does not exist at expected location"))
+
+            for p in project.all_pspecs():
+                _check_paths(p.id, p.verification)
+            for a in project.all_architecture_module_specs():
+                _check_paths(a.id, a.verification)
+
+    return report
+
+
 def find_orphans(project: Project) -> ValidationReport:
     """Entities that no flow or edge references — *and* are not the
     container of another entity (i.e., not a parent). True orphans probably
@@ -740,14 +861,19 @@ def find_orphans(project: Project) -> ValidationReport:
 # Aggregate
 # ─────────────────────────────────────────────────────────────────────
 
-def validate(project: Project) -> ValidationReport:
-    """Run all validators and return a combined report."""
+def validate(project: Project, project_dir: Path | None = None) -> ValidationReport:
+    """Run all validators and return a combined report.
+
+    `project_dir`, when provided, lets modernization rules (#25 V&V path
+    check, #33 runbook path check, etc.) verify referenced files exist.
+    """
     report = ValidationReport()
     report.extend(reference_integrity(project))
     report.extend(hierarchy_consistency(project))
     report.extend(coverage_metrics(project))
     report.extend(pspec_validation(project))
     report.extend(architecture_validation(project))
+    report.extend(modernization_validation(project, project_dir))
     report.extend(find_orphans(project))
     return report
 
@@ -776,7 +902,7 @@ def _main() -> int:
         return 2
 
     project = load(path)
-    report = validate(project)
+    report = validate(project, project_dir=path.parent)
 
     # Issues, grouped by severity
     if report.errors:

@@ -66,6 +66,80 @@ class ArchFlowKind(str, Enum):
     ENERGY = "energy"
 
 
+class FlowSynchronicity(str, Enum):
+    """How a flow propagates between endpoints.
+
+    Source: Reactive Streams; Kafka delivery semantics; gRPC streaming;
+    AMQP; AWS SQS docs. Modernization item #2."""
+    SYNC_REQUEST_RESPONSE = "sync_request_response"  # caller blocks on response
+    ASYNC_FIRE_AND_FORGET = "async_fire_and_forget"  # caller doesn't wait
+    PUSH_NOTIFICATION     = "push_notification"      # producer pushes on event
+    STREAMING             = "streaming"              # continuous data flow
+    BATCHED_EVENT         = "batched_event"          # periodic batched delivery
+    CONTINUOUS            = "continuous"             # HP-classical: held signal
+
+
+class FlowDelivery(str, Enum):
+    """Delivery semantics for a flow (Modernization #2)."""
+    AT_MOST_ONCE  = "at_most_once"
+    AT_LEAST_ONCE = "at_least_once"
+    EXACTLY_ONCE  = "exactly_once"
+
+
+class TrustZone(str, Enum):
+    """Trust zone classification for architecture modules (Modernization #8.1).
+
+    Source: zero-trust architecture (Beyond Corp 2014); SPIFFE/SPIRE."""
+    PUBLIC_INTERNET = "public_internet"
+    DMZ             = "dmz"
+    INTERNAL_LAN    = "internal_lan"
+    PRIVILEGED      = "privileged"
+    KERNEL          = "kernel"
+    AIR_GAPPED      = "air_gapped"
+
+
+class AuthRequired(str, Enum):
+    """Authentication requirement on an architecture interconnect (Modernization #8.1)."""
+    NONE          = "none"
+    SHARED_SECRET = "shared_secret"
+    OAUTH         = "oauth"
+    OIDC          = "oidc"
+    MTLS          = "mtls"
+    JWT           = "jwt"
+    SPIFFE        = "spiffe"
+    PAIRED_DEVICE = "paired_device"
+    CUSTOM        = "custom"
+
+
+class Encryption(str, Enum):
+    """Encryption posture on an architecture interconnect (Modernization #8.1)."""
+    NONE                = "none"
+    TLS                 = "tls"
+    MTLS                = "mtls"
+    BLUETOOTH_LE_SECURE = "bluetooth_le_secure"
+    AT_REST_DISK        = "at_rest_disk"
+    APPLICATION_LAYER   = "application_layer"
+    CUSTOM              = "custom"
+
+
+class VerificationMethod(str, Enum):
+    """V&V method per NASA SE Handbook §5.3 / IEEE 1012 (Modernization #25)."""
+    TEST          = "test"
+    ANALYSIS      = "analysis"
+    INSPECTION    = "inspection"
+    DEMONSTRATION = "demonstration"
+    FORMAL_PROOF  = "formal_proof"
+    SIMULATION    = "simulation"
+
+
+class ADRStatus(str, Enum):
+    """Architecture Decision Record lifecycle status (Nygard 2011)."""
+    PROPOSED   = "proposed"
+    ACCEPTED   = "accepted"
+    DEPRECATED = "deprecated"
+    SUPERSEDED = "superseded"
+
+
 class PSpecStyle(str, Enum):
     """Canonical body styles for a PSPEC transformation.
 
@@ -136,6 +210,9 @@ class Flow(BaseModel):
     # parent being decomposed) with `refined_source`; same for target.
     refined_source: Optional[str] = None
     refined_target: Optional[str] = None
+    # ─── Modernization #2 — flow semantics ───
+    synchronicity: Optional[FlowSynchronicity] = None
+    delivery: Optional[FlowDelivery] = None
 
 
 class Edge(BaseModel):
@@ -176,6 +253,20 @@ class Transformation(BaseModel):
     body: str   # required; non-empty
 
 
+class VerificationPlan(BaseModel):
+    """V&V plan — how the spec is verified and validated.
+
+    Source: NASA SE Handbook §5.3 (Verification) + §5.4 (Validation);
+    IEEE Std 1012-2016. Modernization #25.
+    """
+    model_config = ConfigDict(extra="allow")
+
+    methods: list[VerificationMethod]
+    test_suite: Optional[str] = None          # path (relative to project root)
+    coverage_target: Optional[float] = None   # 0.0–100.0
+    validation_scenarios: list[str] = Field(default_factory=list)
+
+
 class PSpec(BaseModel):
     """A Process Specification — the leaf-level functional contract for a process.
 
@@ -194,6 +285,8 @@ class PSpec(BaseModel):
     transformation: Transformation
     computational_constraints: Optional[ComputationalConstraints] = None
     comments: Optional[str] = None       # rationale; 1988 §13.5 — NOT part of formal spec
+    # ─── Modernization #25 — V&V ───
+    verification: Optional[VerificationPlan] = None
 
 
 class ArchModule(BaseModel):
@@ -215,6 +308,8 @@ class ArchModule(BaseModel):
     allocated_processes: list[str] = Field(default_factory=list)
     allocated_cspecs: list[str] = Field(default_factory=list)
     allocated_stores: list[str] = Field(default_factory=list)
+    # ─── Modernization #8.1 — security posture ───
+    trust_zone: Optional[TrustZone] = None
 
 
 class ArchFlow(BaseModel):
@@ -229,6 +324,9 @@ class ArchFlow(BaseModel):
     kind: ArchFlowKind
     physical_description: Optional[str] = None
     allocated_flows: list[str] = Field(default_factory=list)   # requirements flow ids
+    # ─── Modernization #2 — flow semantics ───
+    synchronicity: Optional[FlowSynchronicity] = None
+    delivery: Optional[FlowDelivery] = None
 
 
 class ArchInterconnect(BaseModel):
@@ -243,6 +341,9 @@ class ArchInterconnect(BaseModel):
     endpoints: list[str]                       # 2+ architecture module ids
     carries: list[str] = Field(default_factory=list)   # architecture flow ids
     description: Optional[str] = None
+    # ─── Modernization #8.1 — security posture ───
+    auth_required: Optional[AuthRequired] = None
+    encryption: Optional[Encryption] = None
 
 
 class ArchModuleConstraints(BaseModel):
@@ -276,6 +377,31 @@ class ArchModuleSpec(BaseModel):
     design_justification: Optional[str] = None
     required_constraints: Optional[ArchModuleConstraints] = None
     interfaces: Optional[str] = None
+    # ─── Modernization #25 — V&V ───
+    verification: Optional[VerificationPlan] = None
+
+
+class ADR(BaseModel):
+    """Architecture Decision Record — Michael Nygard 2011 format.
+
+    Modernization #10. Captures Context / Decision / Consequences /
+    Alternatives as a structured artifact, cross-linked to the model
+    elements it affects."""
+    model_config = ConfigDict(extra="allow")
+
+    id: str
+    title: str
+    status: ADRStatus
+    date: Union[date, str]
+    author: Optional[str] = None
+    context: str                              # required — what's the situation?
+    decision: str                             # required — what did we decide?
+    consequences: str                         # required — what follows?
+    alternatives: list[str] = Field(default_factory=list)
+    # Cross-references — which model elements this decision affects.
+    # Keys: modules, interconnects, flows, processes, stores, etc.
+    affects: dict[str, list[str]] = Field(default_factory=dict)
+    supersedes: Optional[str] = None          # id of ADR this replaces
 
 
 class ArchInterconnectSpec(BaseModel):
@@ -343,6 +469,8 @@ class Project(BaseModel):
     architecture_interconnects: dict[str, ArchInterconnect] = Field(default_factory=dict)
     architecture_module_specs: dict[str, ArchModuleSpec] = Field(default_factory=dict)
     architecture_interconnect_specs: dict[str, ArchInterconnectSpec] = Field(default_factory=dict)
+    # ─── Modernization #10 — Architecture Decision Records ───
+    adrs: dict[str, ADR] = Field(default_factory=dict)
 
     # ─── Convenience accessors ───
 
@@ -387,6 +515,12 @@ class Project(BaseModel):
             if s.parent_interconnect == interconnect_id:
                 return s
         return None
+
+    def all_adrs(self) -> list[ADR]:
+        return list(self.adrs.values())
+
+    def adr(self, id: str) -> ADR:
+        return self.adrs[id]
 
     def entity(self, id: str) -> Entity:
         return self.entities[id]
