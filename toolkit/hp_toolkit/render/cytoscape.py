@@ -27,6 +27,10 @@ from ..model import (
     EntityKind,
     FlowKind,
     EdgeKind,
+    ArchModule,
+    ArchFlow,
+    ArchInterconnect,
+    ArchModuleKind,
 )
 
 
@@ -868,4 +872,212 @@ def wrap_state_machine_html(
         legend_html=_build_cspec_legend(project, machine_id),
         elements_json=json.dumps(elements, indent=2),
         styles_json=json.dumps(_ALL_STYLES_JSON, indent=2),
+    )
+
+
+# ─────────────────────────────────────────────────────────────────────
+# Stage 5 — Architecture Model (AFD + AID)
+# ─────────────────────────────────────────────────────────────────────
+
+_ARCH_STYLES_JSON: list[dict[str, Any]] = [
+    {
+        "selector": 'node[kind="am-hardware"]',
+        "style": {
+            "shape": "round-rectangle", "background-color": "#fff4e6",
+            "border-color": "#d68910", "border-width": 2,
+            "label": "data(label)", "color": "#222",
+            "text-valign": "center", "text-halign": "center", "text-wrap": "wrap",
+            "width": 150, "height": 80, "padding": 10, "font-size": 11,
+        }
+    },
+    {
+        "selector": 'node[kind="am-software"]',
+        "style": {
+            "shape": "round-rectangle", "background-color": "#e8f0fe",
+            "border-color": "#4a90e2", "border-width": 2,
+            "label": "data(label)", "color": "#222",
+            "text-valign": "center", "text-halign": "center", "text-wrap": "wrap",
+            "width": 150, "height": 80, "padding": 10, "font-size": 11,
+        }
+    },
+    {
+        "selector": 'node[kind="am-organizational"]',
+        "style": {
+            "shape": "round-rectangle", "background-color": "#f4f4f4",
+            "border-color": "#555", "border-width": 2,
+            "label": "data(label)", "color": "#222",
+            "text-valign": "center", "text-halign": "center", "text-wrap": "wrap",
+            "width": 150, "height": 80, "padding": 10, "font-size": 11,
+        }
+    },
+    {
+        "selector": 'edge[kind="arch-flow"]',
+        "style": {
+            "curve-style": "bezier", "target-arrow-shape": "triangle",
+            "target-arrow-color": "#444", "line-color": "#444", "width": 1.5,
+            "label": "data(label)", "font-size": 10, "text-rotation": "autorotate",
+            "text-background-color": "#fafafa", "text-background-opacity": 0.9,
+            "text-background-padding": 2,
+        }
+    },
+    {
+        "selector": 'edge[kind="interconnect"]',
+        "style": {
+            "curve-style": "bezier", "target-arrow-shape": "none",
+            "source-arrow-shape": "none", "line-color": "#1f5a99", "width": 4,
+            "label": "data(label)", "font-size": 11, "font-weight": "bold",
+            "color": "#1f5a99",
+            "text-rotation": "autorotate",
+            "text-background-color": "#fafafa", "text-background-opacity": 0.95,
+            "text-background-padding": 3,
+        }
+    },
+]
+
+
+def _am_node_kind(m: ArchModule) -> str:
+    return f"am-{m.kind.value}"
+
+
+def render_afd_elements(
+    project: Project,
+    parent_id: str | None = None,
+) -> list[dict[str, Any]]:
+    """Cytoscape elements for an Architecture Flow Diagram."""
+    elements: list[dict[str, Any]] = []
+    modules = [m for m in project.all_architecture_modules() if m.parent == parent_id]
+    module_ids = {m.id for m in modules}
+
+    for m in modules:
+        label = m.name
+        if m.module_number:
+            label = f"{label}\n({m.module_number})"
+        data: dict[str, Any] = {
+            "id": m.id, "label": label, "kind": _am_node_kind(m),
+            "description": m.description or "",
+        }
+        # If the module has children, mark decomposable + drill target
+        if any(o.parent == m.id for o in project.all_architecture_modules()):
+            data["decomposable"] = True
+            data["decomposes_to"] = f"afd-{m.id}.html"
+            data["decomposes_label"] = f"{m.name} internals"
+        # AMS link
+        ams = project.ams_for_module(m.id)
+        if ams is not None:
+            data["pspec_link"] = f"specs/{m.id.replace('am_','').replace('_','-')}.md"
+            data["pspec_label"] = f"{m.name} AMS"
+        elements.append({"data": data})
+
+    for f in project.all_architecture_flows():
+        if f.source in module_ids and f.target in module_ids:
+            label = f.name
+            if f.kind.value != "data":
+                label = f"{label} ({f.kind.value})"
+            elements.append({"data": {
+                "id": f.id, "source": f.source, "target": f.target,
+                "label": label, "kind": "arch-flow",
+            }})
+
+    return elements
+
+
+def render_aid_elements(
+    project: Project,
+    parent_id: str | None = None,
+) -> list[dict[str, Any]]:
+    """Cytoscape elements for an Architecture Interconnect Diagram."""
+    elements: list[dict[str, Any]] = []
+    modules = [m for m in project.all_architecture_modules() if m.parent == parent_id]
+    module_ids = {m.id for m in modules}
+
+    for m in modules:
+        label = m.name
+        if m.module_number:
+            label = f"{label}\n({m.module_number})"
+        elements.append({"data": {
+            "id": m.id, "label": label, "kind": _am_node_kind(m),
+            "description": m.description or "",
+        }})
+
+    for ic in project.all_architecture_interconnects():
+        eps = [ep for ep in ic.endpoints if ep in module_ids]
+        if len(eps) < 2:
+            continue
+        for i in range(len(eps) - 1):
+            elements.append({"data": {
+                "id": f"{ic.id}__{i}", "source": eps[i], "target": eps[i+1],
+                "label": ic.name, "kind": "interconnect",
+            }})
+
+    return elements
+
+
+def _build_arch_nav(project: Project, view: str) -> str:
+    return (
+        f'<a href="../00-context/context.generated.html">↑ Context</a>'
+        f' &middot; <a href="../01-level1/dfd.generated.html">↑ DFD</a>'
+        f' &middot; <a href="../dictionary.yaml">dictionary</a>'
+        f' &middot; <span style="color:#888;">{view}</span>'
+    )
+
+
+def _build_arch_legend(view: str) -> str:
+    rows = [
+        ('<span style="display:inline-block;width:14px;height:14px;background:#fff4e6;border:2px solid #d68910;border-radius:4px;vertical-align:middle;"></span>',
+         "Hardware module"),
+        ('<span style="display:inline-block;width:14px;height:14px;background:#e8f0fe;border:2px solid #4a90e2;border-radius:4px;vertical-align:middle;"></span>',
+         "Software module"),
+        ('<span style="display:inline-block;width:14px;height:14px;background:#f4f4f4;border:2px solid #555;border-radius:4px;vertical-align:middle;"></span>',
+         "Organizational module"),
+    ]
+    if view == "AFD":
+        rows.append(('<span style="display:inline-block;width:24px;border-top:1.5px solid #444;vertical-align:middle;"></span>',
+                     "Architecture flow"))
+    else:
+        rows.append(('<span style="display:inline-block;width:24px;border-top:4px solid #1f5a99;vertical-align:middle;"></span>',
+                     "Interconnect (physical channel)"))
+    return "<ul>" + "".join(
+        f'<li>{icon} <span>{label}</span></li>' for icon, label in rows
+    ) + "</ul>"
+
+
+def wrap_afd_html(
+    project: Project,
+    parent_id: str | None = None,
+    elements: list[dict[str, Any]] | None = None,
+) -> str:
+    """Wrap an AFD's elements in the same HTML template the other views use."""
+    if elements is None:
+        elements = render_afd_elements(project, parent_id)
+
+    title_suffix = f" — {parent_id}" if parent_id else ""
+    styles = _ALL_STYLES_JSON + _ARCH_STYLES_JSON
+    return _CONTEXT_HTML_TEMPLATE.format(
+        title=f"{project.project} — AFD{title_suffix}",
+        subtitle=f"Architecture Flow Diagram · generated from dictionary.yaml · {project.last_updated}",
+        nav_html=_build_arch_nav(project, "AFD"),
+        legend_html=_build_arch_legend("AFD"),
+        elements_json=json.dumps(elements, indent=2),
+        styles_json=json.dumps(styles, indent=2),
+    )
+
+
+def wrap_aid_html(
+    project: Project,
+    parent_id: str | None = None,
+    elements: list[dict[str, Any]] | None = None,
+) -> str:
+    """Wrap an AID's elements in the same HTML template."""
+    if elements is None:
+        elements = render_aid_elements(project, parent_id)
+
+    title_suffix = f" — {parent_id}" if parent_id else ""
+    styles = _ALL_STYLES_JSON + _ARCH_STYLES_JSON
+    return _CONTEXT_HTML_TEMPLATE.format(
+        title=f"{project.project} — AID{title_suffix}",
+        subtitle=f"Architecture Interconnect Diagram · generated from dictionary.yaml · {project.last_updated}",
+        nav_html=_build_arch_nav(project, "AID"),
+        legend_html=_build_arch_legend("AID"),
+        elements_json=json.dumps(elements, indent=2),
+        styles_json=json.dumps(styles, indent=2),
     )

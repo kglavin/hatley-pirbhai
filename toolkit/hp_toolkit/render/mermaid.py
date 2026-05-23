@@ -6,7 +6,10 @@ follow once the dictionary models boundary-flow refinement.
 
 from __future__ import annotations
 
-from ..model import Project, Entity, Flow, Edge, Transition, EntityKind, FlowKind
+from ..model import (
+    Project, Entity, Flow, Edge, Transition, EntityKind, FlowKind,
+    ArchModule, ArchFlow, ArchInterconnect, ArchModuleKind,
+)
 
 
 def _esc(text: str) -> str:
@@ -337,5 +340,117 @@ def render_state_machine(project: Project, parent_machine_id: str) -> str:
             lines.append(f"        {src_label} --> {tgt_label} : {_tx_label(t)}")
         lines.append("    }")
         lines.append("")
+
+    return "\n".join(lines) + "\n"
+
+
+# ─────────────────────────────────────────────────────────────────────
+# Stage 5 — Architecture Model (AFD + AID)
+#
+# Modules render as Mermaid rounded rectangles (id(Name)) — distinct from
+# the DFD's process circles. Architecture flows are arrows. Architecture
+# interconnects (AID) use undirected edges with thicker/dashed styling
+# to signal "physical channel, not flow".
+# ─────────────────────────────────────────────────────────────────────
+
+
+def _am_node_decl(m: ArchModule) -> str:
+    """Mermaid declaration for an architecture module — rounded rectangle.
+
+    Label includes the optional module_number on a second line.
+    """
+    label = _esc(m.name)
+    if m.module_number:
+        label = f"{label}<br/><i>{_esc(m.module_number)}</i>"
+    return f'    {m.id}("{label}")'
+
+
+def _af_edge(f: ArchFlow) -> str:
+    """Mermaid edge declaration for an architecture flow."""
+    label = _esc(f.name)
+    # Differentiate flow kind in label (data/material/energy)
+    if f.kind.value != "data":
+        label = f"{label} <i>({f.kind.value})</i>"
+    return f'    {f.source} -- "{label}" --> {f.target}'
+
+
+def render_afd(project: Project, parent_id: str | None = None) -> str:
+    """Render an Architecture Flow Diagram as Mermaid.
+
+    `parent_id` selects the layer: None renders the top-level (modules
+    with no parent — the root AFD); otherwise renders the decomposition
+    of that module (children whose `parent` is `parent_id`).
+    """
+    modules = [m for m in project.all_architecture_modules() if m.parent == parent_id]
+    if not modules:
+        return "%% (no architecture modules at this layer)\n"
+
+    module_ids = {m.id for m in modules}
+
+    # Architecture flows whose endpoints are both in this layer
+    flows = [f for f in project.all_architecture_flows()
+             if f.source in module_ids and f.target in module_ids]
+
+    lines: list[str] = ["graph LR"]
+    lines.append("    %% Architecture modules")
+    for m in modules:
+        lines.append(_am_node_decl(m))
+    lines.append("")
+
+    if flows:
+        lines.append("    %% Architecture flows")
+        for f in flows:
+            lines.append(_af_edge(f))
+        lines.append("")
+
+    # Styling by module kind
+    lines.append("    classDef hardware fill:#fff4e6,stroke:#d68910,stroke-width:2px;")
+    lines.append("    classDef software fill:#e8f0fe,stroke:#4a90e2,stroke-width:2px;")
+    lines.append("    classDef organizational fill:#f4f4f4,stroke:#555,stroke-width:2px;")
+    for m in modules:
+        lines.append(f"    class {m.id} {m.kind.value};")
+
+    return "\n".join(lines) + "\n"
+
+
+def render_aid(project: Project, parent_id: str | None = None) -> str:
+    """Render an Architecture Interconnect Diagram as Mermaid.
+
+    Shows modules + physical channels (interconnects) between them. Each
+    interconnect connects ≥ 2 modules; rendered as labeled edges between
+    every pair of endpoints (Mermaid doesn't natively support hyperedges).
+    """
+    modules = [m for m in project.all_architecture_modules() if m.parent == parent_id]
+    if not modules:
+        return "%% (no architecture modules at this layer)\n"
+
+    module_ids = {m.id for m in modules}
+    # Interconnects with ≥ 2 endpoints in this layer
+    interconnects = [
+        ic for ic in project.all_architecture_interconnects()
+        if sum(1 for ep in ic.endpoints if ep in module_ids) >= 2
+    ]
+
+    lines: list[str] = ["graph LR"]
+    lines.append("    %% Architecture modules")
+    for m in modules:
+        lines.append(_am_node_decl(m))
+    lines.append("")
+
+    if interconnects:
+        lines.append("    %% Interconnects (physical channels)")
+        for ic in interconnects:
+            eps = [ep for ep in ic.endpoints if ep in module_ids]
+            label = _esc(ic.name)
+            # Draw as a chain of undirected thick links between endpoints
+            for i in range(len(eps) - 1):
+                lines.append(f'    {eps[i]} === |"{label}"| {eps[i+1]}')
+        lines.append("")
+
+    lines.append("    classDef hardware fill:#fff4e6,stroke:#d68910,stroke-width:2px;")
+    lines.append("    classDef software fill:#e8f0fe,stroke:#4a90e2,stroke-width:2px;")
+    lines.append("    classDef organizational fill:#f4f4f4,stroke:#555,stroke-width:2px;")
+    for m in modules:
+        lines.append(f"    class {m.id} {m.kind.value};")
 
     return "\n".join(lines) + "\n"

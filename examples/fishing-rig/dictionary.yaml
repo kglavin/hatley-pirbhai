@@ -579,3 +579,144 @@ pspecs:
     comments: |
       Optional bubble. The "issue" keyword in the body marks F6 CATCH LOG
       as time-transient (1988 §13.3) — emitted once per event, not held.
+
+
+# ─── Stage 5 — Architecture Model ───
+# Format: 2000 §4.2 (AFD + AID + AMS + AIS + allocation).
+# Source: see toolkit/ARCH_DESIGN.md.
+
+architecture_modules:
+
+  am_controller:
+    name: "Main Controller Board"
+    module_number: "AM 1"
+    kind: hardware
+    description: |
+      ESP32-based main board. Carries the tension-sampling ADC, the motor
+      driver, BLE radio, and optional WiFi/HTTPS for cloud forwarding.
+      Hosts the on-device firmware that runs the bite-detection state
+      machine, motor control, telemetry acquisition, and cloud bridging.
+    allocated_processes:
+      - proc_acquire_tension
+      - proc_reel_controller
+      - proc_cloud_forward
+    allocated_cspecs:
+      - proc_bite_detector
+    allocated_stores:
+      - store_system_state
+
+  am_angler_app:
+    name: "Angler Mobile App"
+    module_number: "AM 2"
+    kind: software
+    description: |
+      iOS/Android mobile app. Connects to the controller over BLE. Presents
+      status + tension + recent events; accepts angler config, arm/disarm,
+      and manual overrides.
+    allocated_processes:
+      - proc_serve_ui
+
+architecture_flows:
+
+  af_telemetry_to_app:
+    name: "telemetry"
+    source: am_controller
+    target: am_angler_app
+    kind: data
+    physical_description: |
+      JSON-encoded BLE GATT notifications; ~10 Hz aggregated sample +
+      event stream.
+    allocated_flows:
+      - flow_state_to_ui
+      - flow_alert
+      - flow_f2_status
+
+  af_config_to_ctrl:
+    name: "angler config + override"
+    source: am_angler_app
+    target: am_controller
+    kind: data
+    physical_description: |
+      BLE GATT writes from the app. Arm/disarm, thresholds, manual
+      reel commands.
+    allocated_flows:
+      - flow_f1_angler_config
+      - flow_override
+
+architecture_interconnects:
+
+  ai_ble:
+    name: "BLE Link"
+    endpoints: [am_controller, am_angler_app]
+    carries: [af_telemetry_to_app, af_config_to_ctrl]
+    description: |
+      Bluetooth Low Energy 5.0 link between the controller and the angler
+      app. Custom GATT service carries telemetry notifications and
+      config writes.
+
+architecture_module_specs:
+
+  ams_controller:
+    parent_module: am_controller
+    description: |
+      ESP32-WROOM-32 module on a custom PCB. Onboard: 16-bit ADC for the
+      tension load cell, H-bridge motor driver for the reel, BLE
+      antenna, optional WiFi for cloud. Firmware is FreeRTOS + the HP
+      toolkit-derived CSPEC/PSPEC implementations.
+    design_rationale: |
+      Chose ESP32 over a Cortex-M0+ for BLE + WiFi in a single package,
+      simplifying both BoM and firmware. Onboard ADC avoids an external
+      I2C ADC.
+    design_justification: |
+      MIPS budget: 200 Hz tension sampling + 20 Hz BLE notify + motor
+      PWM is < 5% of ESP32 capacity at 80 MHz. RAM: state machine +
+      recent-history buffer < 16 KB.
+    required_constraints:
+      reliability: "MTBF > 5000 hours of field operation."
+      safety: "Motor cutoff on stall current (>2× nominal) within 50 ms."
+      physical: "Fits in a 100×60×25 mm splashproof enclosure."
+      cost: "BOM ≤ $45 in 100-unit lots."
+    interfaces: |
+      Inputs:  F3 TENSION (analog, 0–3.3V from load-cell amplifier);
+               reel encoder feedback (quadrature, GPIO).
+      Outputs: F4 REEL TORQUE CMD (PWM H-bridge);
+               BLE GATT notifications (telemetry, alerts).
+               WiFi/HTTPS (optional cloud forwarding).
+
+  ams_angler_app:
+    parent_module: am_angler_app
+    description: |
+      Cross-platform mobile app (Flutter). Pairs with the controller via
+      BLE; presents a single-screen dashboard with live tension, mode
+      indicator, recent-events list, and config controls.
+    design_rationale: |
+      Flutter chosen to ship one codebase to iOS and Android. BLE is
+      the only required transport for first release; WiFi/cloud is
+      out-of-scope for the app.
+    design_justification: |
+      UI refresh ≥ 10 Hz is trivial at the app's compute budget. BLE
+      notifications drive the display directly with no polling.
+    required_constraints:
+      reliability: "Reconnects to controller within 5 s after BLE loss."
+      physical: "Runs on iOS ≥ 15, Android ≥ 11."
+
+architecture_interconnect_specs:
+
+  ais_ble:
+    parent_interconnect: ai_ble
+    description: |
+      BLE 5.0 GATT service connecting the controller to the angler app.
+      The controller acts as peripheral; the app acts as central. One
+      custom service exposes a telemetry notify characteristic and a
+      config write characteristic.
+    protocol_standard: |
+      Bluetooth Core Specification 5.0. Custom GATT service UUID
+      assigned per project; characteristic UUIDs documented in the
+      app's protocol spec.
+    design_rationale: |
+      BLE chosen over classic Bluetooth or WiFi for low power on the
+      controller side and simple pairing for the angler.
+    required_constraints:
+      timing: "Notification → app render latency < 100 ms (one BLE
+        connection interval at 7.5 ms minimum)."
+      physical: "Range ≥ 30 m line-of-sight; ≥ 10 m through a vest pocket."

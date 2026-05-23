@@ -29,6 +29,7 @@ from hp_toolkit.render import (
     cytoscape as render_cytoscape,
     svg as render_svg,
     pspec as render_pspec,
+    architecture as render_arch,
 )
 
 
@@ -124,8 +125,93 @@ def main(project_dir: Path) -> int:
     if project.pspecs:
         render_pspecs(project_dir, project)
 
+    # ─── Architecture Model (Stage 5) ───
+    if project.architecture_modules:
+        render_architecture(project_dir, project)
+
     print(_color(f"Done.", "32"))
     return 0
+
+
+def render_architecture(project_dir: Path, project) -> None:
+    """Render the Stage 5 architecture surface: AFD + AID across all three
+    notations, plus AMS + AIS markdown sidecars."""
+    arch_dir = project_dir / "architecture"
+    arch_dir.mkdir(parents=True, exist_ok=True)
+    specs_dir = arch_dir / "specs"
+    specs_dir.mkdir(parents=True, exist_ok=True)
+    ic_dir = specs_dir / "interconnects"
+    if project.architecture_interconnect_specs:
+        ic_dir.mkdir(parents=True, exist_ok=True)
+
+    # AFD — root layer
+    print(_color("==> AFD (root) — Mermaid", "1"))
+    src = render_mermaid.render_afd(project, parent_id=None)
+    out = arch_dir / "afd.generated.mmd"
+    out.write_text(src)
+    print(f"  wrote {out.name} ({len(src)} bytes)")
+    _try_svg(out, arch_dir / "afd.generated-mermaid.svg", "mermaid")
+    print()
+
+    print(_color("==> AFD (root) — D2", "1"))
+    src = render_d2.render_afd(project, parent_id=None)
+    out = arch_dir / "afd.generated.d2"
+    out.write_text(src)
+    print(f"  wrote {out.name} ({len(src)} bytes)")
+    _try_svg(out, arch_dir / "afd.generated-d2.svg", "d2")
+    print()
+
+    print(_color("==> AFD (root) — HTML (Cytoscape)", "1"))
+    html = render_cytoscape.wrap_afd_html(project, parent_id=None)
+    out = arch_dir / "afd.generated.html"
+    out.write_text(html)
+    print(f"  wrote {out.name} ({len(html)} bytes)")
+    print()
+
+    # AID — root layer
+    if project.architecture_interconnects:
+        print(_color("==> AID (root) — Mermaid", "1"))
+        src = render_mermaid.render_aid(project, parent_id=None)
+        out = arch_dir / "aid.generated.mmd"
+        out.write_text(src)
+        print(f"  wrote {out.name} ({len(src)} bytes)")
+        _try_svg(out, arch_dir / "aid.generated-mermaid.svg", "mermaid")
+        print()
+
+        print(_color("==> AID (root) — D2", "1"))
+        src = render_d2.render_aid(project, parent_id=None)
+        out = arch_dir / "aid.generated.d2"
+        out.write_text(src)
+        print(f"  wrote {out.name} ({len(src)} bytes)")
+        _try_svg(out, arch_dir / "aid.generated-d2.svg", "d2")
+        print()
+
+        print(_color("==> AID (root) — HTML (Cytoscape)", "1"))
+        html = render_cytoscape.wrap_aid_html(project, parent_id=None)
+        out = arch_dir / "aid.generated.html"
+        out.write_text(html)
+        print(f"  wrote {out.name} ({len(html)} bytes)")
+        print()
+
+    # AMS markdown sidecars
+    if project.architecture_module_specs:
+        print(_color(f"==> AMS sidecars ({len(project.architecture_module_specs)})", "1"))
+        for ams in project.all_architecture_module_specs():
+            md = render_arch.render_ams_markdown(project, ams)
+            out = specs_dir / f"{render_arch.ams_subdir_name(ams.parent_module)}.md"
+            out.write_text(md)
+            print(f"  wrote specs/{out.name} ({len(md)} bytes)")
+        print()
+
+    # AIS markdown sidecars
+    if project.architecture_interconnect_specs:
+        print(_color(f"==> AIS sidecars ({len(project.architecture_interconnect_specs)})", "1"))
+        for ais in project.all_architecture_interconnect_specs():
+            md = render_arch.render_ais_markdown(project, ais)
+            out = ic_dir / f"{render_arch.ais_subdir_name(ais.parent_interconnect)}.md"
+            out.write_text(md)
+            print(f"  wrote specs/interconnects/{out.name} ({len(md)} bytes)")
+        print()
 
 
 def render_pspecs(project_dir: Path, project) -> None:

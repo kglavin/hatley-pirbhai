@@ -450,6 +450,255 @@ def pspec_validation(project: Project) -> ValidationReport:
     return report
 
 
+# ─────────────────────────────────────────────────────────────────────
+# Architecture Model validation (rules from toolkit/ARCH_DESIGN.md §6)
+#
+# Sources: Hatley, Hruschka & Pirbhai 2000 ch. 4, §4.2 (Architecture Model).
+# Specific rule sources cited per-rule below.
+# ─────────────────────────────────────────────────────────────────────
+
+
+def _is_leaf_requirements_process(project: Project, e: Entity) -> bool:
+    """A leaf requirements process — eligible for architecture allocation."""
+    if e.kind != EntityKind.PROCESS:
+        return False
+    for other in project.all_entities():
+        if other.parent == e.id and other.kind == EntityKind.PROCESS:
+            return False
+    return True
+
+
+def architecture_validation(project: Project) -> ValidationReport:
+    """Validate the Architecture Model per the 15 rules from ARCH_DESIGN.md §6."""
+    report = ValidationReport()
+    entity_ids = set(project.entities.keys())
+    am_ids = set(project.architecture_modules.keys())
+    af_ids = set(project.architecture_flows.keys())
+    ai_ids = set(project.architecture_interconnects.keys())
+
+    # Short-circuit: if no architecture surface defined, nothing to check
+    if not project.architecture_modules:
+        return report
+
+    # ─── Reference integrity (rules 5–10, 13, 14) ───
+
+    # Rule 5: ArchModule.parent references a real module
+    for m in project.all_architecture_modules():
+        if m.parent and m.parent not in am_ids:
+            report.issues.append(ValidationIssue(
+                "error", "architecture", m.id,
+                f"parent {m.parent!r} not in architecture_modules"
+            ))
+        # Rule 13: allocated_* reference real requirements entities of the correct kind
+        for proc_id in m.allocated_processes:
+            target = project.entities.get(proc_id)
+            if target is None:
+                report.issues.append(ValidationIssue(
+                    "error", "architecture", m.id,
+                    f"allocated_process {proc_id!r} not in entities"))
+            elif target.kind != EntityKind.PROCESS:
+                report.issues.append(ValidationIssue(
+                    "error", "architecture", m.id,
+                    f"allocated_process {proc_id!r} is kind {target.kind.value!r}, expected 'process'"))
+        for proc_id in m.allocated_cspecs:
+            target = project.entities.get(proc_id)
+            if target is None:
+                report.issues.append(ValidationIssue(
+                    "error", "architecture", m.id,
+                    f"allocated_cspec {proc_id!r} not in entities"))
+            elif target.kind != EntityKind.PROCESS or not target.needs_cspec:
+                report.issues.append(ValidationIssue(
+                    "error", "architecture", m.id,
+                    f"allocated_cspec {proc_id!r} is not a process with needs_cspec=true"))
+        for store_id in m.allocated_stores:
+            target = project.entities.get(store_id)
+            if target is None:
+                report.issues.append(ValidationIssue(
+                    "error", "architecture", m.id,
+                    f"allocated_store {store_id!r} not in entities"))
+            elif target.kind != EntityKind.DATA_STORE:
+                report.issues.append(ValidationIssue(
+                    "error", "architecture", m.id,
+                    f"allocated_store {store_id!r} is kind {target.kind.value!r}, expected 'data_store'"))
+
+    # Rule 6: ArchFlow.{source,target} reference real modules
+    for f in project.all_architecture_flows():
+        if f.source not in am_ids:
+            report.issues.append(ValidationIssue(
+                "error", "architecture", f.id,
+                f"source {f.source!r} not in architecture_modules"))
+        if f.target not in am_ids:
+            report.issues.append(ValidationIssue(
+                "error", "architecture", f.id,
+                f"target {f.target!r} not in architecture_modules"))
+        # Rule 14: allocated_flows references real requirements flows
+        for fid in f.allocated_flows:
+            if fid not in project.flows:
+                report.issues.append(ValidationIssue(
+                    "error", "architecture", f.id,
+                    f"allocated_flow {fid!r} not in requirements flows"))
+
+    # Rule 7: ArchInterconnect.endpoints reference real modules; ≥ 2 endpoints
+    for ic in project.all_architecture_interconnects():
+        if len(ic.endpoints) < 2:
+            report.issues.append(ValidationIssue(
+                "error", "architecture", ic.id,
+                f"interconnect has {len(ic.endpoints)} endpoint(s); ≥ 2 required"))
+        for ep in ic.endpoints:
+            if ep not in am_ids:
+                report.issues.append(ValidationIssue(
+                    "error", "architecture", ic.id,
+                    f"endpoint {ep!r} not in architecture_modules"))
+        # Rule 8: carries references real architecture flows
+        for fid in ic.carries:
+            if fid not in af_ids:
+                report.issues.append(ValidationIssue(
+                    "error", "architecture", ic.id,
+                    f"carries {fid!r} not in architecture_flows"))
+
+    # Rule 9: AMS.parent_module references a real module
+    for s in project.all_architecture_module_specs():
+        if s.parent_module not in am_ids:
+            report.issues.append(ValidationIssue(
+                "error", "architecture", s.id,
+                f"parent_module {s.parent_module!r} not in architecture_modules"))
+
+    # Rule 10: AIS.parent_interconnect references a real interconnect
+    for s in project.all_architecture_interconnect_specs():
+        if s.parent_interconnect not in ai_ids:
+            report.issues.append(ValidationIssue(
+                "error", "architecture", s.id,
+                f"parent_interconnect {s.parent_interconnect!r} not in architecture_interconnects"))
+
+    # ─── Allocation coverage (rules 1, 2, 3) ───
+
+    # Collect allocations across all modules
+    allocated_proc_set: set[str] = set()
+    allocated_cspec_set: set[str] = set()
+    allocated_store_set: set[str] = set()
+    for m in project.all_architecture_modules():
+        allocated_proc_set.update(m.allocated_processes)
+        allocated_cspec_set.update(m.allocated_cspecs)
+        allocated_store_set.update(m.allocated_stores)
+
+    # Rule 1: every leaf requirements process is allocated to ≥ 1 module.
+    # State-rich processes (needs_cspec=true) satisfy this via allocated_cspecs;
+    # non-state-rich leaves satisfy it via allocated_processes.
+    leaf_procs = [e for e in project.all_entities() if _is_leaf_requirements_process(project, e)]
+    for proc in leaf_procs:
+        if proc.needs_cspec:
+            if proc.id not in allocated_cspec_set:
+                report.issues.append(ValidationIssue(
+                    "error", "architecture", proc.id,
+                    "state-rich leaf process not listed in any module's allocated_cspecs (2000 §4.2.5.4)"))
+        else:
+            if proc.id not in allocated_proc_set:
+                report.issues.append(ValidationIssue(
+                    "error", "architecture", proc.id,
+                    "leaf requirements process not allocated to any architecture module (2000 §4.2.5.4)"))
+
+    # Rule 2: every CSPEC's parent process is in allocated_cspecs of at least one module
+    cspec_owners = {e.id for e in project.all_entities()
+                    if e.kind == EntityKind.PROCESS and e.needs_cspec}
+    for cid in cspec_owners:
+        if cid not in allocated_cspec_set:
+            report.issues.append(ValidationIssue(
+                "error", "architecture", cid,
+                "process with needs_cspec=true not listed in any module's allocated_cspecs"))
+
+    # Rule 3: every requirements data store is allocated
+    stores = [e for e in project.all_entities() if e.kind == EntityKind.DATA_STORE]
+    for s in stores:
+        if s.id not in allocated_store_set:
+            report.issues.append(ValidationIssue(
+                "error", "architecture", s.id,
+                "data store not allocated to any architecture module"))
+
+    # Rule 4: every requirements flow at level ≥ 1 is allocated to an architecture flow,
+    # OR is internal to one module's allocations
+    allocated_flow_set: set[str] = set()
+    for f in project.all_architecture_flows():
+        allocated_flow_set.update(f.allocated_flows)
+
+    def _flow_internal_to_one_module(rf: Flow) -> bool:
+        """Both endpoints of this flow live in the same architecture module's allocations."""
+        src, tgt = rf.refined_source or rf.source, rf.refined_target or rf.target
+        for m in project.all_architecture_modules():
+            owned = (set(m.allocated_processes)
+                     | set(m.allocated_cspecs)
+                     | set(m.allocated_stores))
+            if src in owned and tgt in owned:
+                return True
+        return False
+
+    for rf in project.all_flows():
+        if rf.level == 0:
+            continue
+        if rf.id in allocated_flow_set:
+            continue
+        if _flow_internal_to_one_module(rf):
+            continue
+        report.issues.append(ValidationIssue(
+            "warning", "architecture", rf.id,
+            f"requirements flow not carried by any architecture flow and not internal to a single module"))
+
+    # ─── Spec coverage (rules 11, 12) ───
+
+    ams_modules: set[str] = {s.parent_module for s in project.all_architecture_module_specs()}
+    for m in project.all_architecture_modules():
+        if m.id not in ams_modules:
+            report.issues.append(ValidationIssue(
+                "error", "architecture", m.id,
+                "architecture module has no AMS (2000 §4.2.5.4: every module must have an AMS)"))
+
+    ais_interconnects: set[str] = {s.parent_interconnect for s in project.all_architecture_interconnect_specs()}
+    for ic in project.all_architecture_interconnects():
+        if ic.id not in ais_interconnects:
+            report.issues.append(ValidationIssue(
+                "warning", "architecture", ic.id,
+                "architecture interconnect has no AIS"))
+
+    # Rule 15: module_number uniqueness
+    seen_numbers: dict[str, str] = {}
+    for m in project.all_architecture_modules():
+        if not m.module_number:
+            continue
+        if m.module_number in seen_numbers:
+            report.issues.append(ValidationIssue(
+                "warning", "architecture", m.id,
+                f"module_number {m.module_number!r} also used by {seen_numbers[m.module_number]!r}"))
+        else:
+            seen_numbers[m.module_number] = m.id
+
+    # ─── Coverage metrics ───
+    if leaf_procs:
+        n_allocated = sum(
+            1 for p in leaf_procs
+            if (p.needs_cspec and p.id in allocated_cspec_set)
+            or (not p.needs_cspec and p.id in allocated_proc_set)
+        )
+        report.metrics["architecture_module_coverage_pct"] = round(100 * n_allocated / len(leaf_procs), 1)
+
+    l1plus_flows = [f for f in project.all_flows() if f.level != 0]
+    if l1plus_flows:
+        n_carried = sum(1 for f in l1plus_flows
+                        if f.id in allocated_flow_set or _flow_internal_to_one_module(f))
+        report.metrics["architecture_flow_coverage_pct"] = round(100 * n_carried / len(l1plus_flows), 1)
+
+    if project.architecture_modules:
+        n_ams = sum(1 for m in project.all_architecture_modules() if m.id in ams_modules)
+        report.metrics["ams_coverage_pct"] = round(100 * n_ams / len(project.architecture_modules), 1)
+        report.counts["architecture_modules"] = len(project.architecture_modules)
+        report.counts["architecture_flows"] = len(project.architecture_flows)
+        report.counts["architecture_interconnects"] = len(project.architecture_interconnects)
+
+    if project.architecture_interconnects:
+        n_ais = sum(1 for ic in project.all_architecture_interconnects() if ic.id in ais_interconnects)
+        report.metrics["ais_coverage_pct"] = round(100 * n_ais / len(project.architecture_interconnects), 1)
+
+    return report
+
+
 def find_orphans(project: Project) -> ValidationReport:
     """Entities that no flow or edge references — *and* are not the
     container of another entity (i.e., not a parent). True orphans probably
@@ -498,6 +747,7 @@ def validate(project: Project) -> ValidationReport:
     report.extend(hierarchy_consistency(project))
     report.extend(coverage_metrics(project))
     report.extend(pspec_validation(project))
+    report.extend(architecture_validation(project))
     report.extend(find_orphans(project))
     return report
 
