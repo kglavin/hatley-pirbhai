@@ -3,3 +3,9 @@ reference-docs/Strategies for Real-Time System Specification -- by Derek J_ Hatl
 graphify-out/
 **/__pycache__/
 examples/**/*.generated.*
+
+# Per PORTAL_DESIGN.md Q1 — track project.generated.pdf only for the two
+# example projects (so reviewers browsing the repo on GitHub can preview
+# them); user projects keep their PDFs ignored.
+!examples/fishing-rig/project.generated.pdf
+!examples/solar/project.generated.pdf
