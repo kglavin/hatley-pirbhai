@@ -40,6 +40,35 @@ and write it to store_system_state.
 - **Frequency:** ≥ 1 Hz aggregate ingest rate; ≥ 0.5 Hz per source
 - **Timing:** End-to-end ingest → store_system_state write latency < 1 s
 
+## VERIFICATION
+
+- **Methods:** test, analysis
+- **Coverage target:** 90.0%
+- **Validation scenarios:**
+  - Sustained 1 Hz aggregate ingest across all three sources for 24 hours
+  - DTU reconnect within 30 s of a transient network drop
+  - Modbus RTU CRC failure causes only that sample to be discarded, not session drop
+
+## OBSERVABILITY
+
+**Metrics:**
+
+- `telemetry_samples_total` *counter* — Total telemetry samples ingested (all sources)
+- `telemetry_ingest_seconds` *histogram* (s) — End-to-end ingest cycle duration
+- `telemetry_source_lag_seconds` *gauge* (s) — Per-source age of latest sample
+
+**Traces:**
+
+- `telemetry.ingest_cycle` — One full multi-protocol ingest cycle
+
+**Log categories:**
+
+- `telemetry.adapter` *(level: info)*
+
+**Alerts:**
+
+- `telemetry_source_stale` *(warning)* — when `max(telemetry_source_lag_seconds) > 30` → [runbook](../../../runbooks/telemetry-source-stale.md)
+
 ## COMMENTS
 
 Sole writer into the telemetry portion of the store. Vendor adapter

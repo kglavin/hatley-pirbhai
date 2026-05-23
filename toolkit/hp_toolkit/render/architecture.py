@@ -120,11 +120,185 @@ def render_ams_markdown(project: Project, ams: ArchModuleSpec) -> str:
         lines.append(ams.interfaces.rstrip())
         lines.append("")
 
+    # VERIFICATION (optional — modernization #25)
+    v = ams.verification
+    if v is not None:
+        lines.append("## VERIFICATION")
+        lines.append("")
+        methods = ", ".join(m.value for m in v.methods)
+        lines.append(f"- **Methods:** {methods}")
+        if v.test_suite:
+            lines.append(f"- **Test suite:** [`{v.test_suite}`](../../../{v.test_suite})")
+        if v.coverage_target is not None:
+            lines.append(f"- **Coverage target:** {v.coverage_target}%")
+        if v.validation_scenarios:
+            lines.append("- **Validation scenarios:**")
+            for s in v.validation_scenarios:
+                lines.append(f"  - {s}")
+        lines.append("")
+
+    # BUDGETS (optional — modernization #21)
+    module_budgets = project.budgets_for_module(module.id)
+    if module_budgets:
+        lines.append("## BUDGETS (allocations to this module)")
+        lines.append("")
+        lines.append("| Budget | Unit | This module | System target | Reserve |")
+        lines.append("|---|---|---:|---:|---:|")
+        for b in module_budgets:
+            allocation = b.allocations.get(module.id, 0)
+            lines.append(
+                f"| `{b.id}` — {b.name} | {b.unit} | {allocation} "
+                f"| {b.system_target} | {b.system_reserve} |"
+            )
+        lines.append("")
+
+    # TPMs (optional — modernization #22)
+    module_tpms = []
+    for b in module_budgets:
+        module_tpms.extend(project.tpms_for_budget(b.id))
+    if module_tpms:
+        lines.append("## TPMs (tracking this module's budgets)")
+        lines.append("")
+        lines.append("| TPM | Unit | Current | Growth allowance | Threshold |")
+        lines.append("|---|---|---:|---:|---:|")
+        for t in module_tpms:
+            lines.append(
+                f"| `{t.id}` — {t.name} | {t.unit} | {t.current_estimate} "
+                f"| {t.growth_allowance} | {t.threshold} |"
+            )
+        lines.append("")
+
+    # OBSERVABILITY (optional — modernization #1 + #33)
+    obs = module.observability
+    if obs is not None:
+        lines.append("## OBSERVABILITY")
+        lines.append("")
+        if obs.metrics:
+            lines.append("**Metrics:**")
+            lines.append("")
+            for m in obs.metrics:
+                unit = f" ({m.unit})" if m.unit else ""
+                desc = f" — {m.description}" if m.description else ""
+                lines.append(f"- `{m.name}` *{m.kind.value}*{unit}{desc}")
+            lines.append("")
+        if obs.traces:
+            lines.append("**Traces:**")
+            lines.append("")
+            for t in obs.traces:
+                desc = f" — {t.description}" if t.description else ""
+                lines.append(f"- `{t.span}`{desc}")
+            lines.append("")
+        if obs.logs:
+            lines.append("**Log categories:**")
+            lines.append("")
+            for log in obs.logs:
+                lines.append(f"- `{log.category}` *(level: {log.level})*")
+            lines.append("")
+        if obs.alerts:
+            lines.append("**Alerts:**")
+            lines.append("")
+            for a in obs.alerts:
+                runbook_link = f" → [runbook](../../{a.runbook})" if a.runbook else ""
+                lines.append(f"- `{a.name}` *({a.severity.value})* — when `{a.when}`{runbook_link}")
+            lines.append("")
+
+    # SLOs that apply to this module (modernization #32)
+    module_slos = project.slos_for_module(module.id)
+    if module_slos:
+        lines.append("## SLOs (apply to this module)")
+        lines.append("")
+        lines.append("| SLO | Target | Window | Error budget |")
+        lines.append("|---|---:|---|---:|")
+        for slo in module_slos:
+            lines.append(
+                f"| [`{slo.id}`](../slos.md#{slo.id}) — {slo.name} "
+                f"| {slo.target} {slo.sli.unit or ''} | {slo.window} | {slo.error_budget_pct}% |"
+            )
+        lines.append("")
+
+    # CATALOG REFERENCES (modernization #8.3)
+    _append_catalog_refs(lines, ams)
+
     lines.append("---")
     lines.append("")
     lines.append(
         "*Format: 2000 §4.2.5.4 — typical AMS contents. "
         "See [`../../ARCH_DESIGN.md`](../../ARCH_DESIGN.md).*"
+    )
+    return "\n".join(lines) + "\n"
+
+
+def render_slos_summary(project: Project) -> str:
+    """Project-level SLO summary (modernization #32).
+
+    One markdown page listing every SLO with its cross-references to
+    TPMs (#22), modules, and the runbook to follow when the error
+    budget burns."""
+    if not project.service_level_objectives:
+        return ""
+
+    lines: list[str] = []
+    lines.append(f"# {project.project} — Service Level Objectives")
+    lines.append("")
+    lines.append("*Generated from `dictionary.yaml`. Do not hand-edit.*")
+    lines.append("")
+    lines.append(
+        "SLOs commit external promises about the runtime behavior of the "
+        "architecture model. Each declares the SLI being measured, the "
+        "target value, the rolling window, and the error budget that gates "
+        "release decisions (Google SRE Book 2016)."
+    )
+    lines.append("")
+
+    for slo in project.all_slos():
+        lines.append(f"## {slo.id}")
+        lines.append("")
+        lines.append(f"**{slo.name}**")
+        lines.append("")
+        lines.append(f"- **Target:** {slo.target} {slo.sli.unit or ''}")
+        lines.append(f"- **Window:** {slo.window}")
+        lines.append(f"- **Error budget:** {slo.error_budget_pct}%")
+        if slo.sla:
+            lines.append(f"- **SLA (customer-facing):** {slo.sla}")
+        lines.append("")
+        lines.append("### SLI")
+        lines.append("")
+        if slo.sli.description:
+            lines.append(slo.sli.description.rstrip())
+            lines.append("")
+        lines.append("```")
+        lines.append(slo.sli.query)
+        lines.append("```")
+        lines.append("")
+        if slo.applies_to:
+            lines.append("### Applies to")
+            lines.append("")
+            for kind, ids in slo.applies_to.items():
+                if not ids:
+                    continue
+                label = kind.replace("_", " ").title()
+                lines.append(f"- **{label}:** " + ", ".join(f"`{i}`" for i in ids))
+            lines.append("")
+        if slo.derives_from_tpm:
+            lines.append(f"### Derived from TPM")
+            lines.append("")
+            tpm = project.tpms.get(slo.derives_from_tpm)
+            if tpm is not None:
+                lines.append(f"[`{slo.derives_from_tpm}`](../dictionary.yaml) — "
+                             f"{tpm.name} (current {tpm.current_estimate} {tpm.unit})")
+            else:
+                lines.append(f"`{slo.derives_from_tpm}` *(not in dictionary)*")
+            lines.append("")
+        if slo.runbook_on_burn:
+            lines.append(f"### Runbook on budget burn")
+            lines.append("")
+            lines.append(f"[`{slo.runbook_on_burn}`](../{slo.runbook_on_burn})")
+            lines.append("")
+        lines.append("---")
+        lines.append("")
+
+    lines.append(
+        "*See [`../toolkit/MODERNIZATION_DESIGN.md`](../toolkit/MODERNIZATION_DESIGN.md) §4.3 — SLI/SLO/SLA chain.*"
     )
     return "\n".join(lines) + "\n"
 
@@ -192,6 +366,51 @@ def render_ais_markdown(project: Project, ais: ArchInterconnectSpec) -> str:
         lines.extend(cons)
         lines.append("")
 
+    # THREAT MODEL (STRIDE) — modernization #8.2
+    stride = ic.stride_mitigations
+    if stride is not None:
+        lines.append("## THREAT MODEL (STRIDE)")
+        lines.append("")
+        lines.append("Per Microsoft SDL (Howard & Lipner 2006). Each row is the "
+                     "narrative describing how the threat category is addressed.")
+        lines.append("")
+        lines.append("| Category | Mitigation |")
+        lines.append("|---|---|")
+        for label, val in [
+            ("**S**poofing",          stride.spoofing),
+            ("**T**ampering",         stride.tampering),
+            ("**R**epudiation",       stride.repudiation),
+            ("**I**nfo disclosure",   stride.info_disclosure),
+            ("**D**enial of service", stride.denial_of_service),
+            ("**E**lev. of privilege", stride.elev_of_privilege),
+        ]:
+            v = val.replace("\n", " ") if val else "*(not addressed)*"
+            lines.append(f"| {label} | {v} |")
+        lines.append("")
+
+    # LINDDUN (optional — privacy threat model)
+    linddun = ic.linddun_mitigations
+    if linddun is not None:
+        lines.append("## PRIVACY THREAT MODEL (LINDDUN)")
+        lines.append("")
+        lines.append("| Category | Mitigation |")
+        lines.append("|---|---|")
+        for label, val in [
+            ("**L**inkability",     linddun.linkability),
+            ("**I**dentifiability", linddun.identifiability),
+            ("**N**on-repudiation", linddun.non_repudiation),
+            ("**D**etectability",   linddun.detectability),
+            ("**D**isclosure",      linddun.disclosure),
+            ("**U**nawareness",     linddun.unawareness),
+            ("**N**on-compliance",  linddun.non_compliance),
+        ]:
+            v = val.replace("\n", " ") if val else "*(not addressed)*"
+            lines.append(f"| {label} | {v} |")
+        lines.append("")
+
+    # CATALOG REFERENCES (modernization #8.3)
+    _append_catalog_refs(lines, ais)
+
     lines.append("---")
     lines.append("")
     lines.append(
@@ -199,3 +418,27 @@ def render_ais_markdown(project: Project, ais: ArchInterconnectSpec) -> str:
         "See [`../../../ARCH_DESIGN.md`](../../../ARCH_DESIGN.md).*"
     )
     return "\n".join(lines) + "\n"
+
+
+def _append_catalog_refs(lines: list[str], holder) -> None:
+    """Append a CATALOG REFERENCES section if any of the three reference
+    lists is non-empty. Used by AMS, AIS, and ADR markdown emitters
+    (modernization #8.3)."""
+    mitre = getattr(holder, "references_mitre_attack", []) or []
+    cwe   = getattr(holder, "references_cwe", []) or []
+    compl = getattr(holder, "references_compliance", []) or []
+    if not (mitre or cwe or compl):
+        return
+    lines.append("## CATALOG REFERENCES")
+    lines.append("")
+    if mitre:
+        lines.append("**MITRE ATT&CK:** " + ", ".join(
+            f"[`{t}`](https://attack.mitre.org/techniques/{t.replace('.', '/')}/)" for t in mitre))
+        lines.append("")
+    if cwe:
+        lines.append("**CWE:** " + ", ".join(
+            f"[`{c}`](https://cwe.mitre.org/data/definitions/{c.split('-')[1]}.html)" for c in cwe))
+        lines.append("")
+    if compl:
+        lines.append("**Compliance:** " + ", ".join(f"`{c}`" for c in compl))
+        lines.append("")

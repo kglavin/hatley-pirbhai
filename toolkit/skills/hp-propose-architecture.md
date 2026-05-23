@@ -33,6 +33,10 @@ Standard decision set (7–10 decisions; project-shape varies):
 | 6 | Module numbering | Adopt the book's `AM 1`, `AM 1.1`, `AM 1.2` hierarchy (optional) |
 | 7 | AMS depth | All 6 sections per module (description / cross-reference / rationale / justification / constraints / interfaces), or just description + cross-reference for the first cut? |
 | 8 | Anything else | Free-form escape hatch |
+| 9 | **Per-module trust zone** *(modernization #8.1)* | Each `ArchModule.trust_zone:` — `public_internet` / `dmz` / `internal_lan` / `privileged` / `kernel` / `air_gapped`. Default by allocation: modules that own actuators or sensitive state default to `privileged`; user-facing modules default to `internal_lan`. |
+| 10 | **Interconnect auth + encryption** *(modernization #8.1)* | Each `ArchInterconnect`: `auth_required:` (`none` / `shared_secret` / `oauth` / `oidc` / `mtls` / `jwt` / `spiffe` / `paired_device` / `custom`) and `encryption:` (`none` / `tls` / `mtls` / `bluetooth_le_secure` / `at_rest_disk` / `application_layer` / `custom`). |
+| 11 | **STRIDE pre-pass** *(modernization #8.2)* | For each interconnect whose endpoints span two different `trust_zone` values, mark as needing a follow-up `hp-propose-threat-model` invocation. The architecture proposal locks the *fields*; the threat model fills in the *six STRIDE narratives*. Commit 4's validator errors out if cross-zone interconnects lack `stride_mitigations:`. |
+| 12 | **Deployment strategy** *(modernization, future-ready)* | Per module: `blue_green` / `canary` / `rolling` / `feature_flagged` / `one_shot` / `continuous`. Optional `pipeline_ref:` path to CI/CD config. Optional this iteration; surface as a follow-up question for cloud-native projects. |
 
 Each decision lists alternatives with Claude's recommended default **pre-checked** and provenance noted ("matches lived example on fishing-rig"; "AI inference from your README"; "minimum coarseness given the bubble count"). The user toggles overrides in MPE, saves once, pings back.
 
@@ -66,6 +70,9 @@ These come from the 2000 book §4.2. Each cites its source.
 - **AMS and AIS reference outside sources** (2000 §4.2.5.4) — "they should make such references rather than duplicate information." Industry standards, datasheets, register maps go *by reference*, not *embedded*.
 - **Mapping flows → interconnects lives in `architecture_interconnects.carries:`, NOT in the AIS prose** (2000 §4.2.6.2). The AIS describes the channel; the dictionary records what rides on it.
 - **Module numbering, when present, must be unique throughout the model** (2000 §4.2.2.1). The validator surfaces duplicates as a warning.
+- **Trust zones are first-class architectural facts, not security afterthoughts** *(modernization #8.1)*. Every module declares its `trust_zone:`; every interconnect declares `auth_required:` + `encryption:`. The validator (Commit 1) warns when an interconnect spans trust zones without auth/encryption; Commit 4's STRIDE rule *errors* when cross-zone interconnects lack `stride_mitigations:`. Don't lock the architecture without resolving both.
+- **Design-intent → runtime chain** *(modernization #21–33; tactic source)*. The architecture proposal is the entry point to a chain that runs through the toolkit: declare budgets (latency, cost, memory) → track via TPMs → commit external SLOs → instrument via observability metrics + alerts → tie alerts to runbooks. Each link is a separate follow-up skill (`hp-propose-budgets-and-tpms`, `hp-propose-observability`, `hp-propose-slos`). Don't try to resolve the whole chain inside the architecture proposal — but *do* surface the upcoming follow-ups when locking this proposal.
+- **Lived example update on solar** demonstrates the modernization fields landed for Commits 1–5 — see `examples/solar/dictionary.yaml` for `trust_zone:` on modules, `auth_required:` + `encryption:` + `stride_mitigations:` on `ai_local_lan`, plus `context:` tags from the Bounded Contexts work.
 
 ## Lived examples
 
@@ -82,5 +89,11 @@ What this skill adds is the **conversational front of the funnel**: identifying 
 - Design doc: [`toolkit/ARCH_DESIGN.md`](../ARCH_DESIGN.md)
 - Predecessors: [`hp-propose-context`](hp-propose-context.md) → [`hp-propose-decomp`](hp-propose-decomp.md) → [`hp-propose-cspec`](hp-propose-cspec.md) → [`hp-propose-pspec`](hp-propose-pspec.md) — Stage 5 follows once the requirements model is fully locked.
 - Followup: [`hp-confirm-naming`](hp-confirm-naming.md) reviews module names; [`hp-validate`](hp-validate.md) checks allocation balancing + reference integrity; [`hp-render`](hp-render.md) emits AFD/AID + AMS/AIS sidecars.
+- **Modernization follow-ups** *(triggered by the new decisions above)*:
+  - [`hp-propose-threat-model`](hp-propose-threat-model.md) *(planned)* — for each interconnect flagged by Decision 11.
+  - [`hp-propose-budgets-and-tpms`](hp-propose-budgets-and-tpms.md) *(planned)* — once allocations are settled, declare latency/cost/memory budgets across modules.
+  - [`hp-propose-observability`](hp-propose-observability.md) *(planned)* — per leaf process and per architecture module, declare metrics/alerts/runbooks.
+  - [`hp-propose-slos`](hp-propose-slos.md) *(planned)* — after observability lands, commit external SLOs.
+  - [`hp-capture-adr`](hp-capture-adr.md) *(planned)* — any architecturally-significant decision made above (BLE vs WiFi, single-host vs distributed, etc.) should result in an ADR.
 - HP reference: [`HP_QUICK_REF.md`](../reference/HP_QUICK_REF.md) — Architecture Model, AMS, AIS entries.
 - Source: Hatley, Hruschka & Pirbhai (2000), ch. 4 §4.2 — *Architecture Model*. The 1988 book did not have the Architecture Model in this form.

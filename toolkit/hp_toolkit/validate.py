@@ -16,11 +16,19 @@ from __future__ import annotations
 
 from collections import defaultdict
 from dataclasses import dataclass, field
-from typing import Literal
+from typing import Literal, Optional
 
 import re
 
-from .model import Project, Entity, EntityKind, Flow, PSpec
+from pathlib import Path
+
+from .model import (
+    Project, Entity, EntityKind, Flow, PSpec, ADR, ADRStatus,
+    AuthRequired, Encryption, Budget, TPM, TPMDirection,
+    Observability, Alert, SLO, STRIDEMitigations,
+    ArchInterconnect, ArchModuleSpec, ArchInterconnectSpec,
+    BoundedContext, ACLPattern,
+)
 
 
 Severity = Literal["error", "warning", "info"]
@@ -699,6 +707,500 @@ def architecture_validation(project: Project) -> ValidationReport:
     return report
 
 
+# ─────────────────────────────────────────────────────────────────────
+# Modernization validators (Commit 1 — items #2, #8.1, #10, #25)
+#
+# Sources cited per-rule below. All rules treat the modernization fields
+# as optional — projects without modernization data still validate.
+# ─────────────────────────────────────────────────────────────────────
+
+
+def modernization_validation(project: Project, project_dir: Path | None = None) -> ValidationReport:
+    """Validate the Commit-1 modernization additions.
+
+    - #2:   Flow / ArchFlow synchronicity — warn if unset on ArchFlow
+    - #8.1: Trust boundaries + interconnect security — warn on cross-
+            trust-zone interconnects without auth/encryption
+    - #10:  ADRs — reference integrity on `affects` and `supersedes`
+    - #25:  V&V plans — warn if `test_suite` path doesn't exist
+    """
+    report = ValidationReport()
+    entity_ids = set(project.entities.keys())
+    am_ids = set(project.architecture_modules.keys())
+    af_ids = set(project.architecture_flows.keys())
+    ai_ids = set(project.architecture_interconnects.keys())
+
+    # ─── #2: synchronicity coverage on architecture flows ───
+    arch_flows = project.all_architecture_flows()
+    if arch_flows:
+        n_with_sync = sum(1 for f in arch_flows if f.synchronicity is not None)
+        report.metrics["synchronicity_coverage_pct"] = round(100 * n_with_sync / len(arch_flows), 1)
+        for f in arch_flows:
+            if f.synchronicity is None:
+                report.issues.append(ValidationIssue(
+                    "info", "modernization", f.id,
+                    "architecture flow has no synchronicity declared (modernization #2)"))
+
+    # ─── #8.1: cross-trust-zone interconnects need auth + encryption ───
+    for ic in project.all_architecture_interconnects():
+        # Find trust zones of endpoints
+        ep_zones = set()
+        for ep_id in ic.endpoints:
+            m = project.architecture_modules.get(ep_id)
+            if m is not None and m.trust_zone is not None:
+                ep_zones.add(m.trust_zone)
+
+        if len(ep_zones) > 1:
+            # Crosses trust zones
+            if ic.auth_required is None or ic.auth_required == AuthRequired.NONE:
+                report.issues.append(ValidationIssue(
+                    "warning", "modernization", ic.id,
+                    f"interconnect crosses trust zones {sorted(z.value for z in ep_zones)!r} "
+                    f"but has no auth_required (modernization #8.1)"))
+            if ic.encryption is None or ic.encryption == Encryption.NONE:
+                report.issues.append(ValidationIssue(
+                    "warning", "modernization", ic.id,
+                    f"interconnect crosses trust zones {sorted(z.value for z in ep_zones)!r} "
+                    f"but has no encryption (modernization #8.1)"))
+
+    # ─── #10: ADR reference integrity ───
+    adr_ids = set(project.adrs.keys())
+    for adr in project.all_adrs():
+        # supersedes references a real ADR
+        if adr.supersedes is not None and adr.supersedes not in adr_ids:
+            report.issues.append(ValidationIssue(
+                "error", "modernization", adr.id,
+                f"ADR supersedes {adr.supersedes!r} but that ADR is not in the dictionary"))
+        # `affects` references resolve. Targets can be entities, flows, edges,
+        # transitions, architecture modules / flows / interconnects.
+        all_refable = (entity_ids | set(project.flows.keys())
+                       | set(project.edges.keys()) | set(project.transitions.keys())
+                       | am_ids | af_ids | ai_ids)
+        for kind, ids in adr.affects.items():
+            for ref_id in ids:
+                if ref_id not in all_refable:
+                    report.issues.append(ValidationIssue(
+                        "error", "modernization", adr.id,
+                        f"ADR.affects[{kind!r}] references {ref_id!r} which is not in the dictionary"))
+
+    if project.adrs:
+        n_accepted = sum(1 for a in project.all_adrs() if a.status == ADRStatus.ACCEPTED)
+        report.counts["adrs_total"] = len(project.adrs)
+        report.counts["adrs_accepted"] = n_accepted
+
+    # ─── #21: Budget allocation hard rule + reference integrity ───
+    am_ids_set = set(project.architecture_modules.keys())
+    for b in project.all_budgets():
+        # Allocations reference real architecture modules
+        for mod_id in b.allocations.keys():
+            if mod_id not in am_ids_set:
+                report.issues.append(ValidationIssue(
+                    "error", "modernization", b.id,
+                    f"budget allocation references unknown module {mod_id!r}"))
+        # Hard rule: sum(allocations) + reserve ≤ system_target
+        allocated_total = sum(b.allocations.values())
+        if allocated_total + b.system_reserve > b.system_target + 1e-9:
+            report.issues.append(ValidationIssue(
+                "error", "modernization", b.id,
+                f"budget over-allocated: allocations ({allocated_total} {b.unit}) "
+                f"+ reserve ({b.system_reserve} {b.unit}) > "
+                f"system_target ({b.system_target} {b.unit}) "
+                f"(NASA SE Handbook §6.7)"))
+
+    if project.budgets:
+        # Coverage metric: how close to fully allocated (avg across budgets)
+        completeness_values = []
+        for b in project.all_budgets():
+            if b.system_target == 0:
+                continue
+            completeness_values.append(
+                100 * (sum(b.allocations.values()) + b.system_reserve) / b.system_target
+            )
+        if completeness_values:
+            report.metrics["budget_allocation_completeness_pct"] = round(
+                sum(completeness_values) / len(completeness_values), 1)
+        report.counts["budgets_total"] = len(project.budgets)
+
+    # ─── #22: TPM threshold rule + cross-references ───
+    # Threshold semantics depend on direction:
+    #   less_is_better — threshold is a ceiling; current + growth must stay ≤ threshold
+    #   more_is_better — threshold is a floor;   current - growth must stay ≥ threshold
+    def _tpm_within_threshold(t: TPM) -> bool:
+        if t.direction == TPMDirection.MORE_IS_BETTER:
+            return t.current_estimate >= t.threshold
+        return t.current_estimate <= t.threshold
+
+    def _tpm_growth_safe(t: TPM) -> bool:
+        if t.direction == TPMDirection.MORE_IS_BETTER:
+            return t.current_estimate - t.growth_allowance >= t.threshold
+        return t.current_estimate + t.growth_allowance <= t.threshold
+
+    budget_ids = set(project.budgets.keys())
+    for t in project.all_tpms():
+        if not _tpm_growth_safe(t):
+            direction_phrase = (
+                "current_estimate − growth_allowance dropped below threshold"
+                if t.direction == TPMDirection.MORE_IS_BETTER
+                else "current_estimate + growth_allowance exceeded threshold"
+            )
+            report.issues.append(ValidationIssue(
+                "error", "modernization", t.id,
+                f"TPM headroom exhausted ({t.direction.value}): {direction_phrase} — "
+                f"current={t.current_estimate} {t.unit}, growth={t.growth_allowance}, "
+                f"threshold={t.threshold}"))
+        if not _tpm_within_threshold(t):
+            direction_phrase = (
+                f"below floor of {t.threshold}"
+                if t.direction == TPMDirection.MORE_IS_BETTER
+                else f"above ceiling of {t.threshold}"
+            )
+            report.issues.append(ValidationIssue(
+                "warning", "modernization", t.id,
+                f"TPM current_estimate ({t.current_estimate} {t.unit}) is {direction_phrase}"))
+        if t.derived_from_budget is not None and t.derived_from_budget not in budget_ids:
+            report.issues.append(ValidationIssue(
+                "error", "modernization", t.id,
+                f"TPM derived_from_budget {t.derived_from_budget!r} not in dictionary"))
+
+    if project.tpms:
+        n_within = sum(1 for t in project.all_tpms() if _tpm_within_threshold(t))
+        n_safe   = sum(1 for t in project.all_tpms() if _tpm_growth_safe(t))
+        report.metrics["tpm_within_threshold_pct"] = round(100 * n_within / len(project.tpms), 1)
+        report.metrics["tpm_growth_safety_pct"]    = round(100 * n_safe   / len(project.tpms), 1)
+        report.counts["tpms_total"] = len(project.tpms)
+
+    # ─── #25: V&V — verification block coverage + test_suite path check ───
+    n_specs_total = len(project.pspecs) + len(project.architecture_module_specs)
+    if n_specs_total > 0:
+        n_with_verif = (
+            sum(1 for p in project.all_pspecs() if p.verification is not None)
+            + sum(1 for a in project.all_architecture_module_specs() if a.verification is not None)
+        )
+        report.metrics["verification_coverage_pct"] = round(100 * n_with_verif / n_specs_total, 1)
+
+        # Path-existence check (only if project_dir is provided)
+        if project_dir is not None:
+            def _check_paths(spec_id: str, spec_verif):
+                if spec_verif is None or spec_verif.test_suite is None:
+                    return
+                test_path = spec_verif.test_suite
+                # Reject absolute paths and parent-directory escape
+                if test_path.startswith("/") or ".." in Path(test_path).parts:
+                    report.issues.append(ValidationIssue(
+                        "error", "modernization", spec_id,
+                        f"V&V test_suite path {test_path!r} must be relative and within project"))
+                    return
+                full_path = project_dir / test_path
+                if not full_path.exists():
+                    report.issues.append(ValidationIssue(
+                        "warning", "modernization", spec_id,
+                        f"V&V test_suite {test_path!r} does not exist at expected location"))
+
+            for p in project.all_pspecs():
+                _check_paths(p.id, p.verification)
+            for a in project.all_architecture_module_specs():
+                _check_paths(a.id, a.verification)
+
+    # ─── #1: observability coverage + alert path checks ───
+    am_ids_set = set(project.architecture_modules.keys())
+
+    def _validate_observability(holder_id: str, obs) -> None:
+        if obs is None:
+            return
+        seen_alert_names: set[str] = set()
+        for alert in obs.alerts:
+            if alert.name in seen_alert_names:
+                report.issues.append(ValidationIssue(
+                    "error", "modernization", holder_id,
+                    f"duplicate alert name {alert.name!r} within this observability block"))
+            seen_alert_names.add(alert.name)
+            # #33 — runbook path validation
+            if alert.runbook is not None and project_dir is not None:
+                if alert.runbook.startswith("/") or ".." in Path(alert.runbook).parts:
+                    report.issues.append(ValidationIssue(
+                        "error", "modernization", holder_id,
+                        f"alert {alert.name!r} runbook path {alert.runbook!r} "
+                        f"must be relative and within project"))
+                elif not (project_dir / alert.runbook).exists():
+                    report.issues.append(ValidationIssue(
+                        "warning", "modernization", holder_id,
+                        f"alert {alert.name!r} runbook {alert.runbook!r} does not exist"))
+
+    for ps in project.all_pspecs():
+        _validate_observability(ps.id, ps.observability)
+    for am in project.all_architecture_modules():
+        _validate_observability(am.id, am.observability)
+
+    obs_holders_total = len(project.pspecs) + len(project.architecture_modules)
+    if obs_holders_total > 0:
+        obs_with = (
+            sum(1 for ps in project.all_pspecs() if ps.observability is not None)
+            + sum(1 for am in project.all_architecture_modules() if am.observability is not None)
+        )
+        report.metrics["observability_coverage_pct"] = round(100 * obs_with / obs_holders_total, 1)
+
+    # Coverage metric: alerts with runbook (#33)
+    all_alerts: list = []
+    for ps in project.all_pspecs():
+        if ps.observability:
+            all_alerts.extend(ps.observability.alerts)
+    for am in project.all_architecture_modules():
+        if am.observability:
+            all_alerts.extend(am.observability.alerts)
+    if all_alerts:
+        n_with_runbook = sum(1 for a in all_alerts if a.runbook is not None)
+        report.metrics["alert_runbook_coverage_pct"] = round(100 * n_with_runbook / len(all_alerts), 1)
+        report.counts["alerts_total"] = len(all_alerts)
+
+    # ─── #32: SLO validator ───
+    tpm_ids = set(project.tpms.keys())
+    window_re = re.compile(r"^\d+(s|m|h|d|w)$")
+    for slo in project.all_slos():
+        if not (0 <= slo.error_budget_pct <= 100):
+            report.issues.append(ValidationIssue(
+                "error", "modernization", slo.id,
+                f"error_budget_pct {slo.error_budget_pct} not in [0, 100]"))
+        if not window_re.match(slo.window):
+            report.issues.append(ValidationIssue(
+                "error", "modernization", slo.id,
+                f"window {slo.window!r} does not match \\d+[smhdw] (e.g. '30d', '24h')"))
+        all_known: dict[str, set[str]] = {
+            "modules": am_ids_set,
+            "flows": set(project.flows.keys()),
+            "interconnects": set(project.architecture_interconnects.keys()),
+            "processes": entity_ids,
+        }
+        for kind, ids in slo.applies_to.items():
+            known = all_known.get(kind)
+            if known is None:
+                continue
+            for ref_id in ids:
+                if ref_id not in known:
+                    report.issues.append(ValidationIssue(
+                        "error", "modernization", slo.id,
+                        f"applies_to[{kind!r}] references {ref_id!r} which is not in the dictionary"))
+        if slo.derives_from_tpm is not None and slo.derives_from_tpm not in tpm_ids:
+            report.issues.append(ValidationIssue(
+                "error", "modernization", slo.id,
+                f"derives_from_tpm {slo.derives_from_tpm!r} not in dictionary"))
+        if slo.runbook_on_burn is not None and project_dir is not None:
+            rb = slo.runbook_on_burn
+            if rb.startswith("/") or ".." in Path(rb).parts:
+                report.issues.append(ValidationIssue(
+                    "error", "modernization", slo.id,
+                    f"runbook_on_burn {rb!r} must be relative and within project"))
+            elif not (project_dir / rb).exists():
+                report.issues.append(ValidationIssue(
+                    "warning", "modernization", slo.id,
+                    f"runbook_on_burn {rb!r} does not exist"))
+
+    if project.architecture_modules:
+        slo_module_ids = set()
+        for slo in project.all_slos():
+            slo_module_ids.update(slo.applies_to.get("modules", []))
+        report.metrics["slo_coverage_pct"] = round(
+            100 * len(slo_module_ids & am_ids_set) / len(am_ids_set), 1)
+    if project.service_level_objectives:
+        report.counts["slos_total"] = len(project.service_level_objectives)
+
+    # ─── #8.2: STRIDE coverage on cross-trust-zone interconnects ───
+    cross_zone_interconnects: list[ArchInterconnect] = []
+    for ic in project.all_architecture_interconnects():
+        ep_zones = set()
+        for ep_id in ic.endpoints:
+            m = project.architecture_modules.get(ep_id)
+            if m is not None and m.trust_zone is not None:
+                ep_zones.add(m.trust_zone)
+        if len(ep_zones) > 1:
+            cross_zone_interconnects.append(ic)
+            if ic.stride_mitigations is None:
+                report.issues.append(ValidationIssue(
+                    "error", "modernization", ic.id,
+                    f"interconnect crosses trust zones {sorted(z.value for z in ep_zones)!r} "
+                    f"but has no stride_mitigations (modernization #8.2)"))
+
+    if cross_zone_interconnects:
+        n_with_stride = sum(1 for ic in cross_zone_interconnects if ic.stride_mitigations is not None)
+        report.metrics["stride_coverage_pct"] = round(
+            100 * n_with_stride / len(cross_zone_interconnects), 1)
+        report.counts["stride_cross_zone_interconnects"] = len(cross_zone_interconnects)
+
+    # ─── #8.3: reference-catalog ID format checks ───
+    # Patterns are conservative — they catch malformed IDs without trying
+    # to validate against the live external catalogs.
+    mitre_attack_re = re.compile(r"^T\d{4}(\.\d{3})?$")          # T1078 or T1078.001
+    cwe_re          = re.compile(r"^CWE-\d{1,5}$")               # CWE-79
+    compliance_re   = re.compile(r"^[A-Z][A-Z0-9-]*-[A-Z0-9.\-]+$")  # SOC2-CC6.1, ISA-62443-SL2
+
+    def _check_catalog_refs(holder_id: str, holder: object) -> None:
+        for tid in getattr(holder, "references_mitre_attack", []) or []:
+            if not mitre_attack_re.match(tid):
+                report.issues.append(ValidationIssue(
+                    "warning", "modernization", holder_id,
+                    f"MITRE ATT&CK reference {tid!r} does not match T\\d{{4}}(\\.\\d{{3}})? format"))
+        for cwe in getattr(holder, "references_cwe", []) or []:
+            if not cwe_re.match(cwe):
+                report.issues.append(ValidationIssue(
+                    "warning", "modernization", holder_id,
+                    f"CWE reference {cwe!r} does not match CWE-\\d+ format"))
+        for cid in getattr(holder, "references_compliance", []) or []:
+            if not compliance_re.match(cid):
+                report.issues.append(ValidationIssue(
+                    "warning", "modernization", holder_id,
+                    f"compliance reference {cid!r} does not match expected format "
+                    f"(e.g. SOC2-CC6.1, ISA-62443-SL2)"))
+
+    for s in project.all_architecture_module_specs():
+        _check_catalog_refs(s.id, s)
+    for s in project.all_architecture_interconnect_specs():
+        _check_catalog_refs(s.id, s)
+    for adr in project.all_adrs():
+        _check_catalog_refs(adr.id, adr)
+
+    # ─── #5: Bounded Contexts (BOUNDED_CONTEXTS_DESIGN.md §5) ───
+    context_ids = set(project.bounded_contexts.keys())
+
+    def _entity_context(eid: str) -> Optional[str]:
+        e = project.entities.get(eid)
+        return e.context if e is not None else None
+
+    def _holders_with_context():
+        """Yield (id, holder) for every type that can carry a `context:` field."""
+        for e in project.all_entities():
+            yield e.id, e
+        for f in project.all_flows():
+            yield f.id, f
+        for am in project.all_architecture_modules():
+            yield am.id, am
+        for af in project.all_architecture_flows():
+            yield af.id, af
+
+    # Rule 1: every entity with `context:` references a real BoundedContext
+    if project.bounded_contexts:
+        for hid, holder in _holders_with_context():
+            ctx = getattr(holder, "context", None)
+            if ctx is not None and ctx not in context_ids:
+                report.issues.append(ValidationIssue(
+                    "error", "modernization", hid,
+                    f"context {ctx!r} not in bounded_contexts"))
+
+    # Translation entity validation (rules 4, 5)
+    translations = project.all_translations()
+    for t in translations:
+        # Rule 4: source_term + target_term exist in respective contexts
+        for field_name, ctx_name in [("source_term", "source_context"),
+                                     ("target_term", "target_context")]:
+            term_id = getattr(t, field_name, None)
+            ctx_id = getattr(t, ctx_name, None)
+            if term_id is None:
+                report.issues.append(ValidationIssue(
+                    "error", "modernization", t.id,
+                    f"translation entity missing required {field_name!r} field"))
+                continue
+            if ctx_id is None:
+                report.issues.append(ValidationIssue(
+                    "error", "modernization", t.id,
+                    f"translation entity missing required {ctx_name!r} field"))
+                continue
+            # Cross-check: the referenced term exists and lives in the named context
+            referenced = project.entities.get(term_id)
+            if referenced is None:
+                # Could be a flow / arch entity — accept if it exists with the right context
+                found = False
+                for collection in (project.flows, project.architecture_modules,
+                                   project.architecture_flows):
+                    obj = collection.get(term_id)
+                    if obj is not None:
+                        found = True
+                        if getattr(obj, "context", None) != ctx_id:
+                            report.issues.append(ValidationIssue(
+                                "error", "modernization", t.id,
+                                f"{field_name} {term_id!r} is not in context {ctx_id!r}"))
+                        break
+                if not found:
+                    report.issues.append(ValidationIssue(
+                        "error", "modernization", t.id,
+                        f"translation {field_name} {term_id!r} not in dictionary"))
+            elif referenced.context != ctx_id:
+                report.issues.append(ValidationIssue(
+                    "error", "modernization", t.id,
+                    f"{field_name} {term_id!r} (context={referenced.context!r}) does not live in "
+                    f"declared {ctx_name}={ctx_id!r}"))
+
+        # Rule 5: source_context != target_context
+        if t.source_context is not None and t.source_context == t.target_context:
+            report.issues.append(ValidationIssue(
+                "error", "modernization", t.id,
+                f"translation source_context and target_context are both "
+                f"{t.source_context!r} (translations must bridge *different* contexts)"))
+
+        # Rule 7: cross-context refs should declare ACL pattern
+        if t.pattern is None:
+            report.issues.append(ValidationIssue(
+                "warning", "modernization", t.id,
+                "translation entity has no ACL pattern declared (Evans 2003)"))
+
+    # Rules 2, 3: Flow and ArchFlow endpoints must share context OR route through translation
+    translation_pairs: set[tuple[str, str]] = set()
+    for t in translations:
+        if t.source_context and t.target_context:
+            translation_pairs.add((t.source_context, t.target_context))
+            translation_pairs.add((t.target_context, t.source_context))  # bidirectional
+
+    if project.bounded_contexts:
+        # Flow rule
+        for f in project.all_flows():
+            src_ctx = _entity_context(f.refined_source or f.source)
+            tgt_ctx = _entity_context(f.refined_target or f.target)
+            if src_ctx and tgt_ctx and src_ctx != tgt_ctx:
+                if (src_ctx, tgt_ctx) not in translation_pairs:
+                    report.issues.append(ValidationIssue(
+                        "error", "modernization", f.id,
+                        f"flow crosses contexts {src_ctx!r}→{tgt_ctx!r} but no "
+                        f"translation entity bridges them"))
+
+        # ArchFlow rule
+        for af in project.all_architecture_flows():
+            src = project.architecture_modules.get(af.source)
+            tgt = project.architecture_modules.get(af.target)
+            src_ctx = getattr(src, "context", None) if src else None
+            tgt_ctx = getattr(tgt, "context", None) if tgt else None
+            if src_ctx and tgt_ctx and src_ctx != tgt_ctx:
+                if (src_ctx, tgt_ctx) not in translation_pairs:
+                    report.issues.append(ValidationIssue(
+                        "error", "modernization", af.id,
+                        f"architecture flow crosses contexts {src_ctx!r}→{tgt_ctx!r} but no "
+                        f"translation entity bridges them"))
+
+    # Rule 6: BoundedContexts with no entities (warning)
+    if project.bounded_contexts:
+        ctx_in_use: set[str] = set()
+        for _, holder in _holders_with_context():
+            ctx = getattr(holder, "context", None)
+            if ctx:
+                ctx_in_use.add(ctx)
+        for ctx_id in context_ids:
+            if ctx_id not in ctx_in_use:
+                report.issues.append(ValidationIssue(
+                    "warning", "modernization", ctx_id,
+                    f"bounded context {ctx_id!r} has no entities assigned to it"))
+
+    # Coverage metrics + counts
+    if project.bounded_contexts:
+        report.counts["bounded_contexts_total"] = len(project.bounded_contexts)
+        report.counts["acl_translations_total"] = len(translations)
+        # Per-context entity count
+        per_context: dict[str, int] = {ctx_id: 0 for ctx_id in context_ids}
+        for _, holder in _holders_with_context():
+            ctx = getattr(holder, "context", None)
+            if ctx in per_context:
+                per_context[ctx] += 1
+        for ctx_id, n in per_context.items():
+            report.counts[f"entities_in_{ctx_id}"] = n
+
+    return report
+
+
 def find_orphans(project: Project) -> ValidationReport:
     """Entities that no flow or edge references — *and* are not the
     container of another entity (i.e., not a parent). True orphans probably
@@ -725,7 +1227,10 @@ def find_orphans(project: Project) -> ValidationReport:
             continue
         # States get a pass — they're not referenced by flows (yet — we don't
         # model transitions in dictionary.yaml as flows).
-        if e.kind in (EntityKind.STATE, EntityKind.STATE_COMPOSITE):
+        # Translation entities (Modernization #5) are boundary objects, not
+        # orphans — their references live in source_term/target_term fields.
+        if e.kind in (EntityKind.STATE, EntityKind.STATE_COMPOSITE,
+                      EntityKind.TRANSLATION):
             continue
         report.issues.append(ValidationIssue(
             "info", "orphan", e.id,
@@ -740,14 +1245,19 @@ def find_orphans(project: Project) -> ValidationReport:
 # Aggregate
 # ─────────────────────────────────────────────────────────────────────
 
-def validate(project: Project) -> ValidationReport:
-    """Run all validators and return a combined report."""
+def validate(project: Project, project_dir: Path | None = None) -> ValidationReport:
+    """Run all validators and return a combined report.
+
+    `project_dir`, when provided, lets modernization rules (#25 V&V path
+    check, #33 runbook path check, etc.) verify referenced files exist.
+    """
     report = ValidationReport()
     report.extend(reference_integrity(project))
     report.extend(hierarchy_consistency(project))
     report.extend(coverage_metrics(project))
     report.extend(pspec_validation(project))
     report.extend(architecture_validation(project))
+    report.extend(modernization_validation(project, project_dir))
     report.extend(find_orphans(project))
     return report
 
@@ -776,7 +1286,7 @@ def _main() -> int:
         return 2
 
     project = load(path)
-    report = validate(project)
+    report = validate(project, project_dir=path.parent)
 
     # Issues, grouped by severity
     if report.errors:

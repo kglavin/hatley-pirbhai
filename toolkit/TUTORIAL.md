@@ -49,7 +49,7 @@ Stages
   ✅ Stage 5 — Architecture model             2 module(s); 2 flow(s); 1 interconnect(s); 5/5 leaf processes allocated; 2/2 AMS
 ```
 
-All five implemented stages are locked. We'll walk through them in order.
+All five HP stages are locked. On top of these stages, fishing-rig also exercises the **modernization layer** (Commits 1–5): an ADR for the BLE transport choice, two design-time budgets with matching TPMs, one SLO, a full STRIDE pass on the cross-trust-zone BLE link, and V&V + observability declared on `pspec_acquire_tension`. We'll walk Stages 1–5 first, then the modernization layer at the end as **Stage 6**.
 
 ---
 
@@ -395,6 +395,122 @@ Revert the change when you're done. This is the **allocation completeness rule**
 
 ---
 
+## Stage 6 — Modernization layer
+
+**Goal of this stage:** wire the static spec to runtime reality. The 1988/2000 HP method nails *what* and *how*; the modernization layer adds the **design-intent → runtime chain** that 21st-century systems need: trust boundaries, threat models, ADRs, design-time budgets that get tracked over time as TPMs, an observability surface emitted by every leaf, SLOs that commit external promises, and runbooks for when the SLO burns.
+
+The modernization layer is **optional and incremental** — you don't have to declare any of it for a project to be valid. But the validator hardens cross-references *once you declare them*, and the rendered sidecars surface what's there.
+
+Fishing-rig exercises six of the modernization items. We'll walk each.
+
+### Already visible on Stage 5 — trust zones + auth + encryption
+
+Open [`../examples/fishing-rig/dictionary.yaml`](../examples/fishing-rig/dictionary.yaml) and find `am_controller` + `am_angler_app` + `ai_ble`:
+
+```yaml
+am_controller:
+  trust_zone: privileged                 # modernization #8.1 — owns motor + sensor
+
+am_angler_app:
+  trust_zone: internal_lan               # angler-held device
+
+ai_ble:
+  auth_required: paired_device           # modernization #8.1
+  encryption: bluetooth_le_secure        # BLE 5.0 LE Secure Connections
+  ...
+```
+
+The validator derives each interconnect's trust-zone span from its endpoint modules. `ai_ble` connects a `privileged` module to an `internal_lan` module — a cross-trust-zone interconnect. That **triggers a hard validator rule**: cross-trust-zone interconnects must have `stride_mitigations:` filled out. Read on.
+
+### #10 — ADR for the BLE choice
+
+Open [`../examples/fishing-rig/adrs/001-ble-transport.md`](../examples/fishing-rig/adrs/001-ble-transport.md). This is the rendered Nygard-style ADR sidecar — `Status`, `Context`, `Decision`, `Consequences`, `Alternatives`, and footer cross-references to MITRE ATT&CK (T1078, T1565) and CWE (CWE-319, CWE-294).
+
+The source is `dictionary.yaml > adrs > adr_001_ble_transport`. The skill that produces this is [`hp-capture-adr`](skills/hp-capture-adr.md) — invoked mid-decision, not at a fixed stage. The renderer emits one markdown file per ADR plus the cross-references show up on each ArchModule / ArchInterconnect / ADR via `affects:`.
+
+### #8.2 + #8.3 — STRIDE on the BLE interconnect
+
+Because BLE crosses trust zones, the validator demands a full STRIDE pass. Open [`../examples/fishing-rig/architecture/specs/interconnects/ble.md`](../examples/fishing-rig/architecture/specs/interconnects/ble.md) and scroll to `## THREAT MODEL (STRIDE)`. Six categories, each with a narrative mitigation; `## CATALOG REFERENCES` lists the MITRE / CWE / compliance IDs that the mitigations address.
+
+The source is `dictionary.yaml > architecture_interconnects > ai_ble > stride_mitigations` + `architecture_interconnect_specs > ais_ble > references_*`. The skill is [`hp-propose-threat-model`](skills/hp-propose-threat-model.md).
+
+Try breaking it to see the rule fire. Temporarily blank out `ai_ble.stride_mitigations.spoofing`:
+
+```bash
+cd toolkit
+uv run python -m hp_toolkit.validate ../examples/fishing-rig/dictionary.yaml
+```
+
+You should see something like:
+
+```
+✗ architecture_interconnect [ai_ble]: crosses trust zones (privileged ↔ internal_lan)
+  but stride_mitigations.spoofing is empty — modernization #8.2 (Howard & Lipner 2006)
+```
+
+Revert when done.
+
+### #21 + #22 — Budgets and TPMs
+
+Open the dictionary at `budgets:` (~line 830) and `tpms:` (~line 856). Two budgets — `budget_bite_to_set_latency` (200 ms ceiling, with 30 ms system reserve, the rest allocated to `am_controller`) and `budget_telemetry_to_app_latency` (300 ms ceiling, split across both modules). Two TPMs that track them at runtime — `tpm_bite_to_set_currently` (currently 165 ms, target 150, threshold 200) and `tpm_ble_link_uptime` (more_is_better, currently 99.2%, target 99.5%, floor 99.0%).
+
+Notice `direction: more_is_better` on `tpm_ble_link_uptime` — uptime's threshold is a *floor*, not a ceiling. The validator's TPM rule is direction-aware: it errors when a less_is_better TPM exceeds its ceiling, and when a more_is_better TPM falls below its floor. Both cases are real bugs in the runtime story.
+
+Open [`../examples/fishing-rig/architecture/specs/controller.md`](../examples/fishing-rig/architecture/specs/controller.md) and scroll to `## BUDGETS` + `## TPMs`. The AMS sidecar emits the budgets allocated to this module + the TPMs that track them. The skill is [`hp-propose-budgets-and-tpms`](skills/hp-propose-budgets-and-tpms.md).
+
+### #1 + #33 — Observability + runbooks on `proc_acquire_tension`
+
+Open `pspec_acquire_tension` in the dictionary (~line 512). After the standard transformation body, you'll see `verification:` (#25) and `observability:` (#1) blocks:
+
+```yaml
+observability:
+  metrics:
+    - { name: tension_samples_total, kind: counter, ... }
+    - { name: tension_newtons, kind: gauge, unit: N, ... }
+    - { name: tension_adc_read_seconds, kind: histogram, unit: s, ... }
+  traces:  [{ span: "tension.acquire_cycle", ... }]
+  logs:    [{ category: "tension.calibration", level: info }]
+  alerts:
+    - name: tension_sensor_stuck
+      when: "rate(tension_samples_total[1m]) == 0"
+      severity: warning
+      runbook: runbooks/tension-sensor-stuck.md
+      escalation_after_min: 15
+```
+
+Every alert names a runbook. Open [`../examples/fishing-rig/runbooks/tension-sensor-stuck.md`](../examples/fishing-rig/runbooks/tension-sensor-stuck.md) — Symptoms / Diagnosis / Resolution / Escalation. The validator (`alert_runbook_coverage_pct`) reports how many alerts have a runbook on disk; orphan alerts get muted, and muted alerts hide incidents.
+
+Open [`../examples/fishing-rig/01-level1/pspecs/acquire-tension.md`](../examples/fishing-rig/01-level1/pspecs/acquire-tension.md) and scroll past the transformation. You'll see `## VERIFICATION` and `## OBSERVABILITY` sections rendered from the dictionary. The skill is [`hp-propose-observability`](skills/hp-propose-observability.md).
+
+### #32 — SLO anchored to the TPM
+
+Open `service_level_objectives:` (~line 889). One SLO — `slo_bite_to_set_latency`:
+
+```yaml
+slo_bite_to_set_latency:
+  sli:
+    query: 'histogram_quantile(0.95, rate(bite_to_set_seconds_bucket[5m]))'
+    unit: seconds
+  target: 0.200                  # = budget_bite_to_set_latency.system_target
+  window: 7d
+  error_budget_pct: 1.0
+  applies_to: { modules: [am_controller] }
+  derives_from_tpm: tpm_bite_to_set_currently
+  runbook_on_burn: runbooks/slo-bite-to-set-burn.md
+```
+
+This is the **design-intent → runtime chain** in one entity: it derives from the TPM (which derives from the budget), names the SLI that measures it, sets a 7-day error budget, points to a runbook for what to do when burning. Open [`../examples/fishing-rig/architecture/slos.md`](../examples/fishing-rig/architecture/slos.md) for the rendered project-level SLO table; [`../examples/fishing-rig/runbooks/slo-bite-to-set-burn.md`](../examples/fishing-rig/runbooks/slo-bite-to-set-burn.md) is the burn-rate playbook. The skill is [`hp-propose-slos`](skills/hp-propose-slos.md).
+
+### #5 — Bounded contexts (solar only)
+
+Fishing-rig is **intentionally single-context** — too small to benefit from DDD bounded-context discipline. It demonstrates the backward-compatible path: no `bounded_contexts:` declared, no `context:` field on entities, validator imposes nothing.
+
+For the multi-context path, open [`../examples/solar/dictionary.yaml`](../examples/solar/dictionary.yaml) and find `bounded_contexts:` (~line 1159). Solar declares two contexts (`ctx_controller` owned by controller-team; `ctx_dashboard` owned by frontend-team) plus one Anti-Corruption Layer (`acl_user_action_to_config` translating dashboard's "user action" to controller's "override event"). Every entity carries a `context:` tag. The validator enforces that cross-context flows route through an ACL — drop the ACL and watch a wall of errors.
+
+Open [`../examples/solar/context-map.generated.mmd`](../examples/solar/context-map.generated.mmd) for the rendered Context Map. Skill: [`hp-propose-bounded-contexts`](skills/hp-propose-bounded-contexts.md); design rationale: [`BOUNDED_CONTEXTS_DESIGN.md`](BOUNDED_CONTEXTS_DESIGN.md).
+
+---
+
 ## Closing the loop
 
 You've now seen what each stage produces. Two more commands close the loop.
@@ -445,15 +561,16 @@ Every generated artifact (Mermaid, D2, Cytoscape HTML, SVG, PSPEC markdown, AMS 
 
 ## What you've seen
 
-Seven ideas, all grounded in the artifacts you just walked through:
+Eight ideas, all grounded in the artifacts you just walked through:
 
-1. **`dictionary.yaml` is the only file you hand-edit.** Every diagram, PSPEC, AMS, and AIS sidecar is derived.
+1. **`dictionary.yaml` is the only file you hand-edit.** Every diagram, PSPEC, AMS, AIS, ADR, and SLO sidecar is derived.
 2. **Each stage locks through a form-based proposal**, not a chat conversation. The proposal is the audit record: decisions, alternatives considered, defaults pre-checked, provenance attached.
 3. **Three views per artifact** (Mermaid, D2, Cytoscape HTML) serve three moments: docs, declarative, interactive IDE.
 4. **The Cytoscape HTML is hypertext.** Drill down on decomposable bubbles, walk up via `↑ Parent`, link to dictionary entries, PSPEC sidecars, AMS sidecars, and HP reference cards.
 5. **PSPECs follow 2000 Fig 4.46 exactly** — INPUTS / OUTPUTS / TRANSFORMATION. INPUTS and OUTPUTS are derived from `dictionary.flows`; the PSPEC only carries the transformation body, optional constraints, and optional comments. The validator enforces balancing (1988 §13.1).
 6. **Stage 5 is the bridge from requirements to architecture.** Every leaf process / CSPEC / data store from Stages 1–4 gets *allocated* to an architecture module. The validator's allocation-completeness rule (2000 §4.2.5.4) catches every leak.
-7. **`hp-validate` and `hp-status` keep you honest** — reference integrity, hierarchy consistency, PSPEC balancing, architecture allocation, stage progress, artifact freshness.
+7. **The modernization layer wires the static spec to runtime reality.** Trust zones + STRIDE on cross-boundary interconnects, ADRs at decision-time, design-time budgets → runtime TPMs → SLOs → runbooks-on-burn — a single chain from intent to operations, declared once in `dictionary.yaml` and surfaced everywhere the validator + renderer touch.
+8. **`hp-validate` and `hp-status` keep you honest** — reference integrity, hierarchy consistency, PSPEC balancing, architecture allocation, modernization cross-references (STRIDE on cross-trust-zone interconnects, TPM vs budget direction, SLO→TPM resolution, ACL routing on cross-context flows, runbook path existence), stage progress, artifact freshness.
 
 ---
 
@@ -461,5 +578,6 @@ Seven ideas, all grounded in the artifacts you just walked through:
 
 - **Try it on your own project**: `uv run python scripts/hp_init.py <name>`. Scaffolds the directory + empty dictionary + Stage 1 proposal stub. Follow the workflow chain from [README.md > Workflow](README.md#workflow).
 - **Read [`reference/HP_QUICK_REF.md`](reference/HP_QUICK_REF.md)** — 60+ HP terms with modern-software analogs.
-- **Read the [skills/](skills/) directory** — one markdown file per workflow stage; each documents *when to use*, *what it does*, and *discipline rules*.
-- **For deeper method context**, the source books are Hatley & Pirbhai 1988 (*Strategies for Real-Time System Specification*) and Hatley, Hruschka & Pirbhai 2000 (*Process for System Architecture and Requirements Engineering*).
+- **Read the [skills/](skills/) directory** — 16 markdown files (10 core HP stages + cross-cutting tools + 6 modernization-layer skills); each documents *when to use*, *what it does*, and *discipline rules*.
+- **For the modernization-layer design rationale**, read [`MODERNIZATION_DESIGN.md`](MODERNIZATION_DESIGN.md) (Commits 1–5 — schemas + validators + renderers) and [`BOUNDED_CONTEXTS_DESIGN.md`](BOUNDED_CONTEXTS_DESIGN.md) (Commit 5 — Evans-DDD paradigm shift).
+- **For deeper method context**, the source books are Hatley & Pirbhai 1988 (*Strategies for Real-Time System Specification*) and Hatley, Hruschka & Pirbhai 2000 (*Process for System Architecture and Requirements Engineering*). The modernization layer cites: NASA SE Handbook §6.7 (budgets/TPMs), Google SRE Book + Workbook (SLOs), Microsoft SDL / Howard & Lipner 2006 (STRIDE), Nygard 2011 (ADRs), Evans 2003 + Vernon 2013 (DDD bounded contexts).

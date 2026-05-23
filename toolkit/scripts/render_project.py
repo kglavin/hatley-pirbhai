@@ -30,6 +30,7 @@ from hp_toolkit.render import (
     svg as render_svg,
     pspec as render_pspec,
     architecture as render_arch,
+    adr as render_adr,
 )
 
 
@@ -129,8 +130,48 @@ def main(project_dir: Path) -> int:
     if project.architecture_modules:
         render_architecture(project_dir, project)
 
+    # ─── ADRs (Modernization #10) ───
+    if project.adrs:
+        render_adrs(project_dir, project)
+
+    # ─── Context Map (Modernization #5) ───
+    if project.bounded_contexts:
+        render_context_map(project_dir, project)
+
     print(_color(f"Done.", "32"))
     return 0
+
+
+def render_context_map(project_dir: Path, project) -> None:
+    """Render the Context Map (Evans 2003) — bounded contexts + ACLs."""
+    print(_color(f"==> Context Map ({len(project.bounded_contexts)} contexts, "
+                 f"{len(project.all_translations())} ACL(s))", "1"))
+
+    src = render_mermaid.render_context_map(project)
+    out = project_dir / "context-map.generated.mmd"
+    out.write_text(src)
+    print(f"  wrote {out.name} ({len(src)} bytes)")
+    _try_svg(out, project_dir / "context-map.generated-mermaid.svg", "mermaid")
+
+    src = render_d2.render_context_map(project)
+    out = project_dir / "context-map.generated.d2"
+    out.write_text(src)
+    print(f"  wrote {out.name} ({len(src)} bytes)")
+    _try_svg(out, project_dir / "context-map.generated-d2.svg", "d2")
+    print()
+
+
+def render_adrs(project_dir: Path, project) -> None:
+    """Render each ADR into a sidecar markdown file at adrs/."""
+    adr_dir = project_dir / "adrs"
+    adr_dir.mkdir(parents=True, exist_ok=True)
+    print(_color(f"==> ADRs ({len(project.adrs)})", "1"))
+    for adr in project.all_adrs():
+        md = render_adr.render_adr_markdown(project, adr)
+        out = adr_dir / render_adr.adr_filename(adr.id)
+        out.write_text(md)
+        print(f"  wrote adrs/{out.name} ({len(md)} bytes)")
+    print()
 
 
 def render_architecture(project_dir: Path, project) -> None:
@@ -211,6 +252,15 @@ def render_architecture(project_dir: Path, project) -> None:
             out = ic_dir / f"{render_arch.ais_subdir_name(ais.parent_interconnect)}.md"
             out.write_text(md)
             print(f"  wrote specs/interconnects/{out.name} ({len(md)} bytes)")
+        print()
+
+    # SLOs project-level summary (modernization #32)
+    if project.service_level_objectives:
+        print(_color(f"==> SLOs summary ({len(project.service_level_objectives)} SLO(s))", "1"))
+        md = render_arch.render_slos_summary(project)
+        out = arch_dir / "slos.md"
+        out.write_text(md)
+        print(f"  wrote {out.name} ({len(md)} bytes)")
         print()
 
 

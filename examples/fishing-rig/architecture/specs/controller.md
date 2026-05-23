@@ -47,6 +47,25 @@ Outputs: F4 REEL TORQUE CMD (PWM H-bridge);
          BLE GATT notifications (telemetry, alerts).
          WiFi/HTTPS (optional cloud forwarding).
 
+## BUDGETS (allocations to this module)
+
+| Budget | Unit | This module | System target | Reserve |
+|---|---|---:|---:|---:|
+| `budget_bite_to_set_latency` — Bite detection → hook-set latency (end-to-end) | ms | 170.0 | 200.0 | 30.0 |
+| `budget_telemetry_to_app_latency` — Telemetry → app render latency (informational; not safety-critical) | ms | 100.0 | 300.0 | 50.0 |
+
+## TPMs (tracking this module's budgets)
+
+| TPM | Unit | Current | Growth allowance | Threshold |
+|---|---|---:|---:|---:|
+| `tpm_bite_to_set_currently` — Measured bite-to-set latency (lab bench) | ms | 165.0 | 35.0 | 200.0 |
+
+## SLOs (apply to this module)
+
+| SLO | Target | Window | Error budget |
+|---|---:|---|---:|
+| [`slo_bite_to_set_latency`](../slos.md#slo_bite_to_set_latency) — Bite detection → hook-set latency | 0.2 seconds | 7d | 1.0% |
+
 ---
 
 *Format: 2000 §4.2.5.4 — typical AMS contents. See [`../../ARCH_DESIGN.md`](../../ARCH_DESIGN.md).*

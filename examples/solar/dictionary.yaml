@@ -102,6 +102,7 @@ entities:
     label: "Acquire Telemetry"          # working name
     level: 1
     parent: sys_root
+    context: ctx_controller             # modernization #5
     description: |
       Multi-protocol ingest layer. Owns the device-facing protocols
       (Sub-1G RF or OpenDTU, Modbus RTU, MQTT/Modbus TCP); normalizes
@@ -114,6 +115,7 @@ entities:
     level: 1
     parent: sys_root
     needs_cspec: true
+    context: ctx_controller             # modernization #5
     description: |
       The brain. Implements the diversion control loop, the night-
       discharge logic, and the outage handling (per Decision 2: outage
@@ -126,6 +128,7 @@ entities:
     label: "Dispatch Commands"          # working name
     level: 1
     parent: sys_root
+    context: ctx_controller             # modernization #5
     description: |
       Output-side adapter. Translates internal commands (cmd_setpoint,
       cmd_inverter_limit) into vendor-specific protocols and writes
@@ -136,6 +139,7 @@ entities:
     label: "Serve UI"                   # working name
     level: 1
     parent: sys_root
+    context: ctx_dashboard              # modernization #5
     description: |
       Presentation. Renders dashboards from store_system_state, surfaces
       alerts emitted by proc_compute_balance.
@@ -145,6 +149,7 @@ entities:
     label: "Handle Input"               # renamed from "Handle User Input" via naming-review
     level: 1
     parent: sys_root
+    context: ctx_dashboard              # modernization #5
     description: |
       Owner-facing input — configuration, manual overrides, enable/
       disable.
@@ -155,6 +160,7 @@ entities:
     level: 1
     parent: sys_root
     optional: true
+    context: ctx_controller             # modernization #5
     description: |
       Optional telemetry forward to S-Miles Cloud when enabled.
       Separated from proc_acquire_telemetry to make optionality
@@ -167,11 +173,33 @@ entities:
     label: "System State"               # working name
     level: 1
     parent: sys_root
+    context: ctx_controller             # modernization #5 — controller owns the store
     description: |
       Normalized, unified system-state snapshot. Per Decision 4, modeled
       as an explicit data store rather than implicit flows. Single
       writer (proc_acquire_telemetry); multiple readers
       (proc_compute_balance, proc_serve_ui, proc_cloud_forward).
+
+  # ─── Modernization #5 — Anti-Corruption Layer between contexts ───
+
+  acl_user_action_to_config:
+    kind: translation
+    label: "user action → config/override event"
+    level: 1                              # peer to the level-1 processes it bridges
+    source_context: ctx_dashboard
+    target_context: ctx_controller
+    source_term: proc_handle_user_input   # dashboard-side input gatherer
+    target_term: proc_compute_balance     # controller-side consumer of config/override events
+    pattern: anti_corruption_layer        # Evans 2003
+    description: |
+      The dashboard speaks the owner's language: clicks, form submits,
+      manual override actions. The controller speaks the language of
+      modes, setpoints, and event types. This ACL is the *conceptual*
+      translation between the two — implemented as the JSON-schema
+      contract on the WebSocket / HTTP boundary that converts
+      "user_action {kind: 'disable'}" into a typed `EVENT OVERRIDE`
+      with a validated payload. Bidirectional (also translates
+      controller events into dashboard-friendly notifications).
 
   # ─── Level 2 (CSPEC) — states inside proc_compute_balance / "Energy Manager" ───
   # Locked 2026-05-22 via 01-level1/cspecs/compute-balance/proposal.md.
@@ -650,6 +678,30 @@ pspecs:
       Sole writer into the telemetry portion of the store. Vendor adapter
       details and reconnection policy live in the architecture model,
       not here (PSPECs specify what, not how — 1988 §13.1).
+    # ─── Modernization #25 — V&V ───
+    verification:
+      methods: [test, analysis]
+      coverage_target: 90.0
+      validation_scenarios:
+        - "Sustained 1 Hz aggregate ingest across all three sources for 24 hours"
+        - "DTU reconnect within 30 s of a transient network drop"
+        - "Modbus RTU CRC failure causes only that sample to be discarded, not session drop"
+    # ─── Modernization #1 — runtime observability ───
+    observability:
+      metrics:
+        - { name: "telemetry_samples_total", kind: counter, description: "Total telemetry samples ingested (all sources)" }
+        - { name: "telemetry_ingest_seconds", kind: histogram, unit: s, description: "End-to-end ingest cycle duration" }
+        - { name: "telemetry_source_lag_seconds", kind: gauge, unit: s, description: "Per-source age of latest sample" }
+      traces:
+        - { span: "telemetry.ingest_cycle", description: "One full multi-protocol ingest cycle" }
+      logs:
+        - { category: "telemetry.adapter", level: info }
+      alerts:
+        - name: telemetry_source_stale
+          when: "max(telemetry_source_lag_seconds) > 30"
+          severity: warning
+          runbook: runbooks/telemetry-source-stale.md
+          escalation_after_min: 15
 
   pspec_dispatch_commands:
     parent_process: proc_dispatch_commands
@@ -749,6 +801,8 @@ architecture_modules:
       - proc_compute_balance
     allocated_stores:
       - store_system_state
+    trust_zone: privileged             # modernization #8.1 — owns inverter/battery commands
+    context: ctx_controller            # modernization #5
 
   am_dashboard_app:
     name: "Dashboard Web App"
@@ -762,6 +816,8 @@ architecture_modules:
     allocated_processes:
       - proc_serve_ui
       - proc_handle_user_input
+    trust_zone: internal_lan           # modernization #8.1 — owner's browser on LAN
+    context: ctx_dashboard             # modernization #5
 
 architecture_flows:
 
@@ -776,6 +832,8 @@ architecture_flows:
     allocated_flows:
       - flow_state_to_ui
       - flow_event_alert
+    synchronicity: streaming           # modernization #2 — continuous WebSocket stream
+    delivery: at_least_once
 
   af_input_to_controller:
     name: "config + override"
@@ -788,6 +846,8 @@ architecture_flows:
     allocated_flows:
       - flow_event_config
       - flow_event_override
+    synchronicity: sync_request_response   # modernization #2 — HTTP POST + ack
+    delivery: at_least_once
 
 architecture_interconnects:
 
@@ -799,6 +859,38 @@ architecture_interconnects:
       Wired or wireless LAN connecting the owner's browser to the
       controller host. WebSocket + HTTP over TCP/IP. No public
       Internet exposure required.
+    auth_required: shared_secret       # modernization #8.1 — local LAN, single owner
+    encryption: tls                    # HTTPS + WSS on LAN
+    # ─── Modernization #8.2 — STRIDE threat model ───
+    stride_mitigations:
+      spoofing: |
+        Shared-secret authentication (rotating per-owner bearer token,
+        served by the controller's first-login bootstrap) prevents
+        unauthorized browsers from connecting. The LAN itself is the
+        outer ring of defense — assumes the owner has reasonable Wi-Fi
+        hygiene.
+      tampering: |
+        TLS (HTTPS + WSS) protects in-flight messages against tampering.
+        Controller signs config-change responses with the session token
+        so the browser can detect mid-session injection.
+      repudiation: |
+        out_of_scope — single owner; no audit requirement at this tier.
+        ADR-002 explicitly defers any audit trail to a future cloud
+        forwarding option.
+      info_disclosure: |
+        TLS encryption protects state + telemetry in transit. Dashboard
+        does not store usage data persistently in the browser beyond
+        the session token.
+      denial_of_service: |
+        Rate-limit config-POST endpoints (10 req/min per session).
+        WebSocket connection cap of 4 per session. Controller's
+        diversion-control loop is decoupled from dashboard liveness —
+        loss of LAN does not affect energy management.
+      elev_of_privilege: |
+        Dashboard session token grants only configured-scope permissions
+        (config + view; no firmware update, no factory reset). Reset
+        and firmware update require a separate physical-button flow
+        on the controller host.
 
 architecture_module_specs:
 
@@ -874,3 +966,220 @@ architecture_interconnect_specs:
       reliability: "Survives router reboots without manual reconnect
         on the dashboard side."
       timing: "State-update latency < 1 s end-to-end."
+
+
+# ─── Modernization #10 — Architecture Decision Records ───
+
+adrs:
+
+  adr_001_outage_inside_cspec:
+    title: "Outage handling lives inside the Energy Manager CSPEC"
+    status: accepted
+    date: 2026-05-22
+    author: "solar dogfood"
+    context: |
+      The system needs to handle grid outages (utility goes down → battery
+      takes over → utility returns) without dropping into a fault state. Two
+      approaches were on the table during Stage 2: (a) make outage handling
+      a separate process bubble that gates the diversion loop; (b) make
+      outage handling a mode of the Energy Manager's CSPEC alongside
+      GridTie and Fault.
+    decision: |
+      Outage handling is an `Island` mode of the Energy Manager CSPEC,
+      peer to GridTie and Fault. The diversion-loop sub-states live
+      under GridTie; the Island mode has its own setpoint-passthrough
+      behavior; transitions are driven by Victron's reported mode.
+    consequences: |
+      - The CSPEC is the single source of truth for "what mode is the
+        system in" — no separate outage-state bubble to keep in sync.
+      - Victron is trusted as the authoritative mode source; we don't
+        debounce its mode reports (the AC transfer is < 20 ms, fast
+        enough that our 1 Hz tick has nothing meaningful to add).
+      - Future "manual override" behavior is a modifier *within* a
+        mode (Decision 5), not a separate Manual mode.
+    alternatives:
+      - "Separate outage-handler process bubble — rejected: forces every level-1 reader to gate on two states."
+      - "Manual mode as a peer to GridTie/Island/Fault — rejected: doubles state count and pairs poorly with diversion sub-states."
+    affects:
+      modules: [am_controller_host]
+      processes: [proc_compute_balance]
+      states: [state_grid_tie, state_island, state_fault]
+
+  adr_002_local_only_dashboard:
+    title: "Dashboard is local-LAN only by default"
+    status: accepted
+    date: 2026-05-22
+    author: "solar dogfood"
+    context: |
+      The owner needs a dashboard to view solar production, battery state,
+      and recent events; and to push config + manual overrides. Public
+      remote access is a tempting feature but adds significant attack
+      surface (any control-plane mistake becomes internet-exposed) and
+      compliance considerations (CCPA disclosure for usage telemetry).
+    decision: |
+      Dashboard runs as a browser-side SPA served by the controller host
+      over the owner's local LAN. No public-internet exposure by default.
+      Owner-led reverse-proxy setup is documented for remote access as
+      an opt-in, but it is out of scope for the supported configuration.
+    consequences: |
+      - Reduced attack surface: dashboard authentication can use a shared
+        secret on LAN rather than full OAuth/OIDC.
+      - Owners who want remote access must run their own reverse proxy
+        and assume responsibility for its security posture.
+      - Cloud Forward (the optional S-Miles bridge) is unaffected — it's
+        a separate optional outbound path with its own threat model.
+    alternatives:
+      - "Public cloud-hosted dashboard with per-user OAuth — rejected for now (compliance + scope)."
+      - "VPN-only access — rejected: too high friction for typical owners."
+    affects:
+      modules: [am_dashboard_app, am_controller_host]
+      interconnects: [ai_local_lan]
+    # ─── Modernization #8.3 — catalog references ───
+    references_mitre_attack:
+      - T1190       # Exploit Public-Facing Application — eliminated by local-LAN-only scope
+      - T1078       # Valid Accounts — addressed via shared-secret bootstrap
+    references_cwe:
+      - CWE-306     # Missing Authentication for Critical Function — addressed by always-on auth
+      - CWE-319     # Cleartext Transmission — addressed by TLS
+    references_compliance:
+      - "CCPA-1798.100"   # California consumer privacy — out-of-scope rationale captured in ADR context
+
+
+# ─── Modernization #21 / #22 — Budgets + TPMs ───
+
+budgets:
+
+  budget_diversion_loop_latency:
+    name: "Grid sense → inverter setpoint latency"
+    unit: ms
+    system_target: 1000                # 1 second end-to-end
+    system_reserve: 200
+    allocations:
+      am_controller_host: 800          # ingest + compute + dispatch
+      # am_dashboard_app: 0 — not in the diversion-control critical path
+    notes: |
+      The diversion loop must respond fast enough to prevent meaningful
+      grid export under sudden surplus (clouds clearing, sunlight burst).
+      1 s end-to-end with 200 ms reserve is comfortable for a residential
+      grid-tie inverter (the inverter's own response time dominates the
+      remaining 800 ms of allowed action).
+
+  budget_monthly_cloud_cost:
+    name: "Monthly cloud cost"
+    unit: USD
+    system_target: 5.00
+    system_reserve: 1.00
+    allocations:
+      am_controller_host: 3.00         # optional cloud-forward egress + WAN bandwidth
+      am_dashboard_app: 1.00           # CDN / SPA hosting (if any)
+    notes: |
+      Budget assumes default Cloud Forward = off. When enabled, only
+      session events forward; not raw telemetry. Keeps the deployment
+      affordable for a single residential owner.
+
+tpms:
+
+  tpm_diversion_response_p99:
+    name: "Diversion loop p99 response latency (measured)"
+    unit: ms
+    threshold: 1000                    # = budget_diversion_loop_latency.system_target
+    target: 700
+    current_estimate: 750
+    growth_allowance: 250              # 1000 - 750
+    measurement_method: "histogram_quantile(0.99, diversion_loop_duration_seconds_bucket)"
+    derived_from_budget: budget_diversion_loop_latency
+    trend_notes: |
+      Currently 750 ms p99 at 200-sample window. Slowest path: Sub-1G
+      DTU re-read (250 ms tail). Improving with OpenDTU's batched
+      reads (vs DTU-Pro-S sequential reads).
+
+  tpm_actual_monthly_cost:
+    name: "Actual monthly cloud cost (last 30d)"
+    unit: USD
+    threshold: 5.00
+    target: 4.00
+    current_estimate: 2.30             # Cloud Forward currently off; only bandwidth + CDN
+    growth_allowance: 2.70
+    measurement_method: "Sum of AWS cost-explorer line items tagged solar-stack"
+    derived_from_budget: budget_monthly_cloud_cost
+    trend_notes: |
+      $2.30/month with Cloud Forward disabled. Estimated to rise to ~$3.80
+      if owner enables Cloud Forward — still within budget.
+
+  tpm_dashboard_render_p99:
+    name: "Dashboard render p99 latency (browser side)"
+    unit: ms
+    threshold: 2000
+    target: 1000
+    current_estimate: 1200
+    growth_allowance: 800
+    measurement_method: "browser-side performance.now() span on dashboard mount"
+    trend_notes: |
+      No associated budget (informational TPM). p99 dominated by
+      initial WebSocket connect; warm renders are ~150 ms.
+
+
+# ─── Modernization #32 — SLOs ───
+
+service_level_objectives:
+
+  slo_diversion_loop_latency:
+    name: "Diversion-loop response latency"
+    sli:
+      query: 'histogram_quantile(0.99, rate(diversion_loop_seconds_bucket[5m]))'
+      unit: seconds
+      description: "p99 latency from grid-sense reading to inverter setpoint command."
+    target: 1.0                          # = budget_diversion_loop_latency.system_target (1000ms)
+    window: 30d
+    error_budget_pct: 0.5                # 0.5% of cycles may exceed 1s over 30d
+    applies_to:
+      modules: [am_controller_host]
+    sla: "Diversion-loop p99 response under 1 second over any 30-day window."
+    derives_from_tpm: tpm_diversion_response_p99
+    runbook_on_burn: runbooks/slo-diversion-burn.md
+
+  slo_monthly_cost:
+    name: "Monthly cloud cost SLO"
+    sli:
+      query: 'sum(cloud_cost_usd_monthly_total)'
+      unit: USD
+      description: "Sum of all cloud-cost-explorer line items tagged solar-stack."
+    target: 5.0                          # = budget_monthly_cloud_cost.system_target
+    window: 30d
+    error_budget_pct: 20.0               # 20% margin — generous for cost SLOs
+    applies_to:
+      modules: [am_controller_host, am_dashboard_app]
+    derives_from_tpm: tpm_actual_monthly_cost
+
+
+# ─── Modernization #5 — Bounded Contexts (Evans 2003 / Vernon 2013) ───
+# Per BOUNDED_CONTEXTS_DESIGN.md — context labels within one file (Path B).
+# Existing untagged entities remain in the synthetic `default` context.
+
+bounded_contexts:
+
+  ctx_controller:
+    name: "Controller Service"
+    owner: "controller-team"
+    description: |
+      The Linux-side controller. Owns telemetry ingest, the energy-
+      manager state machine, output dispatch to inverter and battery,
+      and the optional cloud forwarder. Ubiquitous language is oriented
+      around power flows, modes, setpoints, and event-driven state
+      transitions.
+    ubiquitous_language: |
+      Terms: telemetry, sample, setpoint, mode (GridTie / Island /
+      Fault), diversion, surplus, deficit, transition.
+
+  ctx_dashboard:
+    name: "Dashboard App"
+    owner: "frontend-team"
+    description: |
+      The browser-side single-page app. Renders dashboards, surfaces
+      alerts, accepts owner configuration and manual overrides.
+      Ubiquitous language is oriented around views, panels, click
+      actions, and human-readable status.
+    ubiquitous_language: |
+      Terms: view, panel, action (button/form), banner (alert),
+      session, refresh. The owner thinks in these terms; the
+      controller thinks in setpoints.

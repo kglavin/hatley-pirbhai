@@ -31,6 +31,35 @@ Every sampling cycle:
 - **Accuracy:** ±1% of measured tension
 - **Timing:** Sample → store_system_state write latency < 5 ms
 
+## VERIFICATION
+
+- **Methods:** test, analysis
+- **Coverage target:** 95.0%
+- **Validation scenarios:**
+  - Sustained 200 Hz sampling for 10 minutes without buffer overflow
+  - Calibration drift < 0.5% over 24-hour soak test
+  - Recovery from transient ADC fault within one sample period
+
+## OBSERVABILITY
+
+**Metrics:**
+
+- `tension_samples_total` *counter* — Total tension samples acquired
+- `tension_newtons` *gauge* (N) — Latest tension reading in Newtons
+- `tension_adc_read_seconds` *histogram* (s) — ADC read latency
+
+**Traces:**
+
+- `tension.acquire_cycle` — One full sample-and-write cycle
+
+**Log categories:**
+
+- `tension.calibration` *(level: info)*
+
+**Alerts:**
+
+- `tension_sensor_stuck` *(warning)* — when `rate(tension_samples_total[1m]) == 0` → [runbook](../../../runbooks/tension-sensor-stuck.md)
+
 ## COMMENTS
 
 First-cut PSPEC. Recent-history buffer size N pending Stage 5 sizing —

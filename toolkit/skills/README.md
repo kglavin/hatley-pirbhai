@@ -42,6 +42,12 @@ description: One-line summary used to decide relevance.
 | [`hp-propose-cspec`](hp-propose-cspec.md) | ✅ drafted | Stage 3: form-based CSPEC state-machine proposal |
 | [`hp-propose-pspec`](hp-propose-pspec.md) | ✅ drafted | Stage 4: form-based PSPEC proposal for leaf bubbles |
 | [`hp-propose-architecture`](hp-propose-architecture.md) | ✅ drafted | Stage 5: form-based Architecture Model proposal (AFD + AID + AMS + AIS + allocation) |
+| [`hp-capture-adr`](hp-capture-adr.md) | ✅ drafted | Cross-cutting — mid-decision ADR capture (Modernization #10) |
+| [`hp-propose-budgets-and-tpms`](hp-propose-budgets-and-tpms.md) | ✅ drafted | Post-Stage-5: NASA design-time budgets + tracked-over-time TPMs (Modernization #21 + #22) |
+| [`hp-propose-observability`](hp-propose-observability.md) | ✅ drafted | Per leaf process / module — runtime metrics + alerts + runbooks (Modernization #1 + #33) |
+| [`hp-propose-slos`](hp-propose-slos.md) | ✅ drafted | After observability — SLI/SLO/SLA commitments (Modernization #32) |
+| [`hp-propose-threat-model`](hp-propose-threat-model.md) | ✅ drafted | Per cross-trust-zone interconnect — STRIDE + MITRE catalog refs (Modernization #8.2 + #8.3) |
+| [`hp-propose-bounded-contexts`](hp-propose-bounded-contexts.md) | ✅ drafted | When team/vocabulary boundaries become visible — DDD contexts + ACLs (Modernization #5) |
 | `hp-ingest` | planned (phase 5) | Brownfield ingest — read existing proposals + code, propose an HP model |
 
 ## Provenance

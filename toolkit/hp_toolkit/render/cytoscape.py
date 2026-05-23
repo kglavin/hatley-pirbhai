@@ -956,6 +956,9 @@ def render_afd_elements(
             "id": m.id, "label": label, "kind": _am_node_kind(m),
             "description": m.description or "",
         }
+        # Modernization #8.1 — trust zone surfaced in side panel
+        if m.trust_zone is not None:
+            data["trust_zone"] = m.trust_zone.value
         # If the module has children, mark decomposable + drill target
         if any(o.parent == m.id for o in project.all_architecture_modules()):
             data["decomposable"] = True
@@ -973,6 +976,9 @@ def render_afd_elements(
             label = f.name
             if f.kind.value != "data":
                 label = f"{label} ({f.kind.value})"
+            # Modernization #2 — synchronicity suffix
+            if f.synchronicity is not None:
+                label = f"{label} [{f.synchronicity.value}]"
             elements.append({"data": {
                 "id": f.id, "source": f.source, "target": f.target,
                 "label": label, "kind": "arch-flow",
@@ -994,19 +1000,31 @@ def render_aid_elements(
         label = m.name
         if m.module_number:
             label = f"{label}\n({m.module_number})"
-        elements.append({"data": {
+        data: dict[str, Any] = {
             "id": m.id, "label": label, "kind": _am_node_kind(m),
             "description": m.description or "",
-        }})
+        }
+        if m.trust_zone is not None:
+            data["trust_zone"] = m.trust_zone.value
+        elements.append({"data": data})
 
     for ic in project.all_architecture_interconnects():
         eps = [ep for ep in ic.endpoints if ep in module_ids]
         if len(eps) < 2:
             continue
+        # Modernization #8.1 — auth + encryption surfaced in side panel
+        sec_bits: list[str] = []
+        if ic.auth_required is not None:
+            sec_bits.append(f"auth={ic.auth_required.value}")
+        if ic.encryption is not None:
+            sec_bits.append(f"enc={ic.encryption.value}")
+        sec_suffix = f" [{' '.join(sec_bits)}]" if sec_bits else ""
         for i in range(len(eps) - 1):
             elements.append({"data": {
                 "id": f"{ic.id}__{i}", "source": eps[i], "target": eps[i+1],
-                "label": ic.name, "kind": "interconnect",
+                "label": ic.name + sec_suffix, "kind": "interconnect",
+                "auth_required": ic.auth_required.value if ic.auth_required else None,
+                "encryption": ic.encryption.value if ic.encryption else None,
             }})
 
     return elements

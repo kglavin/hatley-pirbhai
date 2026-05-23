@@ -52,6 +52,27 @@ Outputs: F2 POWER LIMIT SETPOINTS (OpenDTU only);
          F8 OPTIONAL TELEMETRY FORWARD (HTTPS, off by default).
 LAN:     WebSocket + HTTP to the Dashboard Web App.
 
+## BUDGETS (allocations to this module)
+
+| Budget | Unit | This module | System target | Reserve |
+|---|---|---:|---:|---:|
+| `budget_diversion_loop_latency` — Grid sense → inverter setpoint latency | ms | 800.0 | 1000.0 | 200.0 |
+| `budget_monthly_cloud_cost` — Monthly cloud cost | USD | 3.0 | 5.0 | 1.0 |
+
+## TPMs (tracking this module's budgets)
+
+| TPM | Unit | Current | Growth allowance | Threshold |
+|---|---|---:|---:|---:|
+| `tpm_diversion_response_p99` — Diversion loop p99 response latency (measured) | ms | 750.0 | 250.0 | 1000.0 |
+| `tpm_actual_monthly_cost` — Actual monthly cloud cost (last 30d) | USD | 2.3 | 2.7 | 5.0 |
+
+## SLOs (apply to this module)
+
+| SLO | Target | Window | Error budget |
+|---|---:|---|---:|
+| [`slo_diversion_loop_latency`](../slos.md#slo_diversion_loop_latency) — Diversion-loop response latency | 1.0 seconds | 30d | 0.5% |
+| [`slo_monthly_cost`](../slos.md#slo_monthly_cost) — Monthly cloud cost SLO | 5.0 USD | 30d | 20.0% |
+
 ---
 
 *Format: 2000 §4.2.5.4 — typical AMS contents. See [`../../ARCH_DESIGN.md`](../../ARCH_DESIGN.md).*

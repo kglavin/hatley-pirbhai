@@ -526,6 +526,30 @@ pspecs:
     comments: |
       First-cut PSPEC. Recent-history buffer size N pending Stage 5 sizing —
       see TSPEC notes once that artifact exists.
+    # ─── Modernization #25 — V&V ───
+    verification:
+      methods: [test, analysis]
+      coverage_target: 95.0
+      validation_scenarios:
+        - "Sustained 200 Hz sampling for 10 minutes without buffer overflow"
+        - "Calibration drift < 0.5% over 24-hour soak test"
+        - "Recovery from transient ADC fault within one sample period"
+    # ─── Modernization #1 — runtime observability ───
+    observability:
+      metrics:
+        - { name: "tension_samples_total", kind: counter, description: "Total tension samples acquired" }
+        - { name: "tension_newtons", kind: gauge, unit: N, description: "Latest tension reading in Newtons" }
+        - { name: "tension_adc_read_seconds", kind: histogram, unit: s, description: "ADC read latency" }
+      traces:
+        - { span: "tension.acquire_cycle", description: "One full sample-and-write cycle" }
+      logs:
+        - { category: "tension.calibration", level: info }
+      alerts:
+        - name: tension_sensor_stuck
+          when: "rate(tension_samples_total[1m]) == 0"
+          severity: warning
+          runbook: runbooks/tension-sensor-stuck.md
+          escalation_after_min: 15
 
   pspec_reel_controller:
     parent_process: proc_reel_controller
@@ -604,6 +628,7 @@ architecture_modules:
       - proc_bite_detector
     allocated_stores:
       - store_system_state
+    trust_zone: privileged             # modernization #8.1 — owns motor + sensor
 
   am_angler_app:
     name: "Angler Mobile App"
@@ -615,6 +640,7 @@ architecture_modules:
       and manual overrides.
     allocated_processes:
       - proc_serve_ui
+    trust_zone: internal_lan           # modernization #8.1 — angler-held device
 
 architecture_flows:
 
@@ -630,6 +656,8 @@ architecture_flows:
       - flow_state_to_ui
       - flow_alert
       - flow_f2_status
+    synchronicity: push_notification   # modernization #2 — controller pushes
+    delivery: at_most_once             # BLE GATT notifications are not retried
 
   af_config_to_ctrl:
     name: "angler config + override"
@@ -642,6 +670,8 @@ architecture_flows:
     allocated_flows:
       - flow_f1_angler_config
       - flow_override
+    synchronicity: sync_request_response   # modernization #2 — write + ack
+    delivery: at_least_once
 
 architecture_interconnects:
 
@@ -653,6 +683,34 @@ architecture_interconnects:
       Bluetooth Low Energy 5.0 link between the controller and the angler
       app. Custom GATT service carries telemetry notifications and
       config writes.
+    auth_required: paired_device       # modernization #8.1 — BLE pairing required
+    encryption: bluetooth_le_secure    # BLE 5.0 LE Secure Connections
+    # ─── Modernization #8.2 — STRIDE threat model ───
+    stride_mitigations:
+      spoofing: |
+        Paired-device pairing (BLE LE Secure Connections, P-256 ECDH) prevents
+        unauthorized peripherals from impersonating the controller. The first
+        pairing is in-person (proximity-based); subsequent reconnections use
+        the bonded long-term key.
+      tampering: |
+        BLE 5.0 LE Secure Connections provides AES-CCM authenticated
+        encryption on every link-layer packet. In-flight tampering would
+        invalidate the MIC and drop the packet.
+      repudiation: |
+        out_of_scope — single-user session; no third-party audit requirement.
+      info_disclosure: |
+        AES-CCM encryption per BLE 5.0. Telemetry contains fishing-session
+        data only (no PII beyond the angler's pairing key, which is a
+        random bond).
+      denial_of_service: |
+        Rate-limit pairing attempts to mitigate pairing-storm DoS. Reconnect
+        backoff (exponential, capped) prevents reconnect-flood. The motor
+        + sensor remain locally authoritative if BLE drops — degraded mode
+        but no safety impact.
+      elev_of_privilege: |
+        Custom GATT service exposes only telemetry-notify and config-write
+        characteristics. No firmware-update path over BLE (firmware updates
+        require physical USB connection — explicit design choice).
 
 architecture_module_specs:
 
@@ -720,3 +778,127 @@ architecture_interconnect_specs:
       timing: "Notification → app render latency < 100 ms (one BLE
         connection interval at 7.5 ms minimum)."
       physical: "Range ≥ 30 m line-of-sight; ≥ 10 m through a vest pocket."
+
+
+# ─── Modernization #10 — Architecture Decision Records ───
+
+adrs:
+
+  adr_001_ble_transport:
+    title: "BLE chosen for controller ↔ app transport"
+    status: accepted
+    date: 2026-05-22
+    author: "controller team"
+    context: |
+      The controller needs a wireless link to the angler's mobile device
+      that satisfies three constraints simultaneously: low controller-side
+      power draw (battery-powered enclosure), simple no-account pairing
+      (no cloud login required), and adequate range from a vest pocket.
+      WiFi Direct, classic Bluetooth, and a custom 433 MHz radio were
+      candidates.
+    decision: |
+      Use Bluetooth Low Energy 5.0 with a custom GATT service. BLE LE
+      Secure Connections (P-256 ECDH) handles pairing + encryption;
+      paired-device authentication is sufficient for the threat model
+      (single-user session, no audit requirement).
+    consequences: |
+      - Controller-side power budget is met (~10 µA average BLE current).
+      - Angler app must support BLE on iOS 15+ / Android 11+.
+      - Range is range-limited to ~30 m line-of-sight, ~10 m through
+        clothing. Acceptable for the angling use case.
+      - Future expansion to remote-monitoring (cloud forwarding) is
+        independent: the cloud_forward bubble uses WiFi/HTTPS, not BLE.
+    alternatives:
+      - "WiFi Direct — rejected: power budget on controller side."
+      - "Classic Bluetooth — rejected: pairing UX worse than BLE; higher power."
+      - "Custom 433 MHz LoRa-style radio — rejected: regulatory complexity, certification cost."
+    affects:
+      modules: [am_controller, am_angler_app]
+      interconnects: [ai_ble]
+      flows: [af_telemetry_to_app, af_config_to_ctrl]
+    # ─── Modernization #8.3 — catalog references ───
+    references_mitre_attack:
+      - T1078       # Valid Accounts — addressed via paired-device bonding
+      - T1565       # Data Manipulation — mitigated by AES-CCM
+    references_cwe:
+      - CWE-319     # Cleartext Transmission of Sensitive Information — not applicable due to encryption
+      - CWE-294     # Authentication Bypass by Capture-replay — mitigated by LE Secure Connections nonces
+
+
+# ─── Modernization #21 / #22 — Budgets + TPMs ───
+
+budgets:
+
+  budget_bite_to_set_latency:
+    name: "Bite detection → hook-set latency (end-to-end)"
+    unit: ms
+    system_target: 200
+    system_reserve: 30                 # margin held at system level
+    allocations:
+      am_controller: 170               # ADC sample + bite detect + motor command
+      # am_angler_app gets 0 — it's not in the bite-to-set critical path
+    notes: |
+      The hook-set sequence is timing-critical: tension spike → fish swallow →
+      drive the hook home. Total delay must fit within the fish's bite-and-
+      release window (~250 ms for typical species). System target of 200 ms
+      with 30 ms reserve leaves 170 ms for the controller's critical-path
+      processing.
+
+  budget_telemetry_to_app_latency:
+    name: "Telemetry → app render latency (informational; not safety-critical)"
+    unit: ms
+    system_target: 300
+    system_reserve: 50
+    allocations:
+      am_controller: 100               # acquire + format + BLE notify
+      am_angler_app: 150               # BLE receive + render
+
+tpms:
+
+  tpm_bite_to_set_currently:
+    name: "Measured bite-to-set latency (lab bench)"
+    unit: ms
+    threshold: 200                     # = budget_bite_to_set_latency.system_target
+    target: 150                        # aim for
+    current_estimate: 165
+    growth_allowance: 35               # 200 - 165
+    measurement_method: "Histogram of `bite_to_set_ms` metric over 30-day bench window"
+    derived_from_budget: budget_bite_to_set_latency
+    trend_notes: |
+      Currently 165 ms ± 12 ms (1σ) across 1,200 bench shots. Trend over
+      last quarter: +3 ms/quarter (improving — moved tension-sample loop
+      from 100 Hz to 200 Hz, reducing detect-latency variance).
+
+  tpm_ble_link_uptime:
+    name: "BLE link uptime"
+    unit: percent
+    direction: more_is_better          # threshold is a floor
+    threshold: 99.0                    # don't-drop-below
+    target: 99.5
+    current_estimate: 99.2
+    growth_allowance: 0.2              # safe down to 99.0 (current − growth)
+    measurement_method: "1 - (sum(ble_disconnect_seconds) / sum(session_seconds))"
+    trend_notes: |
+      Field beta: 99.2% uptime over 50 fishing sessions. Drops correlate
+      with vest-pocket angle (signal blocked). Mitigation: improve
+      antenna orientation in next enclosure rev.
+
+
+# ─── Modernization #32 — SLOs ───
+
+service_level_objectives:
+
+  slo_bite_to_set_latency:
+    name: "Bite detection → hook-set latency"
+    sli:
+      query: 'histogram_quantile(0.95, rate(bite_to_set_seconds_bucket[5m]))'
+      unit: seconds
+      description: "p95 latency from tension spike to motor command latch."
+    target: 0.200                        # = budget_bite_to_set_latency.system_target (200ms)
+    window: 7d
+    error_budget_pct: 1.0                # 1% of bites may exceed 200ms over 7d
+    applies_to:
+      modules: [am_controller]
+    sla: "Bite-to-set latency under 200 ms for 99% of detections over any 7-day window."
+    derives_from_tpm: tpm_bite_to_set_currently
+    runbook_on_burn: runbooks/slo-bite-to-set-burn.md

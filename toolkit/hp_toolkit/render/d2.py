@@ -427,3 +427,42 @@ def render_aid(project: Project, parent_id: str | None = None) -> str:
         lines.append("")
 
     return "\n".join(lines) + "\n"
+
+
+# ─────────────────────────────────────────────────────────────────────
+# Modernization #5 — Context Map (Evans 2003 / Vernon 2013)
+# ─────────────────────────────────────────────────────────────────────
+
+
+def render_context_map(project: Project) -> str:
+    """Render the Context Map — bounded contexts + ACL translations."""
+    if not project.bounded_contexts:
+        return "# (no bounded_contexts declared)\n"
+
+    lines: list[str] = ["direction: right", ""]
+    lines.append("# Bounded contexts")
+    for ctx in project.all_bounded_contexts():
+        label = _esc(ctx.name)
+        if ctx.owner:
+            label = f"{label}\\n({_esc(ctx.owner)})"
+        lines.append(f'{ctx.id}: "{label}" {{')
+        lines.append("  shape: rectangle")
+        lines.append("  style.border-radius: 12")
+        lines.append('  style.fill: "#f0f4ff"')
+        lines.append('  style.stroke: "#4a90e2"')
+        lines.append("}")
+    lines.append("")
+
+    translations = project.all_translations()
+    if translations:
+        lines.append("# Anti-Corruption Layers")
+        for t in translations:
+            if not (t.source_context and t.target_context):
+                continue
+            label = _esc(t.label or t.id)
+            if t.pattern:
+                label = f"{label} ({t.pattern.value.replace('_', ' ')})"
+            lines.append(f'{t.source_context} -> {t.target_context}: "{label}"')
+        lines.append("")
+
+    return "\n".join(lines) + "\n"

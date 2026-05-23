@@ -20,7 +20,7 @@ This is the **Propose + Surface Ambiguity** AI move applied to Stage 1.
 
 Drafts (or redrafts) `00-context/proposal.md` as a form-based batch-review document — same structure as the lived examples in [`examples/solar/00-context/`](../../examples/solar/00-context/) (ad-hoc) and [`examples/fishing-rig/00-context/proposal.md`](../../examples/fishing-rig/00-context/proposal.md) (form-based from the start).
 
-Standard decision set (7 decisions, may vary slightly by project shape):
+Standard decision set (7 + 1 modernization, may vary slightly by project shape):
 
 | # | Decision | What it pins down |
 |---|---|---|
@@ -31,6 +31,7 @@ Standard decision set (7 decisions, may vary slightly by project shape):
 | 5 | Power modeling | Physical edge (no data flow) vs data-modeled |
 | 6 | Flow naming convention | `F1-Fn` numbered? prefixed? domain words? |
 | 7 | Anything else | Free-form escape hatch for project-specific surprises |
+| 8 | Bounded contexts at this stage *(modernization #5)* | Multi-team / multi-language? Declare `bounded_contexts:` now (Stage 1 is cheapest) or defer. If declared, every terminator + sys_root gains a `context:` tag and Stage 2 will inherit. |
 
 Each decision lists alternatives as `- [ ]` checkboxes, with Claude's recommended default **pre-checked** (`- [x]`) and provenance noted ("extracted from your description"; "matches solar's pattern"; "AI inference"). The user toggles overrides via Markdown Preview Enhanced, saves once, pings back.
 
@@ -57,6 +58,7 @@ When invoked, conversationally:
 - **Don't pre-populate the dictionary with proposed entities.** The dictionary stays at `sys_root` only until the proposal locks. This prevents drift if the user rejects a proposed terminator.
 - **Working names are throwaway.** Names assigned in this proposal are explicitly working — the immediately-following `hp-confirm-naming` pass is where they get reviewed against `accept / rename / alias` semantics. Don't get attached.
 - **Diagram before prose.** The proposal embeds a rendered Mermaid block of the proposed Context Diagram up top, then the decisions. Visual first, text second — matches the *Recap with diagrams, not text walls* tactic.
+- **Bounded contexts are cheapest to declare early** *(modernization #5)*. If the project is obviously multi-team or multi-language, declare contexts at Stage 1 — every subsequent stage inherits the discipline. If unsure, defer (the synthetic `default` context applies); contexts can be retrofitted later via `hp-propose-bounded-contexts`. Discipline rule: once bounded_contexts is declared, every new entity *must* carry a `context:` tag (Commit 5's validator enforces this).
 
 ## Lived examples
 
