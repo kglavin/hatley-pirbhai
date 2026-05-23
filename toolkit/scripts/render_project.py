@@ -31,6 +31,7 @@ from hp_toolkit.render import (
     pspec as render_pspec,
     architecture as render_arch,
     adr as render_adr,
+    index as render_index,
 )
 
 
@@ -138,8 +139,21 @@ def main(project_dir: Path) -> int:
     if project.bounded_contexts:
         render_context_map(project_dir, project)
 
+    # ─── Project portal index ───
+    render_project_index(project_dir, project)
+
     print(_color(f"Done.", "32"))
     return 0
+
+
+def render_project_index(project_dir: Path, project) -> None:
+    """Render the project_index.generated.html landing page (Portal — Commit 1)."""
+    print(_color("==> Project index (portal landing)", "1"))
+    html = render_index.render_project_index_html(project, project_dir)
+    out = project_dir / "project_index.generated.html"
+    out.write_text(html)
+    print(f"  wrote {out.name} ({len(html)} bytes)")
+    print()
 
 
 def render_context_map(project_dir: Path, project) -> None:

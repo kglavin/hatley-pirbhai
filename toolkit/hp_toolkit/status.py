@@ -131,7 +131,7 @@ class StatusReport:
 # Modernization summary
 # ─────────────────────────────────────────────────────────────────────
 
-def _modernization_summary(project: Project) -> ModernizationSummary:
+def modernization_summary(project: Project) -> ModernizationSummary:
     """Tally the modernization-layer sections declared on the project."""
     s = ModernizationSummary()
 
@@ -497,7 +497,7 @@ def status_report(project_dir: Path) -> StatusReport:
             _check_stage_4(project, project_dir),
             _check_stage_5(project, project_dir),
         ],
-        modernization=_modernization_summary(project),
+        modernization=modernization_summary(project),
         validation=validate(project),
         stale_artifacts=_find_stale_artifacts(project_dir),
         open_questions=_scan_open_questions(project_dir),
