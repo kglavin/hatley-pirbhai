@@ -1,8 +1,8 @@
 # Tutorial — Walking through an HP project
 
-This tutorial walks you through a complete HP project from scaffold to Stage 3 lock, using the **fishing-rig** example that ships with this repo. You'll run real toolkit commands against artifacts that already exist, see how each stage produces its outputs, and understand the form-based proposal pattern by inspecting how the decisions were made.
+This tutorial walks you through a complete HP project from scaffold to Stage 4 lock, using the **fishing-rig** example that ships with this repo. You'll run real toolkit commands against artifacts that already exist, see how each stage produces its outputs, and understand the form-based proposal pattern by inspecting how the decisions were made.
 
-**Estimated time:** 30 minutes reading + running.
+**Estimated time:** 35 minutes reading + running.
 **Prerequisite:** install completed (`bash toolkit/bootstrap.sh`); VS Code + Markdown Preview Enhanced recommended.
 **Reference:** [README.md](README.md) for concepts; [`reference/HP_QUICK_REF.md`](reference/HP_QUICK_REF.md) for HP terminology.
 
@@ -45,11 +45,11 @@ Stages
   ✅ Stage 1 — Context Diagram                5 terminator(s); proposal locked
   ✅ Stage 2 — Level-1 DFD                    5 internal process(es); proposal locked
   ✅ Stage 3 — CSPECs                         1 locked CSPEC(s); 9 states + 18 transitions
-  — Stage 4 — PSPECs                         stage not yet implemented in toolkit
+  ✅ Stage 4 — PSPECs                         4/4 leaf processes have PSPECs
   — Stage 5 — Architecture model             stage not yet implemented in toolkit
 ```
 
-All three implemented stages are locked. We'll walk through them in order.
+All four implemented stages are locked. We'll walk through them in order.
 
 ---
 
@@ -241,6 +241,81 @@ tx_armed_to_bite:
 
 ---
 
+## Stage 4 — PSPECs
+
+**Goal of this stage:** specify each *remaining* leaf process — the bubbles that don't decompose further and don't have a CSPEC. Each gets one PSPEC: a functional contract following the 2000 Fig 4.46 format (INPUTS / OUTPUTS / TRANSFORMATION).
+
+> "The primary role of the process specification is to describe how its outputs are generated from its inputs; it must do nothing more and nothing less." — 1988 §13.1
+
+In fishing-rig, Bite Detector has a CSPEC (Stage 3), so it's exempt. The remaining four leaf processes each need a PSPEC:
+
+| Process | PSPEC |
+|---|---|
+| `proc_acquire_tension` | [`pspecs/acquire-tension.md`](../examples/fishing-rig/01-level1/pspecs/acquire-tension.md) |
+| `proc_reel_controller` | [`pspecs/reel-controller.md`](../examples/fishing-rig/01-level1/pspecs/reel-controller.md) |
+| `proc_serve_ui` | [`pspecs/serve-ui.md`](../examples/fishing-rig/01-level1/pspecs/serve-ui.md) |
+| `proc_cloud_forward` | [`pspecs/cloud-forward.md`](../examples/fishing-rig/01-level1/pspecs/cloud-forward.md) |
+
+### What a PSPEC looks like
+
+Open [`../examples/fishing-rig/01-level1/pspecs/acquire-tension.md`](../examples/fishing-rig/01-level1/pspecs/acquire-tension.md). This is the rendered sidecar for `proc_acquire_tension`. The format is exactly Fig 4.46 from the 2000 HP book:
+
+- **INPUTS** — the flows whose `target` (or `refined_target`) is this process. The PSPEC author does *not* declare these; they are derived from `dictionary.flows` at render time.
+- **OUTPUTS** — same, on the source side.
+- **TRANSFORMATION** — the spec body. One of five styles: `textual` (structured English; the most common), `equation`, `table`, `diagram`, or `mixed`. Books explicitly forbid code/pseudocode (1988 §13.2).
+- **COMPUTATIONAL CONSTRAINTS** (optional, 2000 §4.3.3.9) — frequency, accuracy, timing.
+- **COMMENTS** (optional, 1988 §13.5) — rationale; not part of the formal spec.
+
+### What's in the dictionary
+
+The PSPEC entry itself is small — it carries only the transformation body + optional constraints + optional comments. Open [`../examples/fishing-rig/dictionary.yaml`](../examples/fishing-rig/dictionary.yaml) and find `pspec_acquire_tension`:
+
+```yaml
+pspec_acquire_tension:
+  parent_process: proc_acquire_tension
+  transformation:
+    style: textual
+    body: |
+      Every sampling cycle:
+        Read F3 TENSION from the analog input.
+        Convert to engineering units using the sensor calibration.
+        Update TENSION SAMPLES in store_system_state with the latest value
+        and append it to the recent-history buffer (retain N most recent).
+  computational_constraints:
+    frequency: "50–200 Hz sampling rate (configurable; default 100 Hz)"
+    accuracy: "±1% of measured tension"
+    timing: "Sample → store_system_state write latency < 5 ms"
+  comments: |
+    First-cut PSPEC. Recent-history buffer size N pending Stage 5 sizing.
+```
+
+Notice the textual body uses **capitalized flow names** (`F3 TENSION`, `TENSION SAMPLES`) — 1988 §13.4 requires names to match dictionary entries exactly; this is what makes the **balancing rule** validatable.
+
+### Balancing
+
+The 1988 book is precise (§13.1): every PSPEC input must appear in the body, every output must be generated by the body, and the body must not reference flows that aren't inputs or outputs. The validator enforces this.
+
+Try breaking balancing to see the error. Open [`../examples/fishing-rig/dictionary.yaml`](../examples/fishing-rig/dictionary.yaml), find `pspec_acquire_tension`, and temporarily remove the `TENSION SAMPLES` reference from the body. Then:
+
+```bash
+cd toolkit
+uv run python -m hp_toolkit.validate ../examples/fishing-rig/dictionary.yaml
+```
+
+You should see:
+
+```
+✗ pspec [pspec_acquire_tension]: output flow 'flow_tension_to_state' (label 'tension samples') not generated by transformation body — balancing rule (1988 §13.1)
+```
+
+Revert the change when you're done.
+
+### Hypertext navigation
+
+**Open [`../examples/fishing-rig/01-level1/dfd.generated.html`](../examples/fishing-rig/01-level1/dfd.generated.html) in a browser** and click `Acquire Tension`. The side panel now shows a `► PSPEC` link — single-click to navigate. This same pattern applies to every leaf process with a PSPEC.
+
+---
+
 ## Closing the loop
 
 You've now seen what each stage produces. Two more commands close the loop.
@@ -264,12 +339,14 @@ Output (truncated):
   entities__terminator               5
   entities__process                  5
   entities__state                    9
+  leaf_processes                     4
+  pspecs_total                       4
   ...
 
 VALID — no errors
 ```
 
-`hp-validate` catches dangling references, hierarchy inconsistencies (e.g., `parent_state` on a non-state entity), orphan entities, and coverage gaps. Run it after every dictionary edit.
+Note the additional `pspec_coverage_pct` metric (100% — every leaf process has a PSPEC) and the `leaf_processes` / `pspecs_total` counts. `hp-validate` catches dangling references, hierarchy inconsistencies (e.g., `parent_state` on a non-state entity), orphan entities, coverage gaps, and PSPEC balancing violations. Run it after every dictionary edit.
 
 ### Try the dictionary-as-source-of-truth payoff
 
@@ -280,19 +357,20 @@ cd toolkit
 uv run python scripts/render_project.py ../examples/fishing-rig
 ```
 
-Every generated artifact (Mermaid, D2, Cytoscape HTML, SVG) — at all three stages — picks up the new label. Revert the change when you're done.
+Every generated artifact (Mermaid, D2, Cytoscape HTML, SVG, PSPEC markdown) — at all four stages — picks up the new label. Revert the change when you're done.
 
 ---
 
 ## What you've seen
 
-Five ideas, all grounded in the artifacts you just walked through:
+Six ideas, all grounded in the artifacts you just walked through:
 
-1. **`dictionary.yaml` is the only file you hand-edit.** Every diagram is derived.
+1. **`dictionary.yaml` is the only file you hand-edit.** Every diagram and PSPEC sidecar is derived.
 2. **Each stage locks through a form-based proposal**, not a chat conversation. The proposal is the audit record: decisions, alternatives considered, defaults pre-checked, provenance attached.
 3. **Three views per artifact** (Mermaid, D2, Cytoscape HTML) serve three moments: docs, declarative, interactive IDE.
-4. **The Cytoscape HTML is hypertext.** Drill down on decomposable bubbles, walk up via `↑ Parent`, link to dictionary entries and HP reference cards.
-5. **`hp-validate` and `hp-status` keep you honest** — reference integrity, hierarchy consistency, stage progress, artifact freshness.
+4. **The Cytoscape HTML is hypertext.** Drill down on decomposable bubbles, walk up via `↑ Parent`, link to dictionary entries, PSPEC sidecars, and HP reference cards.
+5. **PSPECs follow 2000 Fig 4.46 exactly** — INPUTS / OUTPUTS / TRANSFORMATION. INPUTS and OUTPUTS are derived from `dictionary.flows`; the PSPEC only carries the transformation body, optional constraints, and optional comments. The validator enforces balancing (1988 §13.1).
+6. **`hp-validate` and `hp-status` keep you honest** — reference integrity, hierarchy consistency, PSPEC balancing, stage progress, artifact freshness.
 
 ---
 

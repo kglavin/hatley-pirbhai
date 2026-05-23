@@ -61,14 +61,14 @@ Each project advances through stages, top to bottom. The toolkit's directory lay
 | 1 — Context Diagram | system boundary; terminators; boundary flows | `00-context/` | ✅ supported |
 | 2 — Level-1 DFD | internal processes; data stores; internal flows; flow refinement | `01-level1/` | ✅ supported |
 | 3 — CSPEC | hierarchical state machine for each `needs_cspec: true` bubble | `01-level1/cspecs/<proc-id>/` | ✅ supported |
-| 4 — PSPEC | input/output spec for leaf processes | `01-level1/pspecs/` (planned) | ⬜ planned |
+| 4 — PSPEC | leaf-process functional contract: INPUTS / OUTPUTS / TRANSFORMATION (2000 Fig 4.46) | `01-level1/pspecs/` | ✅ supported |
 | 5 — Architecture Model | AFD / AID / AMS / AIS | `architecture/` (planned) | ⬜ planned |
 
 `hp-status <project-dir>` reports which stage each project has reached, with validation summary + artifact freshness + open questions in one screen.
 
 ### 3. Form-based proposal pattern
 
-Each stage is locked through a **form-based proposal** rather than chat. The skill (`hp-propose-context`, `hp-propose-decomp`, `hp-propose-cspec`) drafts a `proposal.md` containing:
+Each stage is locked through a **form-based proposal** rather than chat. The skill (`hp-propose-context`, `hp-propose-decomp`, `hp-propose-cspec`, `hp-propose-pspec`) drafts a `proposal.md` containing:
 
 - A rendered draft diagram (Mermaid inline + sidecar SVG)
 - 7–8 numbered decisions; each with alternatives as `- [ ]` checkboxes; Claude's recommended default **pre-checked** with provenance ("extracted from your description"; "matches solar's pattern"; "AI inference")
@@ -106,6 +106,10 @@ hp-confirm-naming              # review state + event + action names
    ↓
 hp-render                      # generate CSPEC
    ↓
+hp-propose-pspec               # Stage 4: one PSPEC per remaining leaf process
+   ↓
+hp-render                      # generate PSPEC markdown sidecars
+   ↓
 (hp-status anywhere to check progress)
 (hp-validate anywhere to check integrity)
 ```
@@ -116,7 +120,7 @@ Each `hp-render` produces three views — Mermaid, D2, Cytoscape HTML — plus S
 
 ## Skills
 
-Eight skills make up the methodology surface. Each is documented in [`skills/`](skills/) as a Claude Code skill file (markdown + YAML frontmatter). Five have backing Python; three are conversational.
+Nine skills make up the methodology surface. Each is documented in [`skills/`](skills/) as a Claude Code skill file (markdown + YAML frontmatter). Five have backing Python; four are conversational.
 
 | Skill | Stage / purpose | Backing code |
 |---|---|:---:|
@@ -124,9 +128,10 @@ Eight skills make up the methodology surface. Each is documented in [`skills/`](
 | [`hp-propose-context`](skills/hp-propose-context.md) | Stage 1 form-based proposal | ⬜ |
 | [`hp-propose-decomp`](skills/hp-propose-decomp.md) | Stage 2 form-based proposal | ⬜ |
 | [`hp-propose-cspec`](skills/hp-propose-cspec.md) | Stage 3 form-based proposal | ⬜ |
+| [`hp-propose-pspec`](skills/hp-propose-pspec.md) | Stage 4 form-based proposal | ⬜ |
 | [`hp-confirm-naming`](skills/hp-confirm-naming.md) | Form-based naming review after any move that introduces named entities | ⬜ |
-| [`hp-validate`](skills/hp-validate.md) | Reference integrity / hierarchy / coverage / orphan detection | ✅ |
-| [`hp-render`](skills/hp-render.md) | Regenerate diagrams + SVGs from `dictionary.yaml` | ✅ |
+| [`hp-validate`](skills/hp-validate.md) | Reference integrity / hierarchy / coverage / orphan detection / PSPEC balancing | ✅ |
+| [`hp-render`](skills/hp-render.md) | Regenerate diagrams + SVGs + PSPEC markdown from `dictionary.yaml` | ✅ |
 | [`hp-status`](skills/hp-status.md) | Report stages reached, validation, artifact freshness, open questions | ✅ |
 
 The conversational skills (`hp-propose-*`, `hp-confirm-naming`) work by Claude reading the skill markdown and following the behavior spec. They don't need a Python implementation to invoke — the markdown *is* the executable specification.
@@ -187,7 +192,7 @@ print(status_report("examples/solar").format())
 
 ## Dictionary schema
 
-A `dictionary.yaml` has four top-level sections plus metadata. All keys are stable string IDs by convention (`proc_*`, `term_*`, `flow_*`, `store_*`, `event_*`, `cmd_*`, `data_*`, `state_*`, `tx_*`).
+A `dictionary.yaml` has five top-level sections plus metadata. All keys are stable string IDs by convention (`proc_*`, `term_*`, `flow_*`, `store_*`, `event_*`, `cmd_*`, `data_*`, `state_*`, `tx_*`, `pspec_*`).
 
 ```yaml
 project: "Solar Local Stack"
@@ -234,9 +239,28 @@ transitions:                   # state machine transitions (Stage 3)
     target_state: state_grid_tie
     event: "Initializing complete; mode reported as GridTie"
     action: "begin diversion loop"
+
+pspecs:                        # leaf-process functional contracts (Stage 4)
+  pspec_acquire_telemetry:
+    parent_process: proc_acquire_telemetry
+    # INPUTS and OUTPUTS are derived from dictionary.flows at validate
+    # time; balancing is a validator rule (1988 §13.1).
+    transformation:
+      style: textual           # textual | equation | table | diagram | mixed
+      body: |
+        Each ingest cycle:
+          Read F1 PER CHANNEL TELEMETRY from the inverter side.
+          Read F3 NET GRID POWER from the grid-tied meter.
+          Normalize all readings into NORMALIZED STATE and write to
+          store_system_state.
+    computational_constraints:           # optional — 2000 §4.3.3.9
+      frequency: "≥ 1 Hz aggregate"
+      timing: "Ingest → store latency < 1 s"
+    comments: |                          # optional — 1988 §13.5
+      Vendor adapter details live in the architecture model, not here.
 ```
 
-Pydantic schemas in [`hp_toolkit/model.py`](hp_toolkit/model.py) are authoritative. Validation (`hp-validate`) catches dangling references, hierarchy inconsistencies, and coverage gaps; status (`hp-status`) reports stage progress against the same schema.
+Pydantic schemas in [`hp_toolkit/model.py`](hp_toolkit/model.py) are authoritative. Validation (`hp-validate`) catches dangling references, hierarchy inconsistencies, coverage gaps, and PSPEC balancing violations; status (`hp-status`) reports stage progress against the same schema.
 
 ---
 
@@ -244,17 +268,17 @@ Pydantic schemas in [`hp_toolkit/model.py`](hp_toolkit/model.py) are authoritati
 
 Two example projects in [`../examples/`](../examples/) exercise the full pipeline; a third is scaffolded but unadvanced.
 
-- [`examples/solar/`](../examples/solar/) — Solar Local Stack (Hoymiles microinverters + Victron + grid orchestration). Stages 1–3 complete; CSPEC for Energy Manager (4-mode hierarchical state machine; 13 states + 16 transitions). Original dogfood — most mature.
-- [`examples/fishing-rig/`](../examples/fishing-rig/) — AutoFishingRig. The transferability test — built from scratch on a completely different domain. Stages 1–3 complete; CSPEC for Bite Detector (9 states + 18 transitions).
-- [`examples/doorbell/`](../examples/doorbell/) — Smart Doorbell. Scaffolded via `hp-init`; Stage 1 in progress. Used by [`TUTORIAL.md`](TUTORIAL.md) *(planned)*.
+- [`examples/solar/`](../examples/solar/) — Solar Local Stack (Hoymiles microinverters + Victron + grid orchestration). Stages 1–4 complete; CSPEC for Energy Manager (4-mode hierarchical state machine; 13 states + 16 transitions); 5 PSPECs (one per remaining leaf process). Original dogfood — most mature.
+- [`examples/fishing-rig/`](../examples/fishing-rig/) — AutoFishingRig. The transferability test — built from scratch on a completely different domain. Stages 1–4 complete; CSPEC for Bite Detector (9 states + 18 transitions); 4 PSPECs.
+- [`examples/doorbell/`](../examples/doorbell/) — Smart Doorbell. Scaffolded via `hp-init`; Stage 1 in progress. Used as a reference for a fresh-scaffold project.
 
-Both solar and fishing-rig render their full Context + DFD + CSPEC pipelines through `scripts/render_project.py` with no project-specific code.
+Both solar and fishing-rig render their full Context + DFD + CSPEC + PSPEC pipelines through `scripts/render_project.py` with no project-specific code.
 
 ---
 
 ## Tutorial
 
-A step-by-step worked example walking a project from `hp-init` through Stage 3 lock is at [`TUTORIAL.md`](TUTORIAL.md) *(planned — uses doorbell as the worked example)*.
+A step-by-step read-along walkthrough of fishing-rig from `hp-init` through Stage 4 lock is at [`TUTORIAL.md`](TUTORIAL.md).
 
 ---
 
@@ -263,7 +287,8 @@ A step-by-step worked example walking a project from `hp-init` through Stage 3 l
 ```
 toolkit/
 ├── README.md                  ← this file
-├── TUTORIAL.md                ← worked end-to-end example (planned)
+├── TUTORIAL.md                ← worked end-to-end example (fishing-rig walk-through)
+├── PSPEC_DESIGN.md            ← Stage 4 design doc (book-faithful schema + validator rules)
 ├── bootstrap.sh               ← environment setup (idempotent)
 ├── .puppeteer-config.json     ← mmdc sandbox config for Ubuntu 23.10+
 ├── pyproject.toml             ← uv-managed Python project
@@ -273,12 +298,13 @@ toolkit/
 │   ├── __init__.py
 │   ├── model.py               ← Pydantic schemas
 │   ├── load.py                ← dictionary.yaml → validated Project
-│   ├── validate.py            ← 4 validators + CLI
-│   ├── status.py              ← stage-progress report + CLI
+│   ├── validate.py            ← validators (reference / hierarchy / coverage / orphan / PSPEC balancing) + CLI
+│   ├── status.py              ← stage-progress report (Stages 1–4) + CLI
 │   └── render/
 │       ├── mermaid.py
 │       ├── d2.py
-│       ├── cytoscape.py       ← elements JSON + full HTML wrappers
+│       ├── cytoscape.py       ← elements JSON + full HTML wrappers + PSPEC side-panel link
+│       ├── pspec.py           ← PSPEC markdown emitter (2000 Fig 4.46 format)
 │       └── svg.py             ← orchestrate d2 + mmdc binaries
 │
 ├── scripts/
@@ -287,10 +313,10 @@ toolkit/
 │   ├── render_dogfood.py      ← solar-specific (legacy; use render_project.py)
 │   └── check_dictionary.py    ← summary + hierarchy view
 │
-├── skills/                    ← Claude Code skill files (8 total)
+├── skills/                    ← Claude Code skill files (9 total)
 │   ├── README.md              ← skill catalog
 │   ├── hp-init.md
-│   ├── hp-propose-{context,decomp,cspec}.md
+│   ├── hp-propose-{context,decomp,cspec,pspec}.md
 │   ├── hp-confirm-naming.md
 │   ├── hp-validate.md
 │   ├── hp-render.md
@@ -304,7 +330,7 @@ toolkit/
 
 ## Status
 
-End-to-end render pipeline live and validated across two domains (solar, fishing-rig). Eight skills drafted (five with backing code). Toolkit currently dead-ends at Stage 3 — Stage 4 (PSPECs) and Stage 5 (Architecture Model) are unimplemented.
+End-to-end render pipeline live and validated across two domains (solar, fishing-rig). Nine skills drafted (five with backing code). Stages 1–4 supported end-to-end; Stage 5 (Architecture Model) is unimplemented.
 
 See [`../PLAN.md`](../PLAN.md) for design rationale, methodology tactics, the AI moves catalog, and a chronological log of decisions.
 
