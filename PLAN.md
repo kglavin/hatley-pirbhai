@@ -112,10 +112,7 @@ Chronological, most recent first.
 
 **Stage 4 / PSPEC schema:** ✅ resolved 2026-05-22 via [`toolkit/PSPEC_DESIGN.md`](toolkit/PSPEC_DESIGN.md) — book-faithful schema, validator rules, and renderer plan locked. Implementation pending (model.py classes → validator rules → renderer → skill → first lived example on `proc_acquire_tension`). Source: 1988 ch. 13 + 2000 §4.3.3.9 + appendix A.2.12.
 
-**Architecture Model (Stage 5):**
-- When do we cross from requirements (DFD/CSPEC/PSPEC) to architecture (AFD/AID/AMS/AIS)?
-- Does the dictionary carry architecture entities alongside requirements, or get a parallel `architecture.yaml`?
-- The 2000 HP book is the source — needs a re-read pass before answering.
+**Architecture Model (Stage 5):** ✅ design locked 2026-05-22 via [`toolkit/ARCH_DESIGN.md`](toolkit/ARCH_DESIGN.md) — Core 6 scope (AFD + AID + AMS + AIS + Architecture Module + Architecture Dictionary integration into existing `dictionary.yaml`). AMD + MID + push/pull deferred. Source: 2000 ch. 4 §4.2. Implementation pending (model → validator → renderer → skill → first lived example on fishing-rig).
 
 **Schema gaps caught during dogfooding:**
 - `short_label:` on Entity — per-level label abbreviation (caught 8 drifts on solar Stage 2). Per-level override or single short variant?
