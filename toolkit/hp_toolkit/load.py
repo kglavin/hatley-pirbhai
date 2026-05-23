@@ -29,7 +29,7 @@ def load(path: str | Path) -> Project:
     # Inject the key as `id` on every entity/flow/edge/transition before
     # Pydantic validation — the schema requires `id`, but in YAML it's the
     # dict key.
-    for section in ("entities", "flows", "edges", "transitions"):
+    for section in ("entities", "flows", "edges", "transitions", "pspecs"):
         items = raw.get(section, {})
         if items is None:
             raw[section] = {}

@@ -18,7 +18,9 @@ from collections import defaultdict
 from dataclasses import dataclass, field
 from typing import Literal
 
-from .model import Project, Entity, EntityKind
+import re
+
+from .model import Project, Entity, EntityKind, Flow, PSpec
 
 
 Severity = Literal["error", "warning", "info"]
@@ -221,6 +223,233 @@ def coverage_metrics(project: Project) -> ValidationReport:
     return report
 
 
+# ─────────────────────────────────────────────────────────────────────
+# PSPEC validation (rules from toolkit/PSPEC_DESIGN.md §5)
+#
+# Sources:
+#   Hatley & Pirbhai 1988 ch. 13 (esp. §13.1 balancing; §13.2 styles + PAT
+#   exclusion + no-code rule; §13.3 "issue" keyword; §13.4 capitalized
+#   flow names; §13.5 comments)
+#   Hatley, Hruschka & Pirbhai 2000 §4.3.3.9 + A.2.12 (one PSPEC per leaf;
+#   computational constraints; "what not how")
+# ─────────────────────────────────────────────────────────────────────
+
+
+def _is_leaf_process(project: Project, e: Entity) -> bool:
+    """A leaf process is a process with no children in the entities table
+    AND not flagged needs_cspec=True. Such a process needs a PSPEC."""
+    if e.kind != EntityKind.PROCESS:
+        return False
+    if e.needs_cspec:
+        return False
+    # If any other entity has this as parent, it's decomposed → not a leaf.
+    for other in project.all_entities():
+        if other.parent == e.id and other.kind == EntityKind.PROCESS:
+            return False
+    return True
+
+
+def _process_inputs(project: Project, process_id: str) -> list[Flow]:
+    """Flows whose effective level-N+1 target is this process.
+
+    Includes both internal flows (target=process directly) and refined
+    boundary flows (refined_target=process — the level-N flow whose
+    level-N+1 endpoint is this process).
+    """
+    result: list[Flow] = []
+    for f in project.all_flows():
+        if f.refined_target == process_id:
+            result.append(f)
+        elif f.target == process_id and not f.refined_target:
+            result.append(f)
+    return result
+
+
+def _process_outputs(project: Project, process_id: str) -> list[Flow]:
+    """Flows whose effective level-N+1 source is this process."""
+    result: list[Flow] = []
+    for f in project.all_flows():
+        if f.refined_source == process_id:
+            result.append(f)
+        elif f.source == process_id and not f.refined_source:
+            result.append(f)
+    return result
+
+
+def _flow_reference_tokens(f: Flow) -> list[str]:
+    """Plausible uppercase tokens by which a PSPEC body might reference a flow.
+
+    The 1988 book §13.4 requires textual PSPECs to capitalize flow names
+    matching the dictionary entries exactly. We accept several common
+    forms because the dictionary stores both an id (e.g., flow_f3_tension)
+    and a label (e.g., "F3: tension feedback") — either uppercased should
+    count as a valid reference.
+    """
+    tokens: list[str] = []
+    # ID variants
+    raw_id = f.id
+    if raw_id.startswith("flow_"):
+        raw_id = raw_id[len("flow_"):]
+    tokens.append(raw_id.upper())
+    tokens.append(raw_id.replace("_", " ").upper())
+    # Label variants
+    label_clean = re.sub(r"[^A-Za-z0-9 ]+", " ", f.label).strip()
+    label_clean = re.sub(r"\s+", " ", label_clean)
+    tokens.append(label_clean.upper())
+    # Drop dupes preserving order
+    seen, out = set(), []
+    for t in tokens:
+        if t and t not in seen:
+            seen.add(t); out.append(t)
+    return out
+
+
+def _body_references_flow(body: str, f: Flow) -> bool:
+    """Heuristic: does the body reference this flow by any plausible name?"""
+    body_upper = body.upper()
+    return any(tok in body_upper for tok in _flow_reference_tokens(f))
+
+
+# Patterns suggesting code or pseudocode — flagged as warnings (1988 §13.2).
+_CODE_PATTERNS = [
+    re.compile(r":="),                              # Pascal-style assignment
+    re.compile(r"\bfor\s*\("),                      # C-style for-loop
+    re.compile(r"\bwhile\s*\("),                    # C-style while
+    re.compile(r"\bdef\s+\w+\s*\("),                # Python def
+    re.compile(r"\bfunction\s+\w+\s*\("),           # JS function
+    re.compile(r"\breturn\s+"),
+    re.compile(r"\+\+|--"),                         # increment/decrement
+    re.compile(r"==|!="),                           # equality operators
+    re.compile(r"=>"),                              # lambda/arrow
+]
+
+
+def _looks_like_code(body: str) -> list[str]:
+    """Return the code-like patterns found in the body. Empty if clean."""
+    hits: list[str] = []
+    for pat in _CODE_PATTERNS:
+        if pat.search(body):
+            hits.append(pat.pattern)
+    return hits
+
+
+def pspec_validation(project: Project) -> ValidationReport:
+    """Validate PSPECs per the 10 rules from PSPEC_DESIGN.md §5."""
+    report = ValidationReport()
+    entity_ids = set(project.entities.keys())
+
+    leaf_processes = [e for e in project.all_entities() if _is_leaf_process(project, e)]
+
+    # Rule 1: every leaf functional primitive has exactly one PSPEC.
+    pspec_by_process: dict[str, list[PSpec]] = defaultdict(list)
+    for p in project.all_pspecs():
+        pspec_by_process[p.parent_process].append(p)
+
+    for proc in leaf_processes:
+        specs = pspec_by_process.get(proc.id, [])
+        if len(specs) == 0:
+            report.issues.append(ValidationIssue(
+                "error", "pspec", proc.id,
+                f"leaf process has no PSPEC (rule 1: every functional primitive needs one)"
+            ))
+        elif len(specs) > 1:
+            ids = ", ".join(s.id for s in specs)
+            report.issues.append(ValidationIssue(
+                "error", "pspec", proc.id,
+                f"leaf process has {len(specs)} PSPECs ({ids}); rule 1 requires exactly one"
+            ))
+
+    # Per-PSPEC rules
+    for p in project.all_pspecs():
+        # Rule 2: parent_process references a real process
+        parent = project.entities.get(p.parent_process)
+        if parent is None:
+            report.issues.append(ValidationIssue(
+                "error", "pspec", p.id,
+                f"parent_process {p.parent_process!r} not in dictionary"
+            ))
+            continue
+        if parent.kind != EntityKind.PROCESS:
+            report.issues.append(ValidationIssue(
+                "error", "pspec", p.id,
+                f"parent_process {p.parent_process!r} is kind {parent.kind.value!r}, "
+                f"expected 'process'"
+            ))
+            continue
+        if parent.needs_cspec:
+            report.issues.append(ValidationIssue(
+                "error", "pspec", p.id,
+                f"parent_process {p.parent_process!r} has needs_cspec=true; "
+                f"state-rich bubbles get a CSPEC, not a PSPEC"
+            ))
+
+        body = p.transformation.body or ""
+
+        # Rule 10: body non-empty (defensive — Pydantic should reject empty too)
+        if not body.strip():
+            report.issues.append(ValidationIssue(
+                "error", "pspec", p.id,
+                "transformation body is empty"
+            ))
+            continue
+
+        # Rule 3: every input flow appears in the body
+        inputs = _process_inputs(project, p.parent_process)
+        for f in inputs:
+            if not _body_references_flow(body, f):
+                report.issues.append(ValidationIssue(
+                    "error", "pspec", p.id,
+                    f"input flow {f.id!r} (label {f.label!r}) not referenced in "
+                    f"transformation body — balancing rule (1988 §13.1)"
+                ))
+
+        # Rule 4: every output flow is generated by the body
+        outputs = _process_outputs(project, p.parent_process)
+        for f in outputs:
+            if not _body_references_flow(body, f):
+                report.issues.append(ValidationIssue(
+                    "error", "pspec", p.id,
+                    f"output flow {f.id!r} (label {f.label!r}) not generated by "
+                    f"transformation body — balancing rule (1988 §13.1)"
+                ))
+
+        # Rule 5: no extra flow references — heuristic placeholder.
+        # Full implementation would parse the body's capitalized tokens and
+        # verify each maps to an input/output. Skipped for first cut to avoid
+        # false positives on natural-language usage of common words.
+
+        # Rule 6: no Process Activation Tables (CSPEC-only construct)
+        if re.search(r"\bprocess\s+activation\s+table\b|\bPAT\b", body, re.IGNORECASE):
+            report.issues.append(ValidationIssue(
+                "error", "pspec", p.id,
+                "transformation body contains process activation table; PATs "
+                "are CSPEC-only (1988 §13.2)"
+            ))
+
+        # Rule 7: no code/pseudocode (warning, heuristic)
+        code_hits = _looks_like_code(body)
+        if code_hits:
+            report.issues.append(ValidationIssue(
+                "warning", "pspec", p.id,
+                f"transformation body looks code-like (matched {code_hits!r}); "
+                f"PSPECs should not contain code or pseudocode (1988 §13.2)"
+            ))
+
+        # Rules 8, 9: capitalization convention and "issue" keyword — informational
+        # only on first cut. Full enforcement requires a `transient:` flag on Flow
+        # and stricter tokenization than we have today.
+
+    # Coverage metric: pspec_coverage_pct
+    n_leaf = len(leaf_processes)
+    if n_leaf:
+        n_with_pspec = sum(1 for p in leaf_processes if pspec_by_process.get(p.id))
+        report.metrics["pspec_coverage_pct"] = round(100 * n_with_pspec / n_leaf, 1)
+        report.counts["leaf_processes"] = n_leaf
+        report.counts["pspecs_total"] = len(project.all_pspecs())
+
+    return report
+
+
 def find_orphans(project: Project) -> ValidationReport:
     """Entities that no flow or edge references — *and* are not the
     container of another entity (i.e., not a parent). True orphans probably
@@ -268,6 +497,7 @@ def validate(project: Project) -> ValidationReport:
     report.extend(reference_integrity(project))
     report.extend(hierarchy_consistency(project))
     report.extend(coverage_metrics(project))
+    report.extend(pspec_validation(project))
     report.extend(find_orphans(project))
     return report
 
