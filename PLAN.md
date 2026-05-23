@@ -110,11 +110,7 @@ Chronological, most recent first.
 
 ## Open Questions (resolve as we go)
 
-**Stage 4 / PSPEC schema:**
-- What fields does a PSPEC entry need in `dictionary.yaml`? Pseudocode? Structured input/output spec with pre/post-conditions? Trace requirements (which level-N flow this satisfies)?
-- One PSPEC per leaf bubble, or per (bubble × mode) combination for bubbles inside a CSPEC?
-- Rendering format — table per PSPEC? Structured Markdown? Code-like?
-- Probably resolved by drafting Stage 4 on fishing-rig (smaller surface) first.
+**Stage 4 / PSPEC schema:** ✅ resolved 2026-05-22 via [`toolkit/PSPEC_DESIGN.md`](toolkit/PSPEC_DESIGN.md) — book-faithful schema, validator rules, and renderer plan locked. Implementation pending (model.py classes → validator rules → renderer → skill → first lived example on `proc_acquire_tension`). Source: 1988 ch. 13 + 2000 §4.3.3.9 + appendix A.2.12.
 
 **Architecture Model (Stage 5):**
 - When do we cross from requirements (DFD/CSPEC/PSPEC) to architecture (AFD/AID/AMS/AIS)?
