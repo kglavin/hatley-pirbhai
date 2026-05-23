@@ -20,7 +20,7 @@ from pathlib import Path
 from typing import Literal
 
 from .load import load
-from .model import Project, EntityKind
+from .model import Project, EntityKind, ADRStatus
 from .validate import validate, ValidationReport
 
 
@@ -36,11 +36,34 @@ class StageStatus:
 
 
 @dataclass
+class ModernizationSummary:
+    """Counts for the modernization layer (Commits 1–5).
+
+    Each project may declare none, some, or all of these. Zero counts
+    are reported as "none declared" — the modernization layer is
+    optional and incremental."""
+    adrs_by_status: dict[str, int] = field(default_factory=dict)
+    budgets: int = 0
+    tpms: int = 0
+    budgets_tracked_by_tpm: int = 0
+    slos: int = 0
+    slos_tied_to_tpm: int = 0
+    bounded_contexts: int = 0
+    acls: int = 0
+    leaf_pspecs_total: int = 0
+    leaf_pspecs_with_observability: int = 0
+    leaf_pspecs_with_verification: int = 0
+    cross_zone_interconnects: int = 0
+    cross_zone_with_stride: int = 0
+
+
+@dataclass
 class StatusReport:
     project_name: str
     project_dir: Path
     dictionary_exists: bool
     stages: list[StageStatus] = field(default_factory=list)
+    modernization: ModernizationSummary | None = None
     validation: ValidationReport | None = None
     stale_artifacts: list[Path] = field(default_factory=list)   # generated files older than dictionary
     open_questions: dict[Path, int] = field(default_factory=dict)  # file → count of unchecked [ ]
@@ -69,6 +92,9 @@ class StatusReport:
             }[s.state]
             lines.append(f"  {icon} Stage {s.stage} — {s.name:30s} {s.detail}")
         lines.append("")
+
+        if self.modernization is not None:
+            lines.extend(_format_modernization(self.modernization))
 
         if self.validation is not None:
             lines.append(_color("Validation", "1"))
@@ -99,6 +125,121 @@ class StatusReport:
         lines.append("")
 
         return "\n".join(lines)
+
+
+# ─────────────────────────────────────────────────────────────────────
+# Modernization summary
+# ─────────────────────────────────────────────────────────────────────
+
+def _modernization_summary(project: Project) -> ModernizationSummary:
+    """Tally the modernization-layer sections declared on the project."""
+    s = ModernizationSummary()
+
+    # ADRs by status
+    for adr in project.all_adrs():
+        key = adr.status.value if isinstance(adr.status, ADRStatus) else str(adr.status)
+        s.adrs_by_status[key] = s.adrs_by_status.get(key, 0) + 1
+
+    # Budgets + TPMs
+    s.budgets = len(project.budgets)
+    s.tpms = len(project.tpms)
+    tracked_budget_ids = {t.derived_from_budget for t in project.all_tpms()
+                          if t.derived_from_budget}
+    s.budgets_tracked_by_tpm = len(tracked_budget_ids & set(project.budgets.keys()))
+
+    # SLOs
+    s.slos = len(project.service_level_objectives)
+    s.slos_tied_to_tpm = sum(1 for slo in project.all_slos()
+                             if slo.derives_from_tpm and slo.derives_from_tpm in project.tpms)
+
+    # Bounded contexts + ACLs (ACLs are entities with kind=TRANSLATION)
+    s.bounded_contexts = len(project.bounded_contexts)
+    s.acls = sum(1 for e in project.all_entities()
+                 if e.kind == EntityKind.TRANSLATION)
+
+    # Observability + V&V on leaf PSPECs
+    leaves = _leaf_processes_needing_pspec(project)
+    s.leaf_pspecs_total = len(leaves)
+    for leaf in leaves:
+        pspec = project.pspec_for_process(leaf.id)
+        if pspec is None:
+            continue
+        if pspec.observability is not None:
+            s.leaf_pspecs_with_observability += 1
+        if pspec.verification is not None:
+            s.leaf_pspecs_with_verification += 1
+
+    # STRIDE on cross-trust-zone interconnects
+    for ai in project.all_architecture_interconnects():
+        zones = {project.architecture_modules[m].trust_zone
+                 for m in ai.endpoints
+                 if m in project.architecture_modules
+                 and project.architecture_modules[m].trust_zone is not None}
+        if len(zones) >= 2:
+            s.cross_zone_interconnects += 1
+            if ai.stride_mitigations is not None:
+                s.cross_zone_with_stride += 1
+
+    return s
+
+
+def _format_modernization(s: ModernizationSummary) -> list[str]:
+    """Render the modernization layer as a section of lines."""
+    lines = [_color("Modernization layer", "1")]
+
+    # ADRs
+    if s.adrs_by_status:
+        total = sum(s.adrs_by_status.values())
+        # Order: accepted, proposed, superseded, deprecated, others alphabetical
+        order = ["accepted", "proposed", "superseded", "deprecated"]
+        ordered = [k for k in order if k in s.adrs_by_status] + \
+                  sorted(k for k in s.adrs_by_status if k not in order)
+        breakdown = " / ".join(f"{s.adrs_by_status[k]} {k}" for k in ordered)
+        lines.append(f"  {'ADRs':22s} {total} ({breakdown})")
+    else:
+        lines.append(f"  {'ADRs':22s} {_color('none declared', '90')}")
+
+    # Budgets / TPMs
+    if s.budgets or s.tpms:
+        tracked = f"{s.budgets_tracked_by_tpm}/{s.budgets} budget(s) tracked by TPM"
+        lines.append(f"  {'Budgets / TPMs':22s} {s.budgets} budget(s); {s.tpms} TPM(s) [{tracked}]")
+    else:
+        lines.append(f"  {'Budgets / TPMs':22s} {_color('none declared', '90')}")
+
+    # SLOs
+    if s.slos:
+        tied = f"{s.slos_tied_to_tpm}/{s.slos} tied to a TPM"
+        lines.append(f"  {'SLOs':22s} {s.slos} SLO(s) [{tied}]")
+    else:
+        lines.append(f"  {'SLOs':22s} {_color('none declared', '90')}")
+
+    # Observability + V&V coverage of leaf PSPECs
+    if s.leaf_pspecs_total > 0:
+        lines.append(f"  {'Observability':22s} "
+                     f"{s.leaf_pspecs_with_observability}/{s.leaf_pspecs_total} leaf PSPEC(s) declare observability")
+        lines.append(f"  {'V&V plans':22s} "
+                     f"{s.leaf_pspecs_with_verification}/{s.leaf_pspecs_total} leaf PSPEC(s) declare verification")
+    else:
+        lines.append(f"  {'Observability':22s} {_color('no leaf PSPECs yet', '90')}")
+        lines.append(f"  {'V&V plans':22s} {_color('no leaf PSPECs yet', '90')}")
+
+    # STRIDE
+    if s.cross_zone_interconnects > 0:
+        icon = _color("✅", "32") if s.cross_zone_with_stride == s.cross_zone_interconnects else _color("⚠", "33")
+        lines.append(f"  {'STRIDE':22s} {icon} "
+                     f"{s.cross_zone_with_stride}/{s.cross_zone_interconnects} "
+                     f"cross-trust-zone interconnect(s) have STRIDE mitigations")
+    else:
+        lines.append(f"  {'STRIDE':22s} {_color('no cross-trust-zone interconnects', '90')}")
+
+    # Bounded contexts
+    if s.bounded_contexts > 0:
+        lines.append(f"  {'Bounded contexts':22s} {s.bounded_contexts} context(s); {s.acls} ACL(s)")
+    else:
+        lines.append(f"  {'Bounded contexts':22s} {_color('none declared (single-context project)', '90')}")
+
+    lines.append("")
+    return lines
 
 
 # ─────────────────────────────────────────────────────────────────────
@@ -356,6 +497,7 @@ def status_report(project_dir: Path) -> StatusReport:
             _check_stage_4(project, project_dir),
             _check_stage_5(project, project_dir),
         ],
+        modernization=_modernization_summary(project),
         validation=validate(project),
         stale_artifacts=_find_stale_artifacts(project_dir),
         open_questions=_scan_open_questions(project_dir),
