@@ -774,3 +774,62 @@ adrs:
       modules: [am_controller, am_angler_app]
       interconnects: [ai_ble]
       flows: [af_telemetry_to_app, af_config_to_ctrl]
+
+
+# ─── Modernization #21 / #22 — Budgets + TPMs ───
+
+budgets:
+
+  budget_bite_to_set_latency:
+    name: "Bite detection → hook-set latency (end-to-end)"
+    unit: ms
+    system_target: 200
+    system_reserve: 30                 # margin held at system level
+    allocations:
+      am_controller: 170               # ADC sample + bite detect + motor command
+      # am_angler_app gets 0 — it's not in the bite-to-set critical path
+    notes: |
+      The hook-set sequence is timing-critical: tension spike → fish swallow →
+      drive the hook home. Total delay must fit within the fish's bite-and-
+      release window (~250 ms for typical species). System target of 200 ms
+      with 30 ms reserve leaves 170 ms for the controller's critical-path
+      processing.
+
+  budget_telemetry_to_app_latency:
+    name: "Telemetry → app render latency (informational; not safety-critical)"
+    unit: ms
+    system_target: 300
+    system_reserve: 50
+    allocations:
+      am_controller: 100               # acquire + format + BLE notify
+      am_angler_app: 150               # BLE receive + render
+
+tpms:
+
+  tpm_bite_to_set_currently:
+    name: "Measured bite-to-set latency (lab bench)"
+    unit: ms
+    threshold: 200                     # = budget_bite_to_set_latency.system_target
+    target: 150                        # aim for
+    current_estimate: 165
+    growth_allowance: 35               # 200 - 165
+    measurement_method: "Histogram of `bite_to_set_ms` metric over 30-day bench window"
+    derived_from_budget: budget_bite_to_set_latency
+    trend_notes: |
+      Currently 165 ms ± 12 ms (1σ) across 1,200 bench shots. Trend over
+      last quarter: +3 ms/quarter (improving — moved tension-sample loop
+      from 100 Hz to 200 Hz, reducing detect-latency variance).
+
+  tpm_ble_link_uptime:
+    name: "BLE link uptime"
+    unit: percent
+    direction: more_is_better          # threshold is a floor
+    threshold: 99.0                    # don't-drop-below
+    target: 99.5
+    current_estimate: 99.2
+    growth_allowance: 0.2              # safe down to 99.0 (current − growth)
+    measurement_method: "1 - (sum(ble_disconnect_seconds) / sum(session_seconds))"
+    trend_notes: |
+      Field beta: 99.2% uptime over 50 fishing sessions. Drops correlate
+      with vest-pocket angle (signal blocked). Mitigation: improve
+      antenna orientation in next enclosure rev.

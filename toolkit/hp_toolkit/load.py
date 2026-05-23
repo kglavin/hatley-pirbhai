@@ -35,6 +35,7 @@ def load(path: str | Path) -> Project:
         "architecture_interconnects", "architecture_module_specs",
         "architecture_interconnect_specs",
         "adrs",
+        "budgets", "tpms",
     ):
         items = raw.get(section, {})
         if items is None:

@@ -137,6 +137,37 @@ def render_ams_markdown(project: Project, ams: ArchModuleSpec) -> str:
                 lines.append(f"  - {s}")
         lines.append("")
 
+    # BUDGETS (optional — modernization #21)
+    module_budgets = project.budgets_for_module(module.id)
+    if module_budgets:
+        lines.append("## BUDGETS (allocations to this module)")
+        lines.append("")
+        lines.append("| Budget | Unit | This module | System target | Reserve |")
+        lines.append("|---|---|---:|---:|---:|")
+        for b in module_budgets:
+            allocation = b.allocations.get(module.id, 0)
+            lines.append(
+                f"| `{b.id}` — {b.name} | {b.unit} | {allocation} "
+                f"| {b.system_target} | {b.system_reserve} |"
+            )
+        lines.append("")
+
+    # TPMs (optional — modernization #22)
+    module_tpms = []
+    for b in module_budgets:
+        module_tpms.extend(project.tpms_for_budget(b.id))
+    if module_tpms:
+        lines.append("## TPMs (tracking this module's budgets)")
+        lines.append("")
+        lines.append("| TPM | Unit | Current | Growth allowance | Threshold |")
+        lines.append("|---|---|---:|---:|---:|")
+        for t in module_tpms:
+            lines.append(
+                f"| `{t.id}` — {t.name} | {t.unit} | {t.current_estimate} "
+                f"| {t.growth_allowance} | {t.threshold} |"
+            )
+        lines.append("")
+
     lines.append("---")
     lines.append("")
     lines.append(

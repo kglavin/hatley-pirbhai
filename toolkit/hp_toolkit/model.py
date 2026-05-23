@@ -140,6 +140,16 @@ class ADRStatus(str, Enum):
     SUPERSEDED = "superseded"
 
 
+class TPMDirection(str, Enum):
+    """Whether a TPM's threshold is a ceiling (less-is-better, e.g. latency,
+    cost, mass) or a floor (more-is-better, e.g. uptime, MTBF, accuracy).
+
+    NASA SE Handbook §6.7.2 handles both directions explicitly.
+    Modernization #22."""
+    LESS_IS_BETTER = "less_is_better"
+    MORE_IS_BETTER = "more_is_better"
+
+
 class PSpecStyle(str, Enum):
     """Canonical body styles for a PSPEC transformation.
 
@@ -381,6 +391,53 @@ class ArchModuleSpec(BaseModel):
     verification: Optional[VerificationPlan] = None
 
 
+class Budget(BaseModel):
+    """A design-time budget allocated top-down across architecture modules.
+
+    NASA SE Handbook §6.7 — Technical Resource Management. Mass / power /
+    data-rate / latency / cost are NASA staples; cloud-native projects
+    need the same discipline applied to latency / cost / memory / CPU /
+    throughput / monthly $.
+
+    Modernization #21."""
+    model_config = ConfigDict(extra="allow")
+
+    id: str
+    name: str
+    unit: str                                     # ms, USD, MB, watts, ...
+    system_target: float
+    system_reserve: float = 0                     # margin held at system level
+    allocations: dict[str, float] = Field(default_factory=dict)
+    # key = ArchModule id; value = allocated amount in `unit`
+    notes: Optional[str] = None
+
+
+class TPM(BaseModel):
+    """Technical Performance Measure — a *tracked-over-time* performance
+    indicator, distinct from a static constraint.
+
+    NASA SE Handbook §6.7.2. The chain runs: a Budget declares design
+    intent and allocates top-down; a TPM tracks the running estimate
+    against the budget's allocation (or against an SLO target);
+    growth_allowance makes "how much room is left" visible.
+
+    Modernization #22."""
+    model_config = ConfigDict(extra="allow")
+
+    id: str
+    name: str
+    unit: str
+    direction: TPMDirection = TPMDirection.LESS_IS_BETTER  # threshold is ceiling vs floor
+    threshold: float                              # don't-cross
+    target: Optional[float] = None                # aim for (between threshold and current)
+    current_estimate: float
+    growth_allowance: float                       # safety margin in the threshold direction
+    measurement_method: str                       # how it's measured (query / formula)
+    derived_from_budget: Optional[str] = None     # cross-ref to Budget id
+    derived_from_slo: Optional[str] = None        # cross-ref to SLO id (#32, future)
+    trend_notes: Optional[str] = None             # narrative trend
+
+
 class ADR(BaseModel):
     """Architecture Decision Record — Michael Nygard 2011 format.
 
@@ -471,6 +528,9 @@ class Project(BaseModel):
     architecture_interconnect_specs: dict[str, ArchInterconnectSpec] = Field(default_factory=dict)
     # ─── Modernization #10 — Architecture Decision Records ───
     adrs: dict[str, ADR] = Field(default_factory=dict)
+    # ─── Modernization #21 / #22 — Budgets + TPMs ───
+    budgets: dict[str, Budget] = Field(default_factory=dict)
+    tpms: dict[str, TPM] = Field(default_factory=dict)
 
     # ─── Convenience accessors ───
 
@@ -521,6 +581,19 @@ class Project(BaseModel):
 
     def adr(self, id: str) -> ADR:
         return self.adrs[id]
+
+    def all_budgets(self) -> list[Budget]:
+        return list(self.budgets.values())
+
+    def all_tpms(self) -> list[TPM]:
+        return list(self.tpms.values())
+
+    def budgets_for_module(self, module_id: str) -> list[Budget]:
+        """Budgets that allocate to the given module."""
+        return [b for b in self.budgets.values() if module_id in b.allocations]
+
+    def tpms_for_budget(self, budget_id: str) -> list[TPM]:
+        return [t for t in self.tpms.values() if t.derived_from_budget == budget_id]
 
     def entity(self, id: str) -> Entity:
         return self.entities[id]

@@ -27,6 +27,8 @@ from .model import (
     ArchModuleConstraints,
     VerificationPlan,
     ADR,
+    Budget,
+    TPM,
     EntityKind,
     FlowKind,
     EdgeKind,
@@ -40,6 +42,7 @@ from .model import (
     Encryption,
     VerificationMethod,
     ADRStatus,
+    TPMDirection,
 )
 from .load import load
 from .validate import (
@@ -73,6 +76,8 @@ __all__ = [
     "ArchModuleConstraints",
     "VerificationPlan",
     "ADR",
+    "Budget",
+    "TPM",
     "EntityKind",
     "FlowKind",
     "EdgeKind",
@@ -86,6 +91,7 @@ __all__ = [
     "Encryption",
     "VerificationMethod",
     "ADRStatus",
+    "TPMDirection",
     "load",
     "validate",
     "reference_integrity",

@@ -958,3 +958,77 @@ adrs:
     affects:
       modules: [am_dashboard_app, am_controller_host]
       interconnects: [ai_local_lan]
+
+
+# ─── Modernization #21 / #22 — Budgets + TPMs ───
+
+budgets:
+
+  budget_diversion_loop_latency:
+    name: "Grid sense → inverter setpoint latency"
+    unit: ms
+    system_target: 1000                # 1 second end-to-end
+    system_reserve: 200
+    allocations:
+      am_controller_host: 800          # ingest + compute + dispatch
+      # am_dashboard_app: 0 — not in the diversion-control critical path
+    notes: |
+      The diversion loop must respond fast enough to prevent meaningful
+      grid export under sudden surplus (clouds clearing, sunlight burst).
+      1 s end-to-end with 200 ms reserve is comfortable for a residential
+      grid-tie inverter (the inverter's own response time dominates the
+      remaining 800 ms of allowed action).
+
+  budget_monthly_cloud_cost:
+    name: "Monthly cloud cost"
+    unit: USD
+    system_target: 5.00
+    system_reserve: 1.00
+    allocations:
+      am_controller_host: 3.00         # optional cloud-forward egress + WAN bandwidth
+      am_dashboard_app: 1.00           # CDN / SPA hosting (if any)
+    notes: |
+      Budget assumes default Cloud Forward = off. When enabled, only
+      session events forward; not raw telemetry. Keeps the deployment
+      affordable for a single residential owner.
+
+tpms:
+
+  tpm_diversion_response_p99:
+    name: "Diversion loop p99 response latency (measured)"
+    unit: ms
+    threshold: 1000                    # = budget_diversion_loop_latency.system_target
+    target: 700
+    current_estimate: 750
+    growth_allowance: 250              # 1000 - 750
+    measurement_method: "histogram_quantile(0.99, diversion_loop_duration_seconds_bucket)"
+    derived_from_budget: budget_diversion_loop_latency
+    trend_notes: |
+      Currently 750 ms p99 at 200-sample window. Slowest path: Sub-1G
+      DTU re-read (250 ms tail). Improving with OpenDTU's batched
+      reads (vs DTU-Pro-S sequential reads).
+
+  tpm_actual_monthly_cost:
+    name: "Actual monthly cloud cost (last 30d)"
+    unit: USD
+    threshold: 5.00
+    target: 4.00
+    current_estimate: 2.30             # Cloud Forward currently off; only bandwidth + CDN
+    growth_allowance: 2.70
+    measurement_method: "Sum of AWS cost-explorer line items tagged solar-stack"
+    derived_from_budget: budget_monthly_cloud_cost
+    trend_notes: |
+      $2.30/month with Cloud Forward disabled. Estimated to rise to ~$3.80
+      if owner enables Cloud Forward — still within budget.
+
+  tpm_dashboard_render_p99:
+    name: "Dashboard render p99 latency (browser side)"
+    unit: ms
+    threshold: 2000
+    target: 1000
+    current_estimate: 1200
+    growth_allowance: 800
+    measurement_method: "browser-side performance.now() span on dashboard mount"
+    trend_notes: |
+      No associated budget (informational TPM). p99 dominated by
+      initial WebSocket connect; warm renders are ~150 ms.
