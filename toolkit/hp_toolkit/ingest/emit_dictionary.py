@@ -354,6 +354,7 @@ def _yaml_dump(data: Any) -> str:
 
 def _main(argv: Optional[list[str]] = None) -> int:
     import argparse
+    from .progress_log import log_done, log_start
     parser = argparse.ArgumentParser(
         prog="hp_emit_dictionary",
         description="Translate hp-graph.json → dictionary.yaml.",
@@ -362,10 +363,17 @@ def _main(argv: Optional[list[str]] = None) -> int:
     parser.add_argument("--output", required=True, help="Output path for dictionary.yaml")
     args = parser.parse_args(argv)
 
+    intermediate = Path(args.graph).parent
+    log_start(intermediate, stage="emit", agent="emit_dictionary")
+
     graph_data = json.loads(Path(args.graph).read_text())
     graph = IRGraph.model_validate(graph_data)
-    emit_dictionary(graph, Path(args.output))
+    out_path = Path(args.output)
+    emit_dictionary(graph, out_path)
     print(f"wrote {args.output}")
+
+    log_done(intermediate, stage="emit", agent="emit_dictionary",
+             bytes=out_path.stat().st_size)
     return 0
 
 

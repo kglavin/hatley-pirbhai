@@ -399,6 +399,7 @@ def _prefer_higher_confidence(a: dict, b: dict, report: MergeReport) -> dict:
 
 def _main(argv: Optional[list[str]] = None) -> int:
     import argparse
+    from .progress_log import log_done, log_start
     parser = argparse.ArgumentParser(
         prog="hp_merge_graph",
         description="Deterministic merge of ingest intermediates → hp-graph.json.",
@@ -409,7 +410,10 @@ def _main(argv: Optional[list[str]] = None) -> int:
     parser.add_argument("--report", help="Optional path for merge-report.txt")
     args = parser.parse_args(argv)
 
-    graph, report = merge_intermediates(Path(args.intermediate))
+    intermediate = Path(args.intermediate)
+    log_start(intermediate, stage="merge", agent="merge_graph")
+
+    graph, report = merge_intermediates(intermediate)
     write_graph(graph, Path(args.output))
     print(f"wrote {args.output} ({len(graph.nodes)} nodes, {len(graph.edges)} edges)")
 
@@ -417,6 +421,11 @@ def _main(argv: Optional[list[str]] = None) -> int:
         write_report(report, Path(args.report))
         if not report.is_clean():
             print(f"merge report (issues): {args.report}", file=sys.stderr)
+
+    log_done(intermediate, stage="merge", agent="merge_graph",
+             nodes=len(graph.nodes), edges=len(graph.edges),
+             warnings=len(report.warnings),
+             unrecoverable=len(report.unrecoverable))
     return 0
 
 

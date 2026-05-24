@@ -281,6 +281,7 @@ def _infer_container_name(rel_path: str) -> str:
 
 def _main(argv: Optional[list[str]] = None) -> int:
     import argparse
+    from .progress_log import log_done, log_start
     parser = argparse.ArgumentParser(
         prog="hp_architecture_candidates",
         description="Extract Stage-5 architecture-module candidates from scan.json.",
@@ -290,6 +291,9 @@ def _main(argv: Optional[list[str]] = None) -> int:
     parser.add_argument("--output", required=True, help="Output path for architecture-candidates.json")
     args = parser.parse_args(argv)
 
+    intermediate = Path(args.output).parent
+    log_start(intermediate, stage="5-prep", agent="architecture_candidates")
+
     scan_data = json.loads(Path(args.scan).read_text())
     scan = ProjectScan.model_validate(scan_data)
     candidates = extract_candidates(scan, Path(args.codebase))
@@ -297,6 +301,10 @@ def _main(argv: Optional[list[str]] = None) -> int:
     print(f"wrote {args.output} "
           f"({len(candidates.modules)} module candidates, "
           f"{len(candidates.interconnects)} interconnect candidates)")
+
+    log_done(intermediate, stage="5-prep", agent="architecture_candidates",
+             modules=len(candidates.modules),
+             interconnects=len(candidates.interconnects))
     return 0
 
 

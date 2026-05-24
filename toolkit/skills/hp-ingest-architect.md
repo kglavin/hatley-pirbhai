@@ -55,6 +55,10 @@ Output JSON shape:
 
 ## Behavior
 
+**Progress log:** at entry, append a START line; after writing `architecture.json`, append a DONE line. Per `hp-ingest.md` orchestrator convention:
+- `Bash: echo "$(date -u +%Y-%m-%dT%H:%M:%SZ) START    stage=5 agent=hp-ingest-architect" >> <intermediate-dir>/progress.log`
+- `Bash: echo "$(date -u +%Y-%m-%dT%H:%M:%SZ) DONE     stage=5 agent=hp-ingest-architect modules=$N interconnects=$I allocations=$A" >> <intermediate-dir>/progress.log`
+
 When invoked, conversationally:
 
 1. **Read inputs.** Load `hp-graph.json` (nodes/edges from Stages 1–4) + `architecture-candidates.json` (deployment-unit candidates).

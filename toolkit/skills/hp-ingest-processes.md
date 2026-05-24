@@ -52,6 +52,10 @@ Output JSON shape:
 
 ## Behavior
 
+**Progress log:** at entry, append a START line; after writing `processes.json`, append a DONE line with summary stats. Per `hp-ingest.md` orchestrator convention:
+- `Bash: echo "$(date -u +%Y-%m-%dT%H:%M:%SZ) START    stage=2 agent=hp-ingest-processes" >> <intermediate-dir>/progress.log`
+- `Bash: echo "$(date -u +%Y-%m-%dT%H:%M:%SZ) DONE     stage=2 agent=hp-ingest-processes processes=$N stores=$M flows=$F needs_cspec=$C" >> <intermediate-dir>/progress.log`
+
 When invoked, conversationally:
 
 1. **Read inputs.** `scan.json`, `boundary.json`, `process-candidates.json`. Skim the file lists in each cluster to understand what's inside (the role-hint mix gives a strong starting point).

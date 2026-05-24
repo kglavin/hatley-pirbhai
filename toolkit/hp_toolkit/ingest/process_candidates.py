@@ -150,6 +150,7 @@ def _cluster_id_for(directory: str) -> str:
 
 def _main(argv: Optional[list[str]] = None) -> int:
     import argparse
+    from .progress_log import log_done, log_start
     parser = argparse.ArgumentParser(
         prog="hp_process_candidates",
         description="Cluster significant files into Stage-2 process candidates.",
@@ -160,11 +161,18 @@ def _main(argv: Optional[list[str]] = None) -> int:
                         help="Cap cluster key at N path components (monorepo helper; default unlimited)")
     args = parser.parse_args(argv)
 
+    intermediate = Path(args.output).parent
+    log_start(intermediate, stage="2-prep", agent="process_candidates",
+              max_depth=str(args.max_depth) if args.max_depth else "unlimited")
+
     scan_data = json.loads(Path(args.scan).read_text())
     scan = ProjectScan.model_validate(scan_data)
     candidates = extract_candidates(scan, max_depth=args.max_depth)
     write_candidates(candidates, Path(args.output))
     print(f"wrote {args.output} ({len(candidates.clusters)} process candidates)")
+
+    log_done(intermediate, stage="2-prep", agent="process_candidates",
+             count=len(candidates.clusters))
     return 0
 
 

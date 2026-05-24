@@ -248,6 +248,7 @@ def _gather_evidence(content: str) -> list[str]:
 
 def _main(argv: Optional[list[str]] = None) -> int:
     import argparse
+    from .progress_log import log_done, log_start
     parser = argparse.ArgumentParser(
         prog="hp_state_machine_detector",
         description="Extract Stage-3 state-machine candidates from scan.json.",
@@ -257,11 +258,17 @@ def _main(argv: Optional[list[str]] = None) -> int:
     parser.add_argument("--output", required=True, help="Output path for state-machine-candidates.json")
     args = parser.parse_args(argv)
 
+    intermediate = Path(args.output).parent
+    log_start(intermediate, stage="3-prep", agent="state_machine_detector")
+
     scan_data = json.loads(Path(args.scan).read_text())
     scan = ProjectScan.model_validate(scan_data)
     candidates = extract_candidates(scan, Path(args.codebase))
     write_candidates(candidates, Path(args.output))
     print(f"wrote {args.output} ({len(candidates.candidates)} state-machine candidates)")
+
+    log_done(intermediate, stage="3-prep", agent="state_machine_detector",
+             count=len(candidates.candidates))
     return 0
 
 
