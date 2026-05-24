@@ -57,6 +57,8 @@ from hp_toolkit.ingest.process_candidates import (
 )
 from hp_toolkit.ingest.architecture_candidates import ArchitectureCandidates
 from hp_toolkit.ingest.boundary_candidates import BoundaryCandidates
+from hp_toolkit.ingest.external_context import ensure_external_context_dir, summarize_presence
+from hp_toolkit.ingest.hints import ensure_hints_dir, list_dropped_hints
 from hp_toolkit.ingest.process_candidates import ProcessCandidates
 from hp_toolkit.ingest.progress_log import log_done, log_skip, log_start
 from hp_toolkit.ingest.scan import scan_codebase, write_scan
@@ -109,6 +111,27 @@ def _scan_stats(scan: ProjectScan) -> dict[str, int]:
         "files": len(scan.files),
         "significant": sum(1 for f in scan.files if f.is_significant),
     }
+
+
+def _announce_file_drops(intermediate: Path, project: Path) -> None:
+    """Surface dropped hints + external-context at run start.
+
+    Idempotent visibility — every run, the observer sees what guidance
+    + evidence is in flight so they know what's being honored. Quiet
+    when nothing has been dropped."""
+    hints = list_dropped_hints(intermediate)
+    ext = summarize_presence(project)
+    ext_present = {k: v for k, v in ext.items() if v > 0}
+    if not hints and not ext_present:
+        return
+    print(_color("==> File drops detected", "1"))
+    if hints:
+        for stage, path in hints.items():
+            print(f"    {_color('hint', '36')}  intermediate/hints/{path.name}  (stage={stage})")
+    if ext_present:
+        for category, count in ext_present.items():
+            print(f"    {_color('ext', '35')}   external-context/{category}/  ({count} file{'s' if count != 1 else ''})")
+    print()
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -167,6 +190,13 @@ def main(argv: list[str] | None = None) -> int:
 
     intermediate = output / "intermediate"
     intermediate.mkdir(parents=True, exist_ok=True)
+
+    # Bootstrap the two file-drop directories (per tuning F.3.a + H.8.b).
+    # Idempotent — creates the dir + README stub if absent. We do this every
+    # run so the user always has somewhere to drop hints / external context.
+    ensure_hints_dir(intermediate)
+    ensure_external_context_dir(output)
+    _announce_file_drops(intermediate, output)
 
     # --merge-emit short-circuits: scan + candidate prep already done; just
     # run merge + emit. Resume is implicit here.

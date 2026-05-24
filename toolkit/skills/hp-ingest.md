@@ -55,6 +55,17 @@ The Python prep scripts (`scan.py`, `boundary_candidates.py`, etc.) already writ
 
 External observers can `tail -f <intermediate>/progress.log` to watch the run live.
 
+### Phase 0b — Architect file drops (hints + external context)
+
+Two file-drop directories are auto-created on every run (`scripts/hp_ingest.py` calls `ensure_hints_dir` + `ensure_external_context_dir` at startup; the orchestrator can lean on those, but should also tolerate either being absent):
+
+- `<project>/intermediate/hints/<stage>.md` — *guidance* from an architect watching `progress.log`. If `processes.md` exists when Stage 2 fires, the `hp-ingest-processes` subagent reads it as binding guidance. Per locked tuning F.3.a.
+- `<project>/external-context/<category>/*` — *evidence* the user pasted in before / during the run (QA test plans, ADRs, requirements, design docs, runbooks, glossary). Each subagent reads the categories relevant to its stage. Per locked tuning H.8.b.
+
+The orchestrator's job here is **announcement**, not loading — surface what's already been dropped so the user knows what guidance/evidence is in flight, and surface where new files can be dropped at any stage boundary. The per-stage subagents do the actual loading at their respective `Phase N`.
+
+When `hp-ingest.py` runs, it announces what it found at startup (cyan `hint` rows + magenta `ext` rows). The orchestrator can re-announce at stage boundaries to remind the user that mid-run hint drops are an option.
+
 ### Phase 0 — Scan
 
 Run the Python scanner:
