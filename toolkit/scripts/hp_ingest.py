@@ -39,15 +39,22 @@ import argparse
 import sys
 from pathlib import Path
 
+from hp_toolkit.ingest.architecture_candidates import (
+    extract_candidates as extract_architecture_candidates,
+    write_candidates as write_architecture_candidates,
+)
 from hp_toolkit.ingest.boundary_candidates import (
     extract_candidates as extract_boundary_candidates,
     write_candidates as write_boundary_candidates,
 )
+from hp_toolkit.ingest.emit_dictionary import emit_dictionary
+from hp_toolkit.ingest.merge_graph import merge_intermediates, write_graph, write_report
 from hp_toolkit.ingest.process_candidates import (
     extract_candidates as extract_process_candidates,
     write_candidates as write_process_candidates,
 )
 from hp_toolkit.ingest.scan import scan_codebase, write_scan
+from hp_toolkit.ingest.schema import IRGraph
 from hp_toolkit.ingest.state_machine_detector import (
     extract_candidates as extract_state_machine_candidates,
     write_candidates as write_state_machine_candidates,
@@ -69,17 +76,20 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--scan-only", action="store_true",
                         help="Run only the Stage-0 scanner")
     parser.add_argument("--prep-candidates", action="store_true",
-                        help="Run Stage 0 + all candidate-prep scripts (Stages 1/2/3) — "
+                        help="Run Stage 0 + all candidate-prep scripts (Stages 1/2/3/5) — "
                              "produces all the JSON inputs the LLM agents consume, "
                              "without dispatching any LLM calls. Useful for inspecting "
                              "what hp-ingest will hand to the agents.")
-    # Planned flags — accepted but require Commit 3.
+    parser.add_argument("--merge-emit", action="store_true",
+                        help="After LLM agents have written their intermediates, run the "
+                             "deterministic merge + emit dictionary.yaml. Useful for "
+                             "post-agent dry-run or manual re-emit.")
     parser.add_argument("--no-architecture", action="store_true",
-                        help="(Commit 3) skip Stage 5")
+                        help="Skip Stage 5 (architecture model) in prep + emit.")
     parser.add_argument("--resume", action="store_true",
-                        help="(Commit 3+) resume from existing intermediate/")
+                        help="(future) resume from existing intermediate/")
     parser.add_argument("--incremental", action="store_true",
-                        help="(Commit 3+) re-ingest only what changed since last commit")
+                        help="(future) re-ingest only what changed since last commit")
 
     args = parser.parse_args(argv)
 
@@ -119,6 +129,11 @@ def main(argv: list[str] | None = None) -> int:
     write_scan(scan, scan_path)
     print(_color(f"  wrote {scan_path.name} ({scan_path.stat().st_size} bytes)", "32"))
     print()
+
+    if args.merge_emit:
+        # Skip scan + candidate prep; assume agents have written their
+        # intermediates and just run merge + emit.
+        return _run_merge_emit(output)
 
     if args.scan_only:
         print(_color("Done (scan-only).", "32"))
@@ -162,15 +177,80 @@ def main(argv: list[str] | None = None) -> int:
                   f"{len(cand.transitions_extracted)} transitions")
         print()
 
+        # Stage 5 — architecture candidates (unless suppressed)
+        if not args.no_architecture:
+            print(_color("==> Stage 5 — architecture candidates", "1"))
+            ac = extract_architecture_candidates(scan, codebase)
+            ac_path = intermediate / "architecture-candidates.json"
+            write_architecture_candidates(ac, ac_path)
+            print(_color(f"  wrote {ac_path.name} "
+                         f"({len(ac.modules)} module candidates, "
+                         f"{len(ac.interconnects)} interconnect candidates)", "32"))
+            for m in ac.modules[:5]:
+                print(f"    module:     {m.kind_hint:16s} {m.name_hint or '(unnamed)':20s} from {m.source_file}")
+            for i in ac.interconnects[:3]:
+                print(f"    interconnect: {i.kind_hint:14s} {i.name_hint or '(unnamed)':20s} from {i.source_file}")
+            print()
+
     if args.prep_candidates:
-        print(_color("Done (candidates prepped). LLM dispatch will land in Commit 3 "
-                     "via the /hp-ingest skill.", "32"))
+        print(_color("Done (candidates prepped). Dispatch the /hp-ingest skill in Claude "
+                     "Code to run the LLM agents (boundary, processes, leaf×N, architect, "
+                     "review) → dictionary.yaml.", "32"))
         return 0
 
-    print(_color("⚠ LLM agent dispatch + Stage 5 + dictionary.yaml emission not yet "
-                 "implemented. Re-run with --prep-candidates or --scan-only, or wait "
-                 "for Commit 3.", "33"))
+    print(_color("LLM dispatch happens via the /hp-ingest skill in Claude Code — this "
+                 "Python CLI only handles deterministic prep + merge + emit.", "33"))
+    print(_color("Re-run with --prep-candidates to prep, or --merge-emit after agents "
+                 "have written their intermediates.", "33"))
     print(_color("Done.", "32"))
+    return 0
+
+
+def _run_merge_emit(output: Path) -> int:
+    """Deterministic post-agent steps: merge intermediates → IR → dictionary.yaml.
+
+    Assumes the LLM agents (boundary, processes, leaf-*, architect) have
+    already written their JSON intermediates. Runs the merge, validates,
+    writes the merge report, and emits dictionary.yaml.
+    """
+    intermediate = output / "intermediate"
+    if not (intermediate / "scan.json").exists():
+        print(_color(f"ERROR: {intermediate/'scan.json'} not found — run --prep-candidates first",
+                     "31"), file=sys.stderr)
+        return 2
+
+    print(_color("==> Merging IR intermediates", "1"))
+    graph, report = merge_intermediates(intermediate)
+    graph_path = intermediate / "hp-graph.json"
+    write_graph(graph, graph_path)
+    report_path = intermediate / "merge-report.txt"
+    write_report(report, report_path)
+    print(_color(f"  wrote hp-graph.json ({len(graph.nodes)} nodes, {len(graph.edges)} edges)", "32"))
+    if not report.is_clean():
+        print(_color(f"  ⚠ merge report has issues — see {report_path.name}", "33"))
+        # Print a brief summary
+        for label, count in [
+            ("normalizations", len(report.normalizations)),
+            ("duplicates", len(report.duplicates)),
+            ("dropped edges", len(report.dropped_edges)),
+            ("unrecoverable", len(report.unrecoverable)),
+        ]:
+            if count:
+                print(f"    {label}: {count}")
+    print()
+
+    print(_color("==> Emitting dictionary.yaml", "1"))
+    dict_path = output / "dictionary.yaml"
+    emit_dictionary(graph, dict_path)
+    print(_color(f"  wrote {dict_path.name} ({dict_path.stat().st_size} bytes)", "32"))
+    print()
+
+    if report.unrecoverable:
+        print(_color("⚠ Unrecoverable merge issues remain — dispatch /hp-ingest-review "
+                     "to repair them before relying on the emitted dictionary.", "33"))
+    else:
+        print(_color("Next: run `uv run python -m hp_toolkit.validate "
+                     f"{dict_path}` to check the emitted dictionary.", "36"))
     return 0
 
 

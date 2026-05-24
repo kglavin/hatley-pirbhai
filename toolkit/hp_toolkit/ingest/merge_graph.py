@@ -202,9 +202,11 @@ def merge_intermediates(intermediate_dir: Path) -> tuple[IRGraph, MergeReport]:
             keep = _prefer_higher_confidence(existing, canonical, report)
             by_id[canonical["id"]] = keep
 
-    # Validate each into IRNode
+    # Validate each into IRNode. sys_root is special — it's auto-injected
+    # by emit_dictionary and is always a valid edge endpoint (terminators
+    # and processes flow to/from it), so we pre-seed it.
     nodes: list[IRNode] = []
-    valid_ids: set[str] = set()
+    valid_ids: set[str] = {"sys_root"}
     for nid, raw in by_id.items():
         try:
             node = IRNode.model_validate(raw)
