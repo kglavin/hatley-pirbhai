@@ -36,7 +36,7 @@ uv run python scripts/hp_ingest.py /path/to/your/codebase --output /path/to/new/
 # Then in a Claude Code session: /hp-ingest <codebase-path>
 ```
 
-`hp-ingest` runs a 6-agent pipeline (scanner → boundary → processes → leaf×N → architect → reviewer) that produces the same structure Stages 1–5 of this tutorial walk through. See [`INGEST_DESIGN.md`](INGEST_DESIGN.md) for the full pipeline.
+`hp-ingest` runs a 6-agent pipeline (scanner → boundary → processes → leaf×N → architect → reviewer) that produces the same structure Stages 1–5 of this tutorial walk through. See [`INGEST_DESIGN.md`](INGEST_DESIGN.md) for the full pipeline; large monorepos should start with the "Tuning guide" section of that doc (`--min-pure-logic`, `--max-depth`, `--resume`).
 
 This tutorial uses the greenfield path (fishing-rig was created with `hp-init`). Either entry point lands at the same place: a populated `dictionary.yaml` ready for `hp-validate` + `hp-render` + the modernization-layer skills. A fresh greenfield scaffold lives at [`../examples/doorbell/`](../examples/doorbell/) for reference.
 
