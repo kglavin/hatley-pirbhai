@@ -48,7 +48,13 @@ description: One-line summary used to decide relevance.
 | [`hp-propose-slos`](hp-propose-slos.md) | ✅ drafted | After observability — SLI/SLO/SLA commitments (Modernization #32) |
 | [`hp-propose-threat-model`](hp-propose-threat-model.md) | ✅ drafted | Per cross-trust-zone interconnect — STRIDE + MITRE catalog refs (Modernization #8.2 + #8.3) |
 | [`hp-propose-bounded-contexts`](hp-propose-bounded-contexts.md) | ✅ drafted | When team/vocabulary boundaries become visible — DDD contexts + ACLs (Modernization #5) |
-| `hp-ingest` | planned (phase 5) | Brownfield ingest — read existing proposals + code, propose an HP model |
+| [`hp-ingest`](hp-ingest.md) | ✅ drafted + code live | Brownfield ingest — codebase → draft dictionary.yaml via 6-agent pipeline (master orchestrator) |
+| [`hp-ingest-scan`](hp-ingest-scan.md) | ✅ drafted + code live | Stage 0 — file walk + 6-category role-hint classifier (no LLM) |
+| [`hp-ingest-boundary`](hp-ingest-boundary.md) | ✅ drafted | Stage 1 — boundary candidates → Stage-1 terminators + boundary flows |
+| [`hp-ingest-processes`](hp-ingest-processes.md) | ✅ drafted | Stage 2 — process candidates → internal processes + data stores + internal flows |
+| [`hp-ingest-leaf`](hp-ingest-leaf.md) | ✅ drafted | Stages 3+4 — per-process CSPEC or PSPEC; parallel 3–5 concurrent |
+| [`hp-ingest-architect`](hp-ingest-architect.md) | ✅ drafted | Stage 5 — architecture-candidate list → modules + interconnects + allocation |
+| [`hp-ingest-review`](hp-ingest-review.md) | ✅ drafted | Final reviewer — repair + validate + emit dictionary.yaml |
 
 ## Provenance
 

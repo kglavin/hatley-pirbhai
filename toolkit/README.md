@@ -110,13 +110,38 @@ Every generated HTML page (Context, DFD, CSPECs, AFD, AID, plus every wrapped ma
 
 See [`PORTAL_DESIGN.md`](PORTAL_DESIGN.md) for the shape decisions (page orientation, markdown lib, PDF tracking policy, etc.).
 
+### 6. Brownfield ingest — bootstrap from existing code
+
+The first five ideas all assume a *greenfield* HP project — you write `dictionary.yaml` from scratch, the AI helps you lock each stage. The reality is most engineers come to HP with an existing codebase. `hp-ingest` is the bootstrap path:
+
+```bash
+uv run python scripts/hp_ingest.py /path/to/codebase --output /path/to/hp/project
+```
+
+A six-agent pipeline turns the codebase into a draft `dictionary.yaml`:
+
+- **Stage 0 (Python; no LLM):** scan files, classify each with an HP **role hint** (`boundary` / `pure-logic` / `state-machine` / `data-store` / `infra` / `config`). The single most decision-shaping signal in the whole pipeline. Deterministic, cheap, runs in seconds even on cloudctlplane-scale repos.
+- **Stage 1 (LLM):** `hp-ingest-boundary` decides which `boundary`-classified files map to real Stage-1 terminators.
+- **Stage 2 (LLM):** `hp-ingest-processes` clusters significant non-boundary files into Stage-2 processes + data stores + internal flows.
+- **Stages 3 + 4 (parallel LLM):** `hp-ingest-leaf` runs once per leaf process (3–5 concurrent) — writes a CSPEC for state-rich processes, a PSPEC for the rest.
+- **Stage 5 (LLM):** `hp-ingest-architect` allocates every leaf process / CSPEC / data store to an architecture module + draws interconnects.
+- **Review (LLM):** `hp-ingest-review` runs `hp-validate` against the projected dictionary and repairs anything broken before emission.
+
+**Two design ideas are load-bearing:**
+
+1. **80/20 scripted/LLM** — deterministic Python scripts surface *candidates* (HTTP listeners, file clusters, state enums, Dockerfiles); LLM agents make the *architectural judgment* (is this a real terminator? what's this process named? does it need a CSPEC?). Per-ingest token cost is moderate (~50–100k tokens for fishing-rig-scale, ~300–800k for cloudctlplane-scale) — Python does the heavy lifting.
+2. **Every IR node carries confidence + provenance.** The architect reviews the lowest-confidence entities first; every field's source is recorded so re-ingest after code change preserves user edits + modernization-layer fields verbatim. Incremental updates via `git diff <last-hash>` re-run only the agents whose inputs touched.
+
+See [`INGEST_DESIGN.md`](INGEST_DESIGN.md) for the full pipeline, token economics, incremental rules, and the locked design decisions.
+
 ---
 
 ## Workflow
 
-A full project lifecycle, end-to-end:
+A full project lifecycle, end-to-end. Two entry points — greenfield (`hp-init`) or brownfield (`hp-ingest <codebase>`):
 
 ```text
+─── Greenfield: start from a blank dictionary ─────────────────────
 hp-init <name>                 # scaffold directory + dictionary skeleton
    ↓
 hp-propose-context             # Stage 1: terminators + boundary flows
@@ -160,6 +185,24 @@ hp-capture-adr                 # invoked mid-decision at any stage, not at a fix
 (hp-validate anywhere to check integrity)
 ```
 
+Or, for a brownfield codebase:
+
+```text
+─── Brownfield: ingest existing code into HP ──────────────────────
+hp-ingest <codebase>           # Stage 0 scan → 1/2/3+4/5 LLM agents → draft dictionary.yaml
+   ↓
+hp-validate                    # confirm structural soundness
+   ↓
+hp-render                      # generate diagrams + portal + PDF from the ingested baseline
+   ↓
+hp-propose-architecture        # refine Stage 5: trust zones, design rationale, deployment strategy
+   ↓
+(then layer in modernization skills as for greenfield)
+   ↓
+# Later, after code changes:
+hp-ingest <codebase> --incremental    # re-ingest only what changed; preserves user edits
+```
+
 Each `hp-render` produces three views — Mermaid, D2, Cytoscape HTML — plus SVGs. The Cytoscape HTML is the **graphical IDE view**: single-click an entity for side-panel detail, double-click a decomposable bubble to navigate to its level-N+1 DFD, `↑ Parent` link to walk back up. Every entity links to its `dictionary.yaml` entry and to its HP reference card.
 
 The **modernization-layer skills are optional but recommended.** Validators (Commits 1–5) only *require* what's structurally implied — e.g., STRIDE mitigations on cross-trust-zone interconnects, ACLs on cross-context flows. The rest (budgets, TPMs, SLOs, observability, ADRs) are tracked as coverage metrics: declared once, the validator hardens the cross-references; declared incrementally, partial coverage is fine.
@@ -168,7 +211,7 @@ The **modernization-layer skills are optional but recommended.** Validators (Com
 
 ## Skills
 
-Sixteen skills make up the methodology surface — ten core HP, six modernization. Each is documented in [`skills/`](skills/) as a Claude Code skill file (markdown + YAML frontmatter). Five have backing Python; eleven are conversational.
+Twenty-three skills make up the methodology surface — ten core HP, six modernization, seven brownfield ingest. Each is documented in [`skills/`](skills/) as a Claude Code skill file (markdown + YAML frontmatter). Six have backing Python; seventeen are conversational (LLM-driven orchestration or form-based review).
 
 **Core HP — one per stage + the cross-cutting tools:**
 
@@ -196,7 +239,19 @@ Sixteen skills make up the methodology surface — ten core HP, six modernizatio
 | [`hp-propose-slos`](skills/hp-propose-slos.md) | SLI → SLO → SLA chain anchored to TPMs (#32) | ⬜ |
 | [`hp-propose-bounded-contexts`](skills/hp-propose-bounded-contexts.md) | DDD bounded contexts + Anti-Corruption Layers when multi-team scale arrives (#5) | ⬜ |
 
-The conversational skills (`hp-propose-*`, `hp-confirm-naming`, `hp-capture-adr`) work by Claude reading the skill markdown and following the behavior spec. They don't need a Python implementation to invoke — the markdown *is* the executable specification. The schemas + validators + renderers they target *are* implemented in Python — declared values land in `dictionary.yaml`, `hp-validate` hardens cross-references, and `hp-render` emits the sidecars.
+**Brownfield ingest — seven new skills (kg/brownfield-ingest):**
+
+| Skill | Stage / purpose | Backing code |
+|---|---|:---:|
+| [`hp-ingest`](skills/hp-ingest.md) | Master orchestrator — codebase → dictionary.yaml via 6-agent pipeline | ✅ |
+| [`hp-ingest-scan`](skills/hp-ingest-scan.md) | Stage 0 — file walk + role-hint classification (`boundary`/`pure-logic`/`state-machine`/`data-store`/`infra`/`config`) | ✅ |
+| [`hp-ingest-boundary`](skills/hp-ingest-boundary.md) | Stage 1 — boundary candidates → real Stage-1 terminators + boundary flows | ⬜ |
+| [`hp-ingest-processes`](skills/hp-ingest-processes.md) | Stage 2 — process candidates → internal processes + data stores + flows | ⬜ |
+| [`hp-ingest-leaf`](skills/hp-ingest-leaf.md) | Stages 3 + 4 — per-process CSPEC (state machine) or PSPEC (functional contract); parallel 3–5 concurrent | ⬜ |
+| [`hp-ingest-architect`](skills/hp-ingest-architect.md) | Stage 5 — architecture-candidate list → modules + interconnects + allocation | ⬜ |
+| [`hp-ingest-review`](skills/hp-ingest-review.md) | Final reviewer — repair, validate, compose ingest-report.md, emit dictionary.yaml | ⬜ |
+
+The conversational skills (`hp-propose-*`, `hp-confirm-naming`, `hp-capture-adr`, the `hp-ingest-*` subagent specs) work by Claude reading the skill markdown and following the behavior spec. They don't need a Python implementation to invoke — the markdown *is* the executable specification. The schemas + validators + renderers + ingest scripts they target *are* implemented in Python — declared values land in `dictionary.yaml`, `hp-validate` hardens cross-references, `hp-render` emits the sidecars, and `hp-ingest` Python scripts surface candidates the LLM agents judge.
 
 ---
 
@@ -222,9 +277,18 @@ uv run python scripts/render_project.py <project-directory> --no-pdf
 
 # Report stage progress
 uv run python -m hp_toolkit.status <project-directory>
+
+# Brownfield ingest — scan-only (Stage 0 file walk + role hints; deterministic, no LLM)
+uv run python scripts/hp_ingest.py <codebase-path> --output <project-dir> --scan-only
+
+# Brownfield ingest — full candidate prep (Stages 0/1/2/3/5 deterministic prep)
+uv run python scripts/hp_ingest.py <codebase-path> --output <project-dir> --prep-candidates
+
+# Brownfield ingest — merge + emit dictionary.yaml (after LLM agents wrote intermediates)
+uv run python scripts/hp_ingest.py <codebase-path> --output <project-dir> --merge-emit
 ```
 
-All commands also work programmatically — see *Programmatic API* below.
+All commands also work programmatically — see *Programmatic API* below. Note: the full hp-ingest LLM pipeline dispatch (boundary / processes / leaf×N / architect / review subagents) runs via `/hp-ingest` in a Claude Code session, not via the Python CLI — the CLI handles the deterministic prep + merge + emit steps only.
 
 ---
 
@@ -519,6 +583,7 @@ toolkit/
 ├── BOUNDED_CONTEXTS_DESIGN.md      ← modernization #5 — Evans-DDD paradigm shift; Path A vs B; ACL patterns
 ├── MODERNIZATION_TACTICS.md        ← AI-interaction-layer plan (Commits A/B/C: tactics + skill extensions + 6 new skills)
 ├── PORTAL_DESIGN.md                ← Project portal + PDF design (Commits 1/2/3: tree + sidebar + PDF)
+├── INGEST_DESIGN.md                ← Brownfield ingest design (kg/brownfield-ingest: 6 agents + IR + emit)
 ├── bootstrap.sh                    ← environment setup (idempotent)
 ├── .puppeteer-config.json          ← mmdc sandbox config for Ubuntu 23.10+
 ├── pyproject.toml                  ← uv-managed Python project
@@ -530,27 +595,39 @@ toolkit/
 │   ├── load.py                     ← dictionary.yaml → validated Project
 │   ├── validate.py                 ← validators: reference / hierarchy / coverage / orphan / PSPEC balancing / architecture allocation / modernization rules + CLI
 │   ├── status.py                   ← stage-progress report (Stages 1–5) + CLI
-│   └── render/
-│       ├── mermaid.py              ← Context + DFD + CSPEC + AFD + AID + Context-Map
-│       ├── d2.py                   ← same
-│       ├── cytoscape.py            ← elements JSON + full HTML wrappers (now sidebar-aware)
-│       ├── pspec.py                ← PSPEC markdown emitter + V&V + observability sections
-│       ├── architecture.py         ← AMS + AIS markdown emitters + Verification + Budgets + TPMs + Observability + SLOs + STRIDE + LINDDUN + Catalog Refs
-│       ├── adr.py                  ← per-ADR markdown sidecar (modernization #10)
-│       ├── tree.py                 ← Project artifact tree — shared by sidebar + index + PDF (Portal Commit 1)
-│       ├── sidebar.py              ← Collapsible left-sidebar HTML/CSS/JS (Portal Commit 2)
-│       ├── markdown_artifact.py    ← Wrap markdown sidecars (PSPEC/AMS/AIS/ADR/runbook/SLOs) as sidebar'd HTML (Portal Commit 2)
-│       ├── index.py                ← project_index.generated.html landing page (Portal Commit 1)
-│       ├── pdf.py                  ← project.generated.pdf via WeasyPrint (Portal Commit 3)
-│       └── svg.py                  ← orchestrate d2 + mmdc binaries
+│   ├── render/
+│   │   ├── mermaid.py              ← Context + DFD + CSPEC + AFD + AID + Context-Map
+│   │   ├── d2.py                   ← same
+│   │   ├── cytoscape.py            ← elements JSON + full HTML wrappers (now sidebar-aware)
+│   │   ├── pspec.py                ← PSPEC markdown emitter + V&V + observability sections
+│   │   ├── architecture.py         ← AMS + AIS markdown emitters + Verification + Budgets + TPMs + Observability + SLOs + STRIDE + LINDDUN + Catalog Refs
+│   │   ├── adr.py                  ← per-ADR markdown sidecar (modernization #10)
+│   │   ├── tree.py                 ← Project artifact tree — shared by sidebar + index + PDF (Portal Commit 1)
+│   │   ├── sidebar.py              ← Collapsible left-sidebar HTML/CSS/JS (Portal Commit 2)
+│   │   ├── markdown_artifact.py    ← Wrap markdown sidecars (PSPEC/AMS/AIS/ADR/runbook/SLOs) as sidebar'd HTML (Portal Commit 2)
+│   │   ├── index.py                ← project_index.generated.html landing page (Portal Commit 1)
+│   │   ├── pdf.py                  ← project.generated.pdf via WeasyPrint (Portal Commit 3)
+│   │   └── svg.py                  ← orchestrate d2 + mmdc binaries
+│   └── ingest/                     ← Brownfield ingest pipeline (kg/brownfield-ingest)
+│       ├── schema.py               ← Pydantic IR types (IRNode, IREdge, ProjectScan, IRGraph) + HpRoleHint enum
+│       ├── role_classifier.py      ← Per-file 6-category HP role hint (no LLM)
+│       ├── significance.py         ← Tunable filter dropping tests / vendor / docs / lockfiles
+│       ├── scan.py                 ← Stage 0 codebase walker → scan.json
+│       ├── boundary_candidates.py  ← Stage 1 candidate extractor (HTTP / gRPC / CLI / consumers)
+│       ├── process_candidates.py   ← Stage 2 candidate clusterer (by directory + import-cluster)
+│       ├── state_machine_detector.py ← Stage 3 state-enum + transition extractor
+│       ├── architecture_candidates.py ← Stage 5 deployment-unit extractor (Docker / k8s / terraform / packages)
+│       ├── merge_graph.py          ← Deterministic IR merge + normalization + alias tables
+│       └── emit_dictionary.py      ← IR → dictionary.yaml writer
 │
 ├── scripts/
 │   ├── hp_init.py                  ← scaffold a new project
+│   ├── hp_ingest.py                ← brownfield ingest CLI (scan / prep-candidates / merge-emit)
 │   ├── render_project.py           ← render any project end-to-end (incl. ADRs, slos.md, context-map)
 │   ├── render_dogfood.py           ← solar-specific (legacy; use render_project.py)
 │   └── check_dictionary.py         ← summary + hierarchy view
 │
-├── skills/                         ← Claude Code skill files (16 total: 10 core HP + 6 modernization)
+├── skills/                         ← Claude Code skill files (23 total: 10 core HP + 6 modernization + 7 ingest)
 │   ├── README.md                   ← skill catalog
 │   ├── hp-init.md
 │   ├── hp-propose-{context,decomp,cspec,pspec,architecture}.md
@@ -561,7 +638,14 @@ toolkit/
 │   ├── hp-propose-budgets-and-tpms.md               ← modernization #21 + #22
 │   ├── hp-propose-observability.md                  ← modernization #1 + #33
 │   ├── hp-propose-slos.md                           ← modernization #32
-│   └── hp-propose-bounded-contexts.md               ← modernization #5
+│   ├── hp-propose-bounded-contexts.md               ← modernization #5
+│   ├── hp-ingest.md                                  ← brownfield: master orchestrator
+│   ├── hp-ingest-scan.md                             ← brownfield Stage 0
+│   ├── hp-ingest-boundary.md                         ← brownfield Stage 1
+│   ├── hp-ingest-processes.md                        ← brownfield Stage 2
+│   ├── hp-ingest-leaf.md                             ← brownfield Stages 3+4 (parallel per process)
+│   ├── hp-ingest-architect.md                        ← brownfield Stage 5
+│   └── hp-ingest-review.md                           ← brownfield: final reviewer + emit
 │
 └── reference/
     └── HP_QUICK_REF.md             ← HP method vocabulary (60+ terms with modern analogs)
@@ -571,7 +655,7 @@ toolkit/
 
 ## Status
 
-End-to-end render pipeline live and validated across two domains (solar, fishing-rig). Sixteen skills drafted (five with backing code; eleven conversational). **All 5 HP stages + the modernization layer supported end-to-end** — both demo projects locked from Stage 1 (Context Diagram) through Stage 5 (Architecture Model) plus modernization sections (ADRs, budgets, TPMs, SLOs, observability, V&V, STRIDE, catalog refs; solar adds bounded contexts + ACL). **Project portal + PDF shipped** — every render emits `project_index.generated.html` (front-door page with collapsible sidebar) plus `project.generated.pdf` (single-file review pack: cover + clickable TOC + per-stage covers + all diagrams + all markdown sidecars + HP Quick Reference appendix).
+End-to-end render pipeline live and validated across two domains (solar, fishing-rig). Twenty-three skills drafted (six with backing code; seventeen conversational). **All 5 HP stages + the modernization layer + the project portal + the brownfield ingest pipeline shipped.** Both demo projects locked from Stage 1 through Stage 5 plus modernization sections (ADRs, budgets, TPMs, SLOs, observability, V&V, STRIDE, catalog refs; solar adds bounded contexts + ACL). Every render emits `project_index.generated.html` (front-door page with collapsible sidebar) plus `project.generated.pdf` (single-file review pack: cover + clickable TOC + per-stage covers + all diagrams + all markdown sidecars + HP Quick Reference appendix). Brownfield ingest (`hp-ingest <codebase>`) takes an existing codebase through a 6-agent pipeline (scanner → boundary → processes → leaf×N → architect → reviewer) to a draft `dictionary.yaml` — Python does ~80% of the structural work, LLM agents make the architectural judgment calls; first dogfood target is cloudctlplane.
 
 See [`../PLAN.md`](../PLAN.md) for design rationale, methodology tactics (including the post-2026-05-22 Modernization Tactics section), the AI moves catalog, and a chronological log of decisions.
 
