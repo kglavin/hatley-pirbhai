@@ -86,6 +86,10 @@ The full PSPEC body (transformation text + constraints) lives in an `extra` fiel
 
 ## Behavior
 
+**Progress log:** at entry, append a START line scoped to *this* leaf invocation (parallel runs each write their own line); after writing `leaf-<process-id>.json`, append a DONE line. Per `hp-ingest.md` orchestrator convention:
+- `Bash: echo "$(date -u +%Y-%m-%dT%H:%M:%SZ) START    stage=3-4 agent=hp-ingest-leaf process=<proc-id>" >> <intermediate-dir>/progress.log`
+- `Bash: echo "$(date -u +%Y-%m-%dT%H:%M:%SZ) DONE     stage=3-4 agent=hp-ingest-leaf process=<proc-id> kind=<cspec|pspec> confidence=<0.0-1.0>" >> <intermediate-dir>/progress.log`
+
 When invoked, conversationally:
 
 1. **Read the process input** (id, label, implemented_by, needs_cspec).
@@ -101,6 +105,8 @@ When invoked, conversationally:
 - **PSPEC bodies use HP structured-English**, not code. Re-read existing examples (`examples/fishing-rig/01-level1/pspecs/acquire-tension.md`) for tone.
 - **Capitalized flow names in PSPEC bodies** match the flow labels exactly (`F3 TENSION`, not `tension`). The validator's balancing rule (1988 §13.1) depends on this.
 - **State labels are noun phrases**, not verbs ("Initializing", "Armed", "Bite Detected" — not "Initialize", "Arm", "Detect Bite").
+- **State nodes MUST set `parent_machine: <proc_id>` (G.2).** Every CSPEC-mode state node has `parent_machine: proc_<owning-process-id>` pointing at the process that owns the CSPEC. Same for `parent: proc_<owning-process-id>` (the level-2 hierarchy parent). Without these, the validator flags "state without parent_machine" and the renderer can't draw the state inside the right CSPEC bubble. **Required, not optional.** Mirrors the `parent` convention for terminators (G.1) and processes (H.1.1).
+- **Exactly one state per CSPEC has `is_initial: true`.** Pick the variant the constructor sets, or the one with no inbound transitions. If you can't identify the initial state from source evidence, emit your best guess with confidence < 0.7 + a `provenance.rationale` noting the ambiguity — the reviewer will spot-check.
 - **Don't invent states.** Only emit states that have evidence in the source. If the detector found 4 states but the source clearly has 6, that's a detector gap — emit all 6 with provenance pointing at where you found them.
 - **Confidence is honest.** A clear enum with an obvious match expression → 0.85+. A scattered if/else chain across multiple files → 0.5–0.7. The architect uses this to know which CSPECs to spot-check.
 - **One leaf invocation, one output file.** `intermediate/leaf-<process-id>.json` — the orchestrator concatenates them via the merge script.

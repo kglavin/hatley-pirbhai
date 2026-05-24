@@ -36,6 +36,10 @@ Produce:
 
 ## Behavior
 
+**Progress log:** at entry, append a START line; after composing `ingest-report.md` + approving emission, append a DONE line. Per `hp-ingest.md` orchestrator convention:
+- `Bash: echo "$(date -u +%Y-%m-%dT%H:%M:%SZ) START    stage=review agent=hp-ingest-review" >> <intermediate-dir>/progress.log`
+- `Bash: echo "$(date -u +%Y-%m-%dT%H:%M:%SZ) DONE     stage=review agent=hp-ingest-review repairs=$R conflicts=$C validate_errors=$E" >> <intermediate-dir>/progress.log`
+
 When invoked, conversationally:
 
 1. **Read merge-report.txt.** If non-empty:
@@ -48,9 +52,14 @@ When invoked, conversationally:
    - "Boundary flow F1 has no refined_target at level 1" → set the refinement on the flow edge.
    - "CSPEC X has no initial state" → identify the most-likely-initial state node and set `is_initial: true`.
    - "Entity X references non-existent parent" → either create the parent or fix the reference.
-5. **Compose ingest-report.md** (see above).
-6. **For incremental:** before final emission, check every existing-dictionary entity. If hp-graph.json has a contradictory value (different kind, label, parent, allocation), write the diff to `ingest-conflicts.md` and **halt** (default is conservative — don't auto-overwrite). User reviews + re-runs with `--auto-accept` to commit.
-7. **Approve emission.** Tell the orchestrator the pipeline can write the final YAML.
+
+5. **Repair recoverable warnings from `merge-report.txt`** (the new `warnings` section). These don't fail validation but indicate Stage-1/2/5 agent gaps. Common patterns:
+   - **Boundary-flow refinement missing on N edges** (H.1.2 warning): Stage-2 agent skipped refining boundary flows. Cross-reference `intermediate/processes.json` against `intermediate/boundary.json`: for each boundary flow `term_X → sys_root` (inbound) or `sys_root → term_X` (outbound), identify the Stage-2 process whose `implemented_by[]` cluster contains the endpoint handler. Edit `hp-graph.json` to set `refined_target=<proc_id>` (inbound) or `refined_source=<proc_id>` (outbound) on that edge. Re-emit and re-validate. Without this repair, the level-1 DFD renders with boundary arrows dangling at `sys_root`.
+   - **Architecture flow not in any interconnect's carries:** Stage-5 architect drew the flow but didn't add it to a `carries:` list. Cross-reference flow endpoints with interconnect endpoint lists; add to the matching interconnect.
+   - **Low-confidence module / process / terminator (< 0.6):** not a repair — surface in `ingest-report.md`'s "spot-check these first" section. Low-confidence is a signal, not a bug (G.4).
+6. **Compose ingest-report.md** (see above).
+7. **For incremental:** before final emission, check every existing-dictionary entity. If hp-graph.json has a contradictory value (different kind, label, parent, allocation), write the diff to `ingest-conflicts.md` and **halt** (default is conservative — don't auto-overwrite). User reviews + re-runs with `--auto-accept` to commit.
+8. **Approve emission.** Tell the orchestrator the pipeline can write the final YAML.
 
 ## Discipline
 
@@ -59,6 +68,7 @@ When invoked, conversationally:
 - **Modernization fields are off-limits.** On incremental, `adrs:` / `budgets:` / `tpms:` / `service_level_objectives:` / `bounded_contexts:` / PSPEC `verification:` / PSPEC `observability:` / interconnect `stride_mitigations:` / catalog refs — all preserved verbatim. The reviewer **never** touches them (see Q4 lock + the "Reconciliation rules" in INGEST_DESIGN.md).
 - **Halt on conflict by default.** `ingest-conflicts.md` exists for the user to review; the YAML doesn't get overwritten until they explicitly accept. `--auto-accept` is opt-in.
 - **The validator's word is final.** `hp-validate` clean = ready to emit. If you can't get validation clean after a reasonable number of repair iterations (say, 5), halt and write the unrecovered errors to `ingest-report.md` for the user to resolve manually. Don't paper over validator errors by editing the validator.
+- **Low confidence is a signal, not a bug (G.4).** When a node carries `confidence < 0.6`, that's the architect-spot-check signal working as designed — the agent flagged its own uncertainty so the architect knows what to look at first. Don't "repair" low-confidence entities just because they're low-confidence; only repair when there's a concrete validator error or a missing-required-field gap. Instead, group low-confidence entities into a dedicated **"Spot-check first"** section in `ingest-report.md` (sorted ascending by confidence) — give the architect a focused queue of what to review, not a flat list. This converts confidence from a noisy field into an actionable triage tool.
 
 ## Implementation status
 

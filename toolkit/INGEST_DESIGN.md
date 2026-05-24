@@ -208,6 +208,65 @@ uv run python scripts/hp_ingest.py <codebase-path> --output <project-dir> --incr
 uv run python scripts/hp_ingest.py <codebase-path> --output <project-dir> --no-architecture
 ```
 
+## Tuning guide
+
+Defaults are tuned for repos in the ~50–200 file range (where the toolkit cut its teeth). Larger projects need two knobs turned, or the LLM stages get drowned in candidates and the resulting dictionary has thousands of bubbles where the architect wanted dozens.
+
+### `--min-pure-logic LINES` — the significance threshold
+
+`pure-logic` files are the bulk category — internal modules that aren't framework boundaries, state machines, data-store wrappers, or infra. Most internal code falls here. The significance filter promotes a `pure-logic` file to Stage-2-candidate only if it exceeds `min_pure_logic_lines` *or* has ≥1 inbound reference. Default = 50.
+
+That default is tuned to a small project. On a monorepo, 50 lines is "trivial helper" territory and you get tens of thousands of candidates that the Stage-2 LLM has no chance of clustering meaningfully. Raise the threshold:
+
+| Project size | Files (significant) | Recommended `--min-pure-logic` |
+| --- | --- | --- |
+| Small (single service, <200 files) | <100 | 30–50 (default) |
+| Medium (~200–1000 files) | 100–300 | 75–125 |
+| Large monorepo (>1000 files) | 300+ | 150–250 |
+
+The signal we're chasing: "a file that's substantive enough that an architect on a whiteboard would draw a bubble for it." Below 50 lines, almost nothing is. Below 150 lines in a monorepo, almost nothing is either — modules are smaller because the project is wider.
+
+Sweep: re-run with `--scan-only` at a candidate threshold, eyeball the `is_significant=true` count, adjust. Threshold tuning is cheap (deterministic Python scan), and gets the LLM-cost side of the run into the right ballpark before you commit to a full ingest.
+
+### `--max-depth N` — directory cluster depth
+
+The Stage-2 process-candidate extractor groups files by directory. By default it walks the full tree, which means in a monorepo you end up with `src/services/foo/internal/handlers/v2/legacy/` as a distinct cluster of one file. That fragments process candidates badly — the Stage-2 LLM sees 400 clusters of 1–3 files each instead of 30 clusters of 10–40 files each.
+
+Cap with `--max-depth`:
+
+| Project shape | Recommended `--max-depth` |
+| --- | --- |
+| Single-service flat tree | unset (walk fully) |
+| Service-oriented (`src/<service>/...`) | 3 |
+| Deep monorepo (`apps/<area>/<service>/<layer>/...`) | 4 |
+
+The rule of thumb: depth = "how many path segments before you reach the level the architect would label as a process." `src/orders/validation/rules.rs` → orders is the process, depth=2 (counting `src` as 1).
+
+### `--resume` — power-outage and iteration recovery
+
+The pipeline writes one JSON file per stage (`scan.json`, `boundary.json`, `processes.json`, `leaf-<proc>.json`, `architecture.json`, `hp-graph.json`). With `--resume`, each stage checks for its output file + validates it against the Pydantic schema; if present and parseable, the stage is skipped with a `[resume]` notice. If it fails to load, the stage re-runs.
+
+Use cases:
+- **Power outage / killed terminal** mid-Stage-5 (the failure mode that produced this section). Re-run with `--resume`; the orchestrator picks up where the last completed stage's JSON landed.
+- **Iterating on a single stage's prompt.** Delete the JSON for the stage you're tuning (and everything downstream), re-run with `--resume`. Earlier stages are pinned.
+- **Debugging the merger or emitter without re-spending LLM tokens.** All upstream JSON is preserved; only the deterministic post-pass re-runs.
+
+The progress log at `<output-dir>/progress.log` is the source of truth for which stages completed. `START` / `DONE` / `SKIP` rows tell you the run history; `--resume` reads the per-stage JSON, not the log, so a manually edited JSON file is honored.
+
+### Putting it together on a large monorepo
+
+The cloudctlplane shape (a polyglot Python+TS service mesh, ~4000 files) is the canonical "large" target. Recommended first-run flags:
+
+```bash
+uv run python scripts/hp_ingest.py ~/path/to/repo \
+    --output ~/hp-ingest-runs/my-project \
+    --min-pure-logic 200 \
+    --max-depth 3 \
+    --no-architecture     # optional: skip Stage 5 the first time, run separately after review
+```
+
+Then sanity-check the scan stats before the LLM stages dispatch — `[resume]` lets you halt after Stage 0, eyeball the candidate counts, retune, and re-run.
+
 ## Implementation order
 
 Three commits on this branch, mirror of the portal arc:

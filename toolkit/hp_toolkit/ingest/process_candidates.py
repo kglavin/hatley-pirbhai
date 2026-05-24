@@ -48,12 +48,20 @@ class ProcessCandidates(BaseModel):
 # Clustering
 # ─────────────────────────────────────────────────────────────────────
 
-def extract_candidates(scan: ProjectScan) -> ProcessCandidates:
+def extract_candidates(
+    scan: ProjectScan,
+    max_depth: Optional[int] = None,
+) -> ProcessCandidates:
     """Cluster significant files by their immediate parent directory.
 
     First-cut heuristic: parent directory of each file = cluster key. Boundary-
     only clusters are still surfaced (the LLM may decide they don't deserve a
-    Stage-2 process node, e.g., because they're pure terminator handlers)."""
+    Stage-2 process node, e.g., because they're pure terminator handlers).
+
+    `max_depth` caps the cluster key at N path components — useful for
+    monorepos where the natural process boundary is `<repo>/<category>/<service>`
+    (depth 3) rather than the leaf directory. Default `None` = unlimited (original
+    behavior)."""
     clusters: dict[str, list[tuple[str, HpRoleHint, int]]] = defaultdict(list)
     for f in scan.files:
         if not f.is_significant:
@@ -66,7 +74,7 @@ def extract_candidates(scan: ProjectScan) -> ProcessCandidates:
             # Infra files inform Stage 5 architect, not Stage 2 processes
             continue
 
-        cluster_key = _cluster_key_for(f.path)
+        cluster_key = _cluster_key_for(f.path, max_depth=max_depth)
         clusters[cluster_key].append((f.path, f.hp_role_hint, f.size_lines))
 
     out: list[ProcessCandidate] = []
@@ -101,15 +109,22 @@ def write_candidates(c: ProcessCandidates, out_path: Path) -> None:
 # Internals
 # ─────────────────────────────────────────────────────────────────────
 
-def _cluster_key_for(rel_path: str) -> str:
-    """Cluster key = immediate parent directory of the file.
+def _cluster_key_for(rel_path: str, max_depth: Optional[int] = None) -> str:
+    """Cluster key = immediate parent directory of the file (capped at
+    `max_depth` components if set).
 
     For files at the repo root, the cluster key is the project name placeholder
     `.` so they don't all merge into one. Most real projects have very few
     significant files at the repo root."""
     p = Path(rel_path)
     parent = p.parent.as_posix()
-    return parent if parent and parent != "." else "."
+    if not parent or parent == ".":
+        return "."
+    if max_depth is not None:
+        parts = parent.split("/")
+        if len(parts) > max_depth:
+            parent = "/".join(parts[:max_depth])
+    return parent
 
 
 def _cluster_id_for(directory: str) -> str:
@@ -135,19 +150,29 @@ def _cluster_id_for(directory: str) -> str:
 
 def _main(argv: Optional[list[str]] = None) -> int:
     import argparse
+    from .progress_log import log_done, log_start
     parser = argparse.ArgumentParser(
         prog="hp_process_candidates",
         description="Cluster significant files into Stage-2 process candidates.",
     )
     parser.add_argument("--scan",   required=True, help="Path to intermediate/scan.json")
     parser.add_argument("--output", required=True, help="Output path for process-candidates.json")
+    parser.add_argument("--max-depth", type=int, default=None,
+                        help="Cap cluster key at N path components (monorepo helper; default unlimited)")
     args = parser.parse_args(argv)
+
+    intermediate = Path(args.output).parent
+    log_start(intermediate, stage="2-prep", agent="process_candidates",
+              max_depth=str(args.max_depth) if args.max_depth else "unlimited")
 
     scan_data = json.loads(Path(args.scan).read_text())
     scan = ProjectScan.model_validate(scan_data)
-    candidates = extract_candidates(scan)
+    candidates = extract_candidates(scan, max_depth=args.max_depth)
     write_candidates(candidates, Path(args.output))
     print(f"wrote {args.output} ({len(candidates.clusters)} process candidates)")
+
+    log_done(intermediate, stage="2-prep", agent="process_candidates",
+             count=len(candidates.clusters))
     return 0
 
 

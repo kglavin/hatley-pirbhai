@@ -46,6 +46,10 @@ Output JSON shape:
 
 ## Behavior
 
+**Progress log:** at entry, append a START line; after writing `boundary.json`, append a DONE line with summary stats. Per `hp-ingest.md` orchestrator convention:
+- `Bash: echo "$(date -u +%Y-%m-%dT%H:%M:%SZ) START    stage=1 agent=hp-ingest-boundary" >> <intermediate-dir>/progress.log`
+- `Bash: echo "$(date -u +%Y-%m-%dT%H:%M:%SZ) DONE     stage=1 agent=hp-ingest-boundary terminators=$N flows=$M" >> <intermediate-dir>/progress.log`
+
 When invoked, conversationally:
 
 1. **Read inputs.** `intermediate/scan.json` (for project meta + framework hints) and `intermediate/boundary-candidates.json` (per-file kind + routes/topics + evidence).
@@ -59,6 +63,7 @@ When invoked, conversationally:
 
 - **Terminators are external; never internal.** If both endpoints of a candidate flow are inside the codebase, it's a Stage-2 internal flow, not a Stage-1 boundary flow. Skip those here — Stage 2 will pick them up.
 - **One terminator per external actor, not per endpoint.** "User" is one terminator regardless of how many endpoints they touch. Multiple flows are fine; many terminators with similar labels is a smell.
+- **Terminator parent + level convention (G.1).** Every terminator IR node MUST have `parent: sys_root` and `level: 0`. The renderer + validator both depend on this — terminators sit at level 0 in the Context Diagram, child of `sys_root`. Boundary flows have `source=term_X, target=sys_root` (inbound) or `source=sys_root, target=term_X` (outbound) — never terminator-to-terminator (that would be an *external* relationship, outside the system boundary).
 - **Naming follows HP convention.** `term_<short>` ids; labels are 1–3 words; descriptions one sentence; flow labels use the `F<N>: <noun-phrase>` form. Look at `examples/fishing-rig/dictionary.yaml` or `examples/solar/dictionary.yaml` for the style.
 - **Confidence is honest.** Don't inflate. A guessed terminator gets 0.5; a clear-evidence one gets 0.9. The architect uses this to know what to spot-check.
 - **Boundary inference is upstream of decomposition.** Don't conflate a terminator with an internal process. If candidate evidence says "this is where the system processes incoming user events" — that's a *process*, not a terminator. The terminator is the user.

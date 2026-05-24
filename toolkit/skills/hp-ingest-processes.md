@@ -52,6 +52,10 @@ Output JSON shape:
 
 ## Behavior
 
+**Progress log:** at entry, append a START line; after writing `processes.json`, append a DONE line with summary stats. Per `hp-ingest.md` orchestrator convention:
+- `Bash: echo "$(date -u +%Y-%m-%dT%H:%M:%SZ) START    stage=2 agent=hp-ingest-processes" >> <intermediate-dir>/progress.log`
+- `Bash: echo "$(date -u +%Y-%m-%dT%H:%M:%SZ) DONE     stage=2 agent=hp-ingest-processes processes=$N stores=$M flows=$F needs_cspec=$C" >> <intermediate-dir>/progress.log`
+
 When invoked, conversationally:
 
 1. **Read inputs.** `scan.json`, `boundary.json`, `process-candidates.json`. Skim the file lists in each cluster to understand what's inside (the role-hint mix gives a strong starting point).
@@ -62,6 +66,18 @@ When invoked, conversationally:
 6. **Skip clusters that are infrastructure-only** (e.g., a `src/utils/` cluster with only helpers). Note in a `notes` field for architect audit.
 7. **Set confidence + provenance** on every emitted node/edge.
 8. **Write `intermediate/processes.json`.**
+
+### Required checklist before emit (per cloudctlplane H.1)
+
+Before writing `intermediate/processes.json`, verify every item:
+
+- [ ] **Every Stage-1 boundary flow in `boundary.json` has `refined_source` or `refined_target` set on it.** Walk every entry; for each, identify the Stage-2 process that handles it (inbound boundary → `refined_target=<proc_id>`; outbound → `refined_source=<proc_id>`). Without this, the level-1 DFD renders with boundary arrows dangling at `sys_root` (which isn't a node in the level-1 view). **Required, not optional** — the merger's H.1.2 warning will flag missing refinements, and the reviewer will repair, but doing it correctly here saves a repair cycle.
+- [ ] Every Stage-2 process node has `parent: sys_root` + `level: 1` set.
+- [ ] Every data-store node has `parent: sys_root` + `level: 1` set + `kind: data_store`.
+- [ ] Every internal flow has both endpoints in `entities` (terminator or process or data_store).
+- [ ] `confidence` + `provenance.{agent, rationale}` on every emitted node and edge.
+
+If any check fails, fix in `processes.json` before emitting.
 
 ## Discipline
 

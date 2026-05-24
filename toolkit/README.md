@@ -286,9 +286,17 @@ uv run python scripts/hp_ingest.py <codebase-path> --output <project-dir> --prep
 
 # Brownfield ingest — merge + emit dictionary.yaml (after LLM agents wrote intermediates)
 uv run python scripts/hp_ingest.py <codebase-path> --output <project-dir> --merge-emit
+
+# Brownfield ingest — resume after a killed / power-cut run (each stage probes its output JSON)
+uv run python scripts/hp_ingest.py <codebase-path> --output <project-dir> --resume
+
+# Brownfield ingest — tuning for large monorepos (see INGEST_DESIGN.md "Tuning guide")
+#   --min-pure-logic LINES  significance threshold for pure-logic files (default 50)
+#   --max-depth N           cap directory-cluster depth for Stage-2 process candidates
+uv run python scripts/hp_ingest.py <codebase-path> --output <project-dir> --min-pure-logic 200 --max-depth 3
 ```
 
-All commands also work programmatically — see *Programmatic API* below. Note: the full hp-ingest LLM pipeline dispatch (boundary / processes / leaf×N / architect / review subagents) runs via `/hp-ingest` in a Claude Code session, not via the Python CLI — the CLI handles the deterministic prep + merge + emit steps only.
+All commands also work programmatically — see *Programmatic API* below. Note: the full hp-ingest LLM pipeline dispatch (boundary / processes / leaf×N / architect / review subagents) runs via `/hp-ingest` in a Claude Code session, not via the Python CLI — the CLI handles the deterministic prep + merge + emit steps only. Every ingest run appends START / DONE / SKIP rows to `<output>/intermediate/progress.log` so external observers can `tail -f` a run live.
 
 ---
 

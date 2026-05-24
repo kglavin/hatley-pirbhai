@@ -55,6 +55,10 @@ Output JSON shape:
 
 ## Behavior
 
+**Progress log:** at entry, append a START line; after writing `architecture.json`, append a DONE line. Per `hp-ingest.md` orchestrator convention:
+- `Bash: echo "$(date -u +%Y-%m-%dT%H:%M:%SZ) START    stage=5 agent=hp-ingest-architect" >> <intermediate-dir>/progress.log`
+- `Bash: echo "$(date -u +%Y-%m-%dT%H:%M:%SZ) DONE     stage=5 agent=hp-ingest-architect modules=$N interconnects=$I allocations=$A" >> <intermediate-dir>/progress.log`
+
 When invoked, conversationally:
 
 1. **Read inputs.** Load `hp-graph.json` (nodes/edges from Stages 1–4) + `architecture-candidates.json` (deployment-unit candidates).
@@ -79,6 +83,7 @@ When invoked, conversationally:
 - **Allocation is total.** Every leaf process / CSPEC / data store from Stages 1–4 must land in exactly one module's `allocated_*` list. Anything unallocated is a validator failure downstream (2000 §4.2.5.4). If you can't pick a module, emit `allocates_to` with `confidence: 0.3` + a `provenance.rationale` flagging the ambiguity so the reviewer surfaces it.
 - **One module per deployment unit, not per file.** A microservice running in one container is one module — even if it's implemented by 20 files. The `implemented_by[]` array on the module enumerates those files.
 - **Interconnects are sparse.** Most projects have 1–3 interconnects (e.g., "Cluster RPC" + "Public Internet" + "Internal Storage"). A dozen interconnects is a sign you're modeling individual network policies rather than HP physical channels.
+- **`carries:` is required on every interconnect (G.3).** Each interconnect's `carries:` list MUST enumerate the architecture-flow ids whose endpoints are both in the interconnect's `endpoints:` list. The merger applies a deterministic post-pass that auto-populates `carries:` from flow-endpoint ↔ interconnect-endpoint matching (so a missing entry gets backfilled), but you should still populate the list directly to declare intent: it tells the reviewer "this flow rides this physical channel," which the auto-pass can't infer when the topology is ambiguous (two interconnects could carry the same flow). When in doubt, emit the `carries:` entry with a `provenance.rationale` documenting the routing decision.
 - **Trust zone is deferred.** Per the locked Q3 in INGEST_DESIGN.md, do **not** infer `trust_zone` here. The follow-up `hp-propose-architecture` skill (Decision 9) handles it form-based after ingest completes.
 - **`module_kind` matches HP convention** (hardware/software/organizational from 2000 §4.2.2.1 Fig 4.3). Don't invent new kinds.
 - **AMS/AIS are scaffolded by the emitter** (`emit_dictionary.py`); you don't need to write them — only the structural `description` + `design_rationale` get placeholder text, the architect fills in via `hp-propose-architecture` post-ingest.
