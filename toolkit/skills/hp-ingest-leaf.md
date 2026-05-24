@@ -63,7 +63,8 @@ This is the per-process functional contract — INPUTS / OUTPUTS / TRANSFORMATIO
 2. **Identify the OUTPUTS** the same way.
 3. **Write the TRANSFORMATION body.** In HP convention: structured English, capitalized flow names matching the flow labels. Concise — 5–15 lines. No code; no pseudocode. Describe *what* the process does, not *how*.
 4. **Choose computational constraints** when relevant: `frequency`, `timing`, `accuracy`. Pull from the source if there's a `RATE_LIMIT` constant or a `sleep(0.01)` etc.
-5. **Set confidence**: 0.8+ when the source clearly shows what the process does; lower when it's distributed across many helpers.
+5. **Write architect-facing `comments` (H.2.c).** 2–4 sentences capturing the *why* of this PSPEC — the rationale beyond the functional body. What's the design constraint that drove this contract? What alternatives were rejected? What's the operational consequence of getting it wrong? Pull from the source's module docstrings, file-header comments, and (if available) external-context QA test plans. This is the field that distinguishes a "structural extraction" PSPEC from one an architect would actually want to review.
+6. **Set confidence**: 0.8+ when the source clearly shows what the process does; lower when it's distributed across many helpers.
 
 Output shape (PSPEC):
 
@@ -75,14 +76,19 @@ Output shape (PSPEC):
       "implemented_by": ["src/orders/validate.rs", "src/orders/rules.rs"],
       "parent": "proc_validate_order",
       "summary": "Apply business rules to inbound order events.",
+      "transformation": {
+        "style": "textual",
+        "body": "FOR EACH INCOMING_ORDER:\n  APPLY business rules from RULE_TABLE\n  IF all rules pass: EMIT VALIDATED_ORDER\n  ELSE: EMIT VALIDATION_FAILURE with rule violations"
+      },
+      "comments": "Validation is centralized here rather than in the API gateway so that order events from any source (HTTP API, message bus, batch import) get the same rule treatment. Rules are versioned in RULE_TABLE — never inline. Performance constraint: validation must complete in <50ms per order (the API path's hard latency budget).",
       "provenance": { "agent": "hp-ingest-leaf",
-                      "rationale": "validate.rs::validate(order: Order) -> Result<Validated, RuleError>" } }
+                      "rationale": "validate.rs::validate(order: Order) -> Result<Validated, RuleError>; rules read from RULE_TABLE constant in rules.rs:14." } }
   ],
   "edges": []
 }
 ```
 
-The full PSPEC body (transformation text + constraints) lives in an `extra` field on the node that the emitter consumes when writing `dictionary.yaml`. Schema is permissive (`model_config = ConfigDict(extra="allow")`) so the LLM can attach `transformation: { style: "textual", body: "..." }` directly.
+The full PSPEC body (transformation text + constraints + comments) lives in `extra` fields on the node that the emitter consumes when writing `dictionary.yaml`. Schema is permissive (`model_config = ConfigDict(extra="allow")`) so the LLM can attach `transformation: { style: "textual", body: "..." }` + `comments: "..."` + computational-constraint fields directly.
 
 ## Behavior
 

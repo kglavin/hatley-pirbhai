@@ -36,13 +36,19 @@ Output JSON shape:
       "summary": "Edge HTTP/gRPC layer; auth + rate-limit + routing.",
       "module_kind": "software",
       "trust_zone": null,                            // deferred to hp-propose-architecture per Q3
+      // ── Prose fields (H.2.c) — required, not optional ────────────
+      "design_rationale": "Edge ingress for all external clients. Lives as its own deployment unit because (a) auth/rate-limit policies need a single chokepoint, (b) the team operates this layer separately from downstream services, and (c) horizontal scale here is decoupled from order-service scale. Built on axum + tower middleware.",
+      "design_justification": "Backpressure isolation + auth concentration. Alternative (auth-in-each-service) was rejected during the auth-rewrite discussion last quarter.",
+      "required_constraints": "Sub-100ms p99 routing latency; replicas ≥ 3 in production (compose says 1 for local dev); never call downstream services synchronously from request path.",
+      // ────────────────────────────────────────────────────────────
       "provenance": { "agent": "hp-ingest-architect",
-                      "rationale": "k8s Deployment 'api' + Dockerfile.api; serves /v1/* endpoints." } },
+                      "rationale": "k8s Deployment 'api' + Dockerfile.api; serves /v1/* endpoints. README at services/api/README.md confirms ingress role." } },
     { "id": "ai_internal_rpc", "kind": "architecture_interconnect",
       "label": "Internal RPC", "stage": 5, "confidence": 0.8,
       "endpoints": ["am_api_gateway", "am_order_service"],
       "carries": ["flow_order_event"],
-      "summary": "gRPC over the cluster network." }
+      "summary": "gRPC over the cluster network.",
+      "design_rationale": "Internal service mesh — all in-cluster RPC. Single interconnect because the cluster's network policy treats all in-cluster traffic as one trust zone." }
   ],
   "edges": [
     { "source": "am_api_gateway", "target": "proc_route_request",
@@ -64,7 +70,7 @@ When invoked, conversationally:
 1. **Read pre-stage file drops (architect guidance + external evidence).**
    - **Hints:** check `intermediate/hints/architect.md`. If present, treat as binding architect guidance — common cases are "split this module" / "collapse these two" / "rename module X to Y" / "this isn't really a module, drop it". Append a `HINT_LOADED` line: `Bash: echo "$(date -u +%Y-%m-%dT%H:%M:%SZ) HINT_LOADED stage=5 agent=hp-ingest-architect path=intermediate/hints/architect.md" >> <intermediate-dir>/progress.log`.
    - **External context:** read every file under `external-context/adrs/` (architecture decision records — authoritative for Stage-5 module + interconnect rationale) and `external-context/design-docs/` (design memos that didn't make it into the repo). When an architecture_module / architecture_interconnect node derives from an external doc, record the source path in its `provenance.external_context_used`.
-2. **Read inputs.** Load `hp-graph.json` (nodes/edges from Stages 1–4) + `architecture-candidates.json` (deployment-unit candidates).
+2. **Read inputs.** Load `hp-graph.json` (nodes/edges from Stages 1–4) + `architecture-candidates.json` (deployment-unit candidates) + `rationale-sources.json` (per-candidate rationale evidence: nearby READMEs, file headers, infra comments — produced by the H.2.b prep step). The rationale evidence is the bulk of your input by token count; read it carefully, it's the project's own "why" for each module.
 3. **Build the module set.** For each candidate, decide if it's a real Stage-5 module:
    - **Promote** Dockerfiles, k8s Deployments/StatefulSets, single-purpose npm/cargo packages.
    - **Collapse** multiple candidates for the same module (a Dockerfile + a k8s Deployment for the same service → one module; both files go into `implemented_by`).
@@ -89,7 +95,14 @@ When invoked, conversationally:
 - **`carries:` is required on every interconnect (G.3).** Each interconnect's `carries:` list MUST enumerate the architecture-flow ids whose endpoints are both in the interconnect's `endpoints:` list. The merger applies a deterministic post-pass that auto-populates `carries:` from flow-endpoint ↔ interconnect-endpoint matching (so a missing entry gets backfilled), but you should still populate the list directly to declare intent: it tells the reviewer "this flow rides this physical channel," which the auto-pass can't infer when the topology is ambiguous (two interconnects could carry the same flow). When in doubt, emit the `carries:` entry with a `provenance.rationale` documenting the routing decision.
 - **Trust zone is deferred.** Per the locked Q3 in INGEST_DESIGN.md, do **not** infer `trust_zone` here. The follow-up `hp-propose-architecture` skill (Decision 9) handles it form-based after ingest completes.
 - **`module_kind` matches HP convention** (hardware/software/organizational from 2000 §4.2.2.1 Fig 4.3). Don't invent new kinds.
-- **AMS/AIS are scaffolded by the emitter** (`emit_dictionary.py`); you don't need to write them — only the structural `description` + `design_rationale` get placeholder text, the architect fills in via `hp-propose-architecture` post-ingest.
+- **AMS/AIS rationale prose is required, not optional (H.2.c).** Every `architecture_module` node MUST carry:
+  - `design_rationale`: 3–5 sentences. What does this module do at the architecture level? Why is it a separate module from its siblings? What's the key technology / protocol choice? Pull from `rationale-sources.json` for this candidate — the nearby README + file headers + infra comments carry most of the prose you need.
+  - `design_justification`: 1–2 sentences. The constraint that drove the structure / choice. Often phrased as "alternative X was rejected because Y" or "this isolation exists because Z".
+  - `required_constraints`: 1–3 sentences. Resource / scaling / safety constraints extractable from infra evidence (`replicas:`, `resources.limits`, `restart_policy`, etc.) or stated in nearby docs.
+
+  The emitter (per H.2.a) surfaces these directly into AMS / AIS — placeholder text only fires when the architect agent emits nothing. **Treat the placeholder as a sign of underperforming, not a default.**
+
+  For `architecture_interconnect` nodes, `design_rationale` is required (1–3 sentences: what channel is this, what protocol, why is it its own interconnect). `design_justification` + `required_constraints` are optional for interconnects.
 
 ## Implementation status
 
