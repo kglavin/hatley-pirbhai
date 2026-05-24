@@ -31,6 +31,10 @@ _ALWAYS_SKIP_PATH_PATTERNS = [
     re.compile(r"_test\.[a-z]+$"),
     re.compile(r"\.test\.[a-z]+$"),
     re.compile(r"\.spec\.[a-z]+$"),
+    # Dot-files at any depth (.gitignore, .env*, .dockerignore, .editorconfig,
+    # .eslintrc*, .prettierrc*, etc.). git ls-files surfaces these because
+    # they're tracked, but none carry HP architectural signal. Per tuning H.B.
+    re.compile(r"(^|/)\.[a-zA-Z]"),
     # Build outputs / vendored
     re.compile(r"(^|/)node_modules/"),
     re.compile(r"(^|/)dist/"),

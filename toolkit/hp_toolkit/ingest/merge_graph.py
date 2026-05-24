@@ -108,9 +108,34 @@ _EDGE_KIND_ALIASES: dict[str, IREdgeKind] = {
     "refines": IREdgeKind.REFINES,
     "refine": IREdgeKind.REFINES,
     "decomposes_into": IREdgeKind.REFINES,
+    # `deploys` — invented by the Stage-5 architect agent on the cloudctlplane
+    # dogfood (modeled "this deployment unit composes these constituent
+    # modules"). Maps to `refines` per locked tuning Q1 (alias-only; promote
+    # to first-class IREdgeKind only if it recurs across multiple dogfood
+    # targets). See INGEST_TUNING_DESIGN.md §E.1.
+    "deploys": IREdgeKind.REFINES,
+    "deploy": IREdgeKind.REFINES,
+    "deployed_by": IREdgeKind.REFINES,
     # carries
     "carries": IREdgeKind.CARRIES,
     "carry": IREdgeKind.CARRIES,
+}
+
+
+# Edge kinds the LLM agents emit that are NOT first-class HP relationships
+# and should be silently dropped during merge (with a single normalization
+# log line) instead of cluttering the merge-report as unrecoverable. Per
+# locked tuning Q1 + E.3.
+#
+# `depends_on_library` was invented by the Stage-5 architect agent on the
+# cloudctlplane dogfood to express "this module uses this shared library/
+# SDK." That's implementation detail, not HP architecture — library use is
+# captured (if anywhere) via `implemented_by`, not as a top-level edge.
+_EDGE_KINDS_TO_DROP: set[str] = {
+    "depends_on_library",
+    "depends_on_libraries",
+    "uses_library",
+    "library_dependency",
 }
 
 
@@ -127,6 +152,7 @@ class MergeReport:
         self.duplicates: list[str] = []       # duplicate ids resolved
         self.dropped_edges: list[str] = []    # edges with missing endpoints
         self.unrecoverable: list[str] = []    # schema validation failures
+        self.warnings: list[str] = []         # recoverable issues for reviewer attention
 
     def log(self, kind: str, message: str) -> None:
         bucket = getattr(self, kind, None)
@@ -142,13 +168,17 @@ class MergeReport:
             sections.append("=== duplicates resolved ===\n" + "\n".join(self.duplicates))
         if self.dropped_edges:
             sections.append("=== dropped dangling edges ===\n" + "\n".join(self.dropped_edges))
+        if self.warnings:
+            sections.append("=== warnings (recoverable; reviewer attention) ===\n"
+                            + "\n".join(self.warnings))
         if self.unrecoverable:
             sections.append("=== unrecoverable issues (needs LLM repair) ===\n"
                             + "\n".join(self.unrecoverable))
         return "\n\n".join(sections) if sections else "(no issues)"
 
     def is_clean(self) -> bool:
-        return not (self.duplicates or self.dropped_edges or self.unrecoverable)
+        return not (self.duplicates or self.dropped_edges or self.unrecoverable
+                    or self.warnings)
 
 
 # ─────────────────────────────────────────────────────────────────────
@@ -240,6 +270,31 @@ def merge_intermediates(intermediate_dir: Path) -> tuple[IRGraph, MergeReport]:
         except ValidationError as e:
             report.log("unrecoverable", f"edge {src}->{tgt}: {e}")
 
+    # H.1.2 — flag Stage-1 boundary flows that never got a refined endpoint.
+    # The Stage-2 agent is supposed to set `refined_source` / `refined_target`
+    # on every boundary flow so the level-1 DFD renders with internal-process
+    # endpoints instead of dangling at sys_root. When the Stage-2 agent skips
+    # that step, the reviewer needs to repair.
+    unrefined = []
+    for e in edges:
+        if (e.stage == 1
+                and (e.source == "sys_root" or e.target == "sys_root")
+                and not getattr(e, "refined_source", None)
+                and not getattr(e, "refined_target", None)):
+            extras = e.model_dump(exclude={"source", "target", "kind", "stage",
+                                            "confidence", "provenance", "label"})
+            extras = {k: v for k, v in extras.items() if v is not None}
+            if not (extras.get("refined_source") or extras.get("refined_target")):
+                unrefined.append(f"{e.source} -> {e.target} ({e.label or '(no label)'})")
+    if unrefined:
+        report.log("warnings",
+                   f"boundary-flow refinement missing on {len(unrefined)} edge(s) — "
+                   f"Stage-2 agent did not set refined_source/refined_target; "
+                   f"level-1 DFD will render dangling. Reviewer should repair "
+                   f"by cross-referencing processes.json to identify the "
+                   f"handling process for each boundary flow:\n  "
+                   + "\n  ".join(unrefined))
+
     graph = IRGraph(
         project=scan.project,
         nodes=nodes,
@@ -289,6 +344,14 @@ def _normalize_edge(raw: dict, report: MergeReport) -> Optional[dict]:
     out["source"] = _normalize_id(out["source"])
     out["target"] = _normalize_id(out["target"])
     raw_kind = out["kind"]
+    # Silently drop edges in the drop-set (library deps, etc.) — they're not
+    # HP-architectural and shouldn't reach the reviewer as unrecoverable. Log
+    # the drop as a normalization for audit.
+    if isinstance(raw_kind, str) and raw_kind in _EDGE_KINDS_TO_DROP:
+        report.log("normalizations",
+                   f"edge {out['source']}->{out['target']}: "
+                   f"kind {raw_kind!r} dropped (not an HP-architectural relationship)")
+        return None
     if isinstance(raw_kind, str) and raw_kind in _EDGE_KIND_ALIASES:
         canonical = _EDGE_KIND_ALIASES[raw_kind]
         if canonical.value != raw_kind:
