@@ -32,12 +32,14 @@ Output JSON shape:
       "stage": 2, "confidence": 0.82, "needs_cspec": false,
       "implemented_by": ["src/orders/validate.rs", "src/orders/rules.rs", "src/orders/types.rs"],
       "summary": "Applies business rules to inbound order events.",
+      "description": "Centralizes order-validation logic so any inbound order — HTTP API, message bus, batch import — passes through the same rule pipeline. Owns the live RULE_TABLE; emits VALIDATED_ORDER on success, VALIDATION_FAILURE with rule-violation detail otherwise. Cross-references the customer + inventory stores to bind the order to current pricing before validation runs.",
       "provenance": { "agent": "hp-ingest-processes",
-                      "rationale": "Directory cluster `src/orders/` with 3 pure-logic files, one inbound import path from api/handlers.rs" } },
+                      "rationale": "Directory cluster `src/orders/` with 3 pure-logic files, one inbound import path from api/handlers.rs. Module docstring describes rule-table-driven validation." } },
     { "id": "store_orders_db", "kind": "data_store", "label": "Orders DB",
       "stage": 2, "confidence": 0.9,
       "implemented_by": ["src/db/orders_repo.rs"],
-      "summary": "Persistent storage for orders + line items." },
+      "summary": "Persistent storage for orders + line items.",
+      "description": "Authoritative store for order records across their lifecycle (placed → validated → fulfilled → completed). Schema versioned via Diesel migrations under db/migrations/." },
     ...
   ],
   "edges": [
@@ -58,14 +60,19 @@ Output JSON shape:
 
 When invoked, conversationally:
 
-1. **Read inputs.** `scan.json`, `boundary.json`, `process-candidates.json`. Skim the file lists in each cluster to understand what's inside (the role-hint mix gives a strong starting point).
-2. **Cluster-by-cluster decision:** for each candidate, decide promote / merge with sibling / drop.
-3. **Look at the import edges between clusters** to inform the flow graph. If cluster A's files frequently import from cluster B, A consumes data from B → draw a flow B → A.
-4. **Cross-reference with boundary terminators.** Each terminator has a boundary flow; identify which Stage-2 process handles it. Add the refinement (`refined_target` for inbound flows, `refined_source` for outbound).
-5. **Cap process count.** Aim for 5–10 internal processes at Stage 2 for a cloudctlplane-scale project. More is fine but means decomposition is happening at too low a level. Use process subdirectories to surface fewer top-level processes.
-6. **Skip clusters that are infrastructure-only** (e.g., a `src/utils/` cluster with only helpers). Note in a `notes` field for architect audit.
-7. **Set confidence + provenance** on every emitted node/edge.
-8. **Write `intermediate/processes.json`.**
+1. **Read the project glossary (H.4.c).** Load `intermediate/glossary.curated.json` (if present). When naming processes + data stores + internal flows, prefer terms from this glossary over generic English. The glossary categories `process`, `event`, and `artifact` are the most relevant here — they map directly to HP process names, flow labels, and data store names.
+2. **Read pre-stage file drops (architect guidance + external evidence).**
+   - **Hints:** check `intermediate/hints/processes.md`. If present, treat its contents as binding architect guidance — common cases are "cluster at directory depth N" / "collapse these clusters" / "skip these as infrastructure-only". Append a `HINT_LOADED` line: `Bash: echo "$(date -u +%Y-%m-%dT%H:%M:%SZ) HINT_LOADED stage=2 agent=hp-ingest-processes path=intermediate/hints/processes.md" >> <intermediate-dir>/progress.log`.
+   - **External context:** read every file under `external-context/qa-test-plans/` (acceptance criteria — process-level evidence) and `external-context/adrs/` (architecture decisions about process boundaries). Use them to validate process names + flag possible processes the import-graph alone wouldn't surface. Record source paths in `provenance.external_context_used` on any IR node that drew on them.
+3. **Read inputs.** `scan.json`, `boundary.json`, `process-candidates.json`. Skim the file lists in each cluster to understand what's inside (the role-hint mix gives a strong starting point). Also load — when present:
+   - `intermediate/testbeds.json` (H.7) — scenario walk-throughs describe what processes do step-by-step. Use them to validate process boundaries: if a single scenario walks through what your candidates would split into 4 processes, that's a sign the candidate clustering is too granular. Conversely, if a scenario references operations that span multiple clusters, the cluster boundaries may be too tight.
+4. **Cluster-by-cluster decision:** for each candidate, decide promote / merge with sibling / drop.
+5. **Look at the import edges between clusters** to inform the flow graph. If cluster A's files frequently import from cluster B, A consumes data from B → draw a flow B → A.
+6. **Cross-reference with boundary terminators.** Each terminator has a boundary flow; identify which Stage-2 process handles it. Add the refinement (`refined_target` for inbound flows, `refined_source` for outbound).
+7. **Cap process count.** Aim for 5–10 internal processes at Stage 2 for a cloudctlplane-scale project. More is fine but means decomposition is happening at too low a level. Use process subdirectories to surface fewer top-level processes.
+8. **Skip clusters that are infrastructure-only** (e.g., a `src/utils/` cluster with only helpers). Note in a `notes` field for architect audit.
+9. **Set confidence + provenance** on every emitted node/edge.
+10. **Write `intermediate/processes.json`.**
 
 ### Required checklist before emit (per cloudctlplane H.1)
 
@@ -81,6 +88,7 @@ If any check fails, fix in `processes.json` before emitting.
 
 ## Discipline
 
+- **Process `description` is 2–3 sentences (H.2.c).** Beyond the 1-line `summary`, every process node MUST carry a `description` field with 2–3 sentences capturing scope + rationale: what work the process does end-to-end, why it's a separate process from its siblings, and any constraint that anchors its boundary. Pull from module docstrings + the cluster's README. The emitter surfaces this as the process's `description:` in `dictionary.yaml` (the architect's first-pass reading material). A terse one-line `summary` is fine; a terse one-line `description` is the sidecar-feels-lifeless symptom H.2 is fixing.
 - **HP processes are verb-noun.** "Validate Order" not "Validation". "Compute Balance" not "Balance Service". Match the existing examples (`proc_acquire_tension`, `proc_compute_balance`, `proc_reel_controller`).
 - **Process granularity is architectural, not file-system.** Don't make every directory a process. A process is a meaningful unit of behavior — the thing an architect would draw on a whiteboard. Many directories collapse into one process.
 - **Data stores are passive.** A data store stores data; it doesn't transform. If a cluster's files include both DB access AND business logic, it's a process (with `implemented_by` including the DB access files) — not a separate data store.

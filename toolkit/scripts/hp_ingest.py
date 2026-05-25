@@ -57,9 +57,17 @@ from hp_toolkit.ingest.process_candidates import (
 )
 from hp_toolkit.ingest.architecture_candidates import ArchitectureCandidates
 from hp_toolkit.ingest.boundary_candidates import BoundaryCandidates
+from hp_toolkit.ingest.docs_walker import DocCorpus, load_corpus, walk_docs, write_corpus
+from hp_toolkit.ingest.external_context import ensure_external_context_dir, summarize_presence
+from hp_toolkit.ingest.glossary_extractor import GlossaryCandidates, extract as extract_glossary, write_candidates as write_glossary_candidates
+from hp_toolkit.ingest.hints import ensure_hints_dir, list_dropped_hints
 from hp_toolkit.ingest.process_candidates import ProcessCandidates
 from hp_toolkit.ingest.progress_log import log_done, log_skip, log_start
+from hp_toolkit.ingest.rationale_sources import RationaleSources, gather as gather_rationale, write_sources as write_rationale_sources
+from hp_toolkit.ingest.recipe_parser import RecipeHarvest, gather as gather_recipes, write_harvest as write_recipes
 from hp_toolkit.ingest.scan import scan_codebase, write_scan
+from hp_toolkit.ingest.testbed_miner import TestbedHarvest, detect_and_mine as detect_testbeds, write_harvest as write_testbeds
+from hp_toolkit.ingest.user_docs_gatherer import UserDocsHarvest, gather as gather_user_docs, write_harvest as write_user_docs
 from hp_toolkit.ingest.schema import IRGraph, ProjectScan
 from hp_toolkit.ingest.significance import SignificanceConfig
 from hp_toolkit.ingest.state_machine_detector import (
@@ -109,6 +117,27 @@ def _scan_stats(scan: ProjectScan) -> dict[str, int]:
         "files": len(scan.files),
         "significant": sum(1 for f in scan.files if f.is_significant),
     }
+
+
+def _announce_file_drops(intermediate: Path, project: Path) -> None:
+    """Surface dropped hints + external-context at run start.
+
+    Idempotent visibility — every run, the observer sees what guidance
+    + evidence is in flight so they know what's being honored. Quiet
+    when nothing has been dropped."""
+    hints = list_dropped_hints(intermediate)
+    ext = summarize_presence(project)
+    ext_present = {k: v for k, v in ext.items() if v > 0}
+    if not hints and not ext_present:
+        return
+    print(_color("==> File drops detected", "1"))
+    if hints:
+        for stage, path in hints.items():
+            print(f"    {_color('hint', '36')}  intermediate/hints/{path.name}  (stage={stage})")
+    if ext_present:
+        for category, count in ext_present.items():
+            print(f"    {_color('ext', '35')}   external-context/{category}/  ({count} file{'s' if count != 1 else ''})")
+    print()
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -168,6 +197,13 @@ def main(argv: list[str] | None = None) -> int:
     intermediate = output / "intermediate"
     intermediate.mkdir(parents=True, exist_ok=True)
 
+    # Bootstrap the two file-drop directories (per tuning F.3.a + H.8.b).
+    # Idempotent — creates the dir + README stub if absent. We do this every
+    # run so the user always has somewhere to drop hints / external context.
+    ensure_hints_dir(intermediate)
+    ensure_external_context_dir(output)
+    _announce_file_drops(intermediate, output)
+
     # --merge-emit short-circuits: scan + candidate prep already done; just
     # run merge + emit. Resume is implicit here.
     if args.merge_emit:
@@ -202,6 +238,132 @@ def main(argv: list[str] | None = None) -> int:
     if args.scan_only:
         print(_color("Done (scan-only).", "32"))
         return 0
+
+    # ─── Stage 0b: documentation corpus ─────────────────────────────
+    # Walk doc-like files (READMEs, usage docs, ADRs, glossaries, API
+    # specs) once + cache the corpus. Shared infrastructure for the
+    # input-expansion extractors (T6 rationale_sources, future T7
+    # glossary, T9 user-docs). Cheap pass.
+    docs_path = intermediate / "docs-corpus.json"
+    existing_docs = _try_load(docs_path, DocCorpus) if args.resume else None
+    if existing_docs is not None:
+        corpus = existing_docs  # type: ignore[assignment]
+        print(_color(f"[resume] skipping Stage 0b — {docs_path.name} present "
+                     f"({len(corpus.files)} docs)", "36"))
+        log_skip(intermediate, stage="0-docs", agent="docs_walker",
+                 reason="output_present", docs=len(corpus.files))
+    else:
+        log_start(intermediate, stage="0-docs", agent="docs_walker")
+        print(_color("==> Stage 0b — documentation corpus", "1"))
+        corpus = walk_docs(codebase)
+        write_corpus(corpus, docs_path)
+        print(_color(f"  wrote {docs_path.name} ({len(corpus.files)} doc files)", "32"))
+        log_done(intermediate, stage="0-docs", agent="docs_walker",
+                 docs=len(corpus.files))
+    print()
+
+    # ─── Stage 0c: glossary candidates ──────────────────────────────
+    # Deterministic extraction of project-vocabulary terms from the
+    # doc corpus. Output feeds the LLM curator (hp-ingest-glossary
+    # skill) which produces the curated 30–60-entry glossary the
+    # naming agents consume. Per locked tuning H.4.a.
+    gc_path = intermediate / "glossary-candidates.json"
+    existing_gc = _try_load(gc_path, GlossaryCandidates) if args.resume else None
+    if existing_gc is not None:
+        print(_color(f"[resume] skipping Stage 0c — {gc_path.name} present "
+                     f"({len(existing_gc.terms)} candidates)", "36"))
+        log_skip(intermediate, stage="0-glossary", agent="glossary_extractor",
+                 reason="output_present", terms=len(existing_gc.terms))
+    else:
+        log_start(intermediate, stage="0-glossary", agent="glossary_extractor")
+        print(_color("==> Stage 0c — glossary candidates", "1"))
+        gc = extract_glossary(corpus, codebase)
+        write_glossary_candidates(gc, gc_path)
+        print(_color(f"  wrote {gc_path.name} ({len(gc.terms)} candidate terms)", "32"))
+        if gc.terms:
+            top = ", ".join(t.term for t in gc.terms[:8])
+            print(f"    top: {top}")
+        log_done(intermediate, stage="0-glossary", agent="glossary_extractor",
+                 terms=len(gc.terms))
+    print()
+
+    # ─── Stage 0d: user-facing documentation harvest (H.6) ─────────
+    # Extracts Usage / Getting Started / Tutorial sections + actor +
+    # intent phrases + API specs. The boundary agent reads this to
+    # name terminators by role rather than protocol.
+    ud_path = intermediate / "user-docs.json"
+    existing_ud = _try_load(ud_path, UserDocsHarvest) if args.resume else None
+    if existing_ud is not None:
+        print(_color(f"[resume] skipping Stage 0d — {ud_path.name} present "
+                     f"({len(existing_ud.usage_excerpts)} excerpts)", "36"))
+        log_skip(intermediate, stage="0-user-docs", agent="user_docs_gatherer",
+                 reason="output_present", excerpts=len(existing_ud.usage_excerpts))
+    else:
+        log_start(intermediate, stage="0-user-docs", agent="user_docs_gatherer")
+        print(_color("==> Stage 0d — user-facing docs harvest", "1"))
+        ud = gather_user_docs(corpus, codebase)
+        write_user_docs(ud, ud_path)
+        print(_color(f"  wrote {ud_path.name} "
+                     f"({len(ud.usage_excerpts)} usage excerpts, "
+                     f"{len(ud.code_examples)} code examples, "
+                     f"{len(ud.api_specs)} API specs, "
+                     f"{len(ud.actor_phrases)} actor phrases)", "32"))
+        log_done(intermediate, stage="0-user-docs", agent="user_docs_gatherer",
+                 excerpts=len(ud.usage_excerpts),
+                 examples=len(ud.code_examples),
+                 api_specs=len(ud.api_specs))
+    print()
+
+    # ─── Stage 0e: testbed detection + mining (H.7) ────────────────
+    # Identifies purpose-built testbeds (agent-gym-style top-level dirs)
+    # + mines their scenarios + fixtures + spin-up topology. The
+    # boundary / processes / leaf / architect agents all read this as
+    # executable-spec evidence.
+    tb_path = intermediate / "testbeds.json"
+    existing_tb = _try_load(tb_path, TestbedHarvest) if args.resume else None
+    if existing_tb is not None:
+        print(_color(f"[resume] skipping Stage 0e — {tb_path.name} present "
+                     f"({len(existing_tb.testbeds)} testbeds)", "36"))
+        log_skip(intermediate, stage="0-testbeds", agent="testbed_miner",
+                 reason="output_present", testbeds=len(existing_tb.testbeds))
+    else:
+        log_start(intermediate, stage="0-testbeds", agent="testbed_miner")
+        print(_color("==> Stage 0e — testbed detection + mining", "1"))
+        tb = detect_testbeds(codebase)
+        write_testbeds(tb, tb_path)
+        scenarios = sum(len(t.scenarios) for t in tb.testbeds)
+        print(_color(f"  wrote {tb_path.name} "
+                     f"({len(tb.testbeds)} testbeds, {scenarios} scenarios)", "32"))
+        for t in tb.testbeds[:5]:
+            print(f"    {t.directory:30s} score={t.detection_score} scenarios={len(t.scenarios)}")
+        log_done(intermediate, stage="0-testbeds", agent="testbed_miner",
+                 testbeds=len(tb.testbeds), scenarios=scenarios)
+    print()
+
+    # ─── Stage 0f: Make/Justfile recipe parse ──────────────────────
+    # Recipes are deployment-recipe artifacts the architect agent
+    # reads alongside compose/k8s; run-targets feed the boundary
+    # agent's CLI-entry inference.
+    rp_path = intermediate / "recipes.json"
+    existing_rp = _try_load(rp_path, RecipeHarvest) if args.resume else None
+    if existing_rp is not None:
+        print(_color(f"[resume] skipping Stage 0f — {rp_path.name} present "
+                     f"({len(existing_rp.recipes)} recipes)", "36"))
+        log_skip(intermediate, stage="0-recipes", agent="recipe_parser",
+                 reason="output_present", recipes=len(existing_rp.recipes))
+    else:
+        log_start(intermediate, stage="0-recipes", agent="recipe_parser")
+        print(_color("==> Stage 0f — Make/Justfile recipe parse", "1"))
+        rp = gather_recipes(codebase)
+        write_recipes(rp, rp_path)
+        from collections import Counter
+        by_cat = Counter(r.category for r in rp.recipes)
+        cat_summary = ", ".join(f"{k}:{v}" for k, v in by_cat.most_common(5)) or "none"
+        print(_color(f"  wrote {rp_path.name} ({len(rp.recipes)} recipes; {cat_summary})", "32"))
+        log_done(intermediate, stage="0-recipes", agent="recipe_parser",
+                 recipes=len(rp.recipes),
+                 **{k: v for k, v in by_cat.items() if v})
+    print()
 
     # The candidate-prep block runs by default. --no-architecture skips
     # Stage 5; --resume short-circuits any stage whose output JSON already
@@ -302,6 +464,34 @@ def main(argv: list[str] | None = None) -> int:
                 log_done(intermediate, stage="5-prep", agent="architecture_candidates",
                          modules=len(ac.modules),
                          interconnects=len(ac.interconnects))
+            print()
+
+            # ─── Stage 5-rationale: per-candidate evidence (H.2.b) ──
+            rs_path = intermediate / "rationale-sources.json"
+            existing_rs = _try_load(rs_path, RationaleSources) if args.resume else None
+            if existing_rs is not None:
+                print(_color(f"[resume] skipping Stage 5-rationale — {rs_path.name} present "
+                             f"({len(existing_rs.by_candidate)} candidates)", "36"))
+                log_skip(intermediate, stage="5-rationale", agent="rationale_sources",
+                         reason="output_present", candidates=len(existing_rs.by_candidate))
+            else:
+                log_start(intermediate, stage="5-rationale", agent="rationale_sources")
+                print(_color("==> Stage 5-rationale — per-candidate rationale evidence", "1"))
+                # Load candidates from disk (may have been resumed above)
+                ac_loaded = _try_load(ac_path, ArchitectureCandidates) or ac
+                rs = gather_rationale(ac_loaded, corpus, codebase)
+                write_rationale_sources(rs, rs_path)
+                total_readmes = sum(len(e.nearby_readmes) for e in rs.by_candidate.values())
+                total_headers = sum(len(e.file_headers) for e in rs.by_candidate.values())
+                total_infra = sum(len(e.infra_comments) for e in rs.by_candidate.values())
+                print(_color(f"  wrote {rs_path.name} "
+                             f"({len(rs.by_candidate)} candidates: "
+                             f"{total_readmes} READMEs, {total_headers} file headers, "
+                             f"{total_infra} infra-comment blocks)", "32"))
+                log_done(intermediate, stage="5-rationale", agent="rationale_sources",
+                         candidates=len(rs.by_candidate),
+                         readmes=total_readmes, headers=total_headers,
+                         infra_blocks=total_infra)
             print()
 
     if args.prep_candidates:

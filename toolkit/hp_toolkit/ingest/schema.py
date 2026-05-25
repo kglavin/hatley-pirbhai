@@ -80,10 +80,13 @@ class Provenance(BaseModel):
     `agent` distinguishes hp-ingest-authored fields (replaceable on
     incremental re-ingest) from user-authored fields (preserved verbatim).
     `rationale` is the LLM's one-line reason for the classification —
-    surfaces in `ingest-report.md` for architect review."""
+    surfaces in `ingest-report.md` for architect review.
+    `external_context_used` records which `external-context/<category>/`
+    files contributed to this node, for the H.8 audit trail."""
 
     agent: str                       # e.g., "hp-boundary-finder"
     rationale: Optional[str] = None  # one-line LLM justification
+    external_context_used: list[str] = Field(default_factory=list)
 
 
 # ─────────────────────────────────────────────────────────────────────

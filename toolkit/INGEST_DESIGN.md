@@ -165,23 +165,42 @@ The filter is in `scripts/hp_significance.py`. Configurable thresholds (e.g., mi
 ```
 toolkit/
 ├── INGEST_DESIGN.md                   ← this file
+├── INGEST_TUNING_DESIGN.md            ← post-dogfood tuning + input-expansion design (Branches 1+2)
 ├── hp_toolkit/
 │   └── ingest/
 │       ├── __init__.py
-│       ├── scan.py                    ← Stage 0 scanner (Python; called by hp-scanner agent script)
+│       │   # Stage-0 + IR + filter
+│       ├── scan.py                    ← Stage 0 scanner (file walk + role hint + framework detect)
 │       ├── role_classifier.py         ← the 6-category HP role hint
 │       ├── significance.py            ← filter
+│       ├── progress_log.py            ← append-only progress.log (--resume + observers)
+│       ├── hints.py                   ← intermediate/hints/<stage>.md loader (architect-in-loop, F.3.a)
+│       ├── external_context.py        ← <project>/external-context/<category>/* loader (H.8.b)
+│       │   # Stage-1/2/3/5 candidate extractors
 │       ├── boundary_candidates.py     ← Stage 1 candidate extractor
 │       ├── process_candidates.py      ← Stage 2 candidate extractor
 │       ├── state_machine_detector.py  ← Stage 3 state-machine pattern matcher
-│       ├── architecture_candidates.py ← Stage 5 deployment-unit extractor
-│       ├── merge_graph.py             ← deterministic IR merge + normalization
-│       ├── emit_dictionary.py         ← IR → dictionary.yaml writer
-│       └── schema.py                  ← Pydantic schemas for the IR (mirror of dictionary.yaml but extended with confidence + provenance)
+│       ├── architecture_candidates.py ← Stage 5 deployment-unit extractor (dispatches to the parsers below)
+│       │   # Format-specific parsers (H.5.a — typed compose / Dockerfile / k8s)
+│       ├── compose_parser.py          ← typed compose: depends_on, ports, volumes, env, networks, replicas
+│       ├── dockerfile_parser.py       ← typed Dockerfile: FROM / EXPOSE / ENV / CMD / HEALTHCHECK / LABEL
+│       ├── k8s_parser.py              ← typed k8s: Deployment / Service / Ingress / PVC (multi-doc YAML)
+│       │   # Input-expansion gatherers (T5–T9; agents read the project's docs, not just code)
+│       ├── docs_walker.py             ← typed doc-file corpus (READMEs / usage / ADR / glossary / API specs)
+│       ├── rationale_sources.py       ← per-candidate rationale evidence for the architect (H.2.b)
+│       ├── glossary_extractor.py      ← deterministic project-vocabulary harvest (H.4.a)
+│       ├── user_docs_gatherer.py      ← usage excerpts + actor + intent phrases for boundary (H.6)
+│       ├── testbed_miner.py           ← purpose-built testbed detect + scenario mining (H.7)
+│       ├── recipe_parser.py           ← Makefile + Justfile recipe extraction (deploy / up / build / …)
+│       │   # Merge + emit
+│       ├── merge_graph.py             ← deterministic IR merge + normalization + warnings
+│       ├── emit_dictionary.py         ← IR → dictionary.yaml writer (surfaces LLM rationale prose per H.2.a)
+│       └── schema.py                  ← Pydantic schemas for the IR (+ Provenance.external_context_used)
 │
 ├── skills/
 │   ├── hp-ingest.md                   ← the orchestrator skill (the SKILL.md equivalent)
 │   ├── hp-ingest-scan.md              ← Stage 0 agent
+│   ├── hp-ingest-glossary.md          ← Stage 0c-curate (optional LLM curator for H.4.b)
 │   ├── hp-ingest-boundary.md          ← Stage 1 agent
 │   ├── hp-ingest-processes.md         ← Stage 2 agent
 │   ├── hp-ingest-leaf.md              ← Stages 3+4 agent (single skill, dispatched in parallel)
@@ -189,7 +208,7 @@ toolkit/
 │   └── hp-ingest-review.md            ← assembler-reviewer
 │
 └── scripts/
-    └── hp_ingest.py                   ← CLI orchestrator (Python equivalent of UA's SKILL.md runbook)
+    └── hp_ingest.py                   ← CLI orchestrator (deterministic stages + --resume + tuning flags)
 ```
 
 CLI surface:

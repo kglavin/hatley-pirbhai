@@ -42,24 +42,27 @@ Produce:
 
 When invoked, conversationally:
 
-1. **Read merge-report.txt.** If non-empty:
+1. **Read pre-stage file drops (architect guidance).**
+   - **Hints:** check `intermediate/hints/review.md`. If present, treat as binding guidance for the review pass — common cases are "always halt on this specific conflict pattern" / "ignore the X warning class for this run" / "the user has acknowledged Y; don't surface it again". Append a `HINT_LOADED` line: `Bash: echo "$(date -u +%Y-%m-%dT%H:%M:%SZ) HINT_LOADED stage=review agent=hp-ingest-review path=intermediate/hints/review.md" >> <intermediate-dir>/progress.log`.
+   - **External context:** the reviewer does NOT re-read `external-context/`. Stage 1–5 agents already consumed the relevant categories and recorded provenance in their IR nodes; the reviewer's job is to audit the IR, not the source evidence. (If a repair requires external evidence the upstream agents missed, the reviewer surfaces it in `ingest-report.md` as a follow-up the user should drop into hints for re-run.)
+2. **Read merge-report.txt.** If non-empty:
    - **Normalizations / duplicates / dropped edges** — already auto-resolved by the merger. Surface them in `ingest-report.md` for transparency but no action needed.
    - **Unrecoverable** — required to repair. Walk each one, edit `hp-graph.json` in place to fix. Common patterns: invented enum value → map to canonical; missing required field → fill with a sensible default + `confidence: 0.4` + `provenance.rationale: "repaired by hp-ingest-review"`.
-2. **Run the projection.** Invoke `emit_dictionary.py` (via Bash) to produce a candidate `dictionary.yaml` at a temp path.
-3. **Run hp-validate** against the candidate YAML. The validator emits structured errors.
-4. **Repair each validator error** in `hp-graph.json` and re-project. Common errors:
+3. **Run the projection.** Invoke `emit_dictionary.py` (via Bash) to produce a candidate `dictionary.yaml` at a temp path.
+4. **Run hp-validate** against the candidate YAML. The validator emits structured errors.
+5. **Repair each validator error** in `hp-graph.json` and re-project. Common errors:
    - "Process X not allocated to any architecture module" → add an `allocates_to` edge.
    - "Boundary flow F1 has no refined_target at level 1" → set the refinement on the flow edge.
    - "CSPEC X has no initial state" → identify the most-likely-initial state node and set `is_initial: true`.
    - "Entity X references non-existent parent" → either create the parent or fix the reference.
 
-5. **Repair recoverable warnings from `merge-report.txt`** (the new `warnings` section). These don't fail validation but indicate Stage-1/2/5 agent gaps. Common patterns:
+6. **Repair recoverable warnings from `merge-report.txt`** (the new `warnings` section). These don't fail validation but indicate Stage-1/2/5 agent gaps. Common patterns:
    - **Boundary-flow refinement missing on N edges** (H.1.2 warning): Stage-2 agent skipped refining boundary flows. Cross-reference `intermediate/processes.json` against `intermediate/boundary.json`: for each boundary flow `term_X → sys_root` (inbound) or `sys_root → term_X` (outbound), identify the Stage-2 process whose `implemented_by[]` cluster contains the endpoint handler. Edit `hp-graph.json` to set `refined_target=<proc_id>` (inbound) or `refined_source=<proc_id>` (outbound) on that edge. Re-emit and re-validate. Without this repair, the level-1 DFD renders with boundary arrows dangling at `sys_root`.
    - **Architecture flow not in any interconnect's carries:** Stage-5 architect drew the flow but didn't add it to a `carries:` list. Cross-reference flow endpoints with interconnect endpoint lists; add to the matching interconnect.
    - **Low-confidence module / process / terminator (< 0.6):** not a repair — surface in `ingest-report.md`'s "spot-check these first" section. Low-confidence is a signal, not a bug (G.4).
-6. **Compose ingest-report.md** (see above).
-7. **For incremental:** before final emission, check every existing-dictionary entity. If hp-graph.json has a contradictory value (different kind, label, parent, allocation), write the diff to `ingest-conflicts.md` and **halt** (default is conservative — don't auto-overwrite). User reviews + re-runs with `--auto-accept` to commit.
-8. **Approve emission.** Tell the orchestrator the pipeline can write the final YAML.
+7. **Compose ingest-report.md** (see above).
+8. **For incremental:** before final emission, check every existing-dictionary entity. If hp-graph.json has a contradictory value (different kind, label, parent, allocation), write the diff to `ingest-conflicts.md` and **halt** (default is conservative — don't auto-overwrite). User reviews + re-runs with `--auto-accept` to commit.
+9. **Approve emission.** Tell the orchestrator the pipeline can write the final YAML.
 
 ## Discipline
 

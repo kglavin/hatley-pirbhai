@@ -52,12 +52,18 @@ Output JSON shape:
 
 When invoked, conversationally:
 
-1. **Read inputs.** `intermediate/scan.json` (for project meta + framework hints) and `intermediate/boundary-candidates.json` (per-file kind + routes/topics + evidence).
-2. **Group candidates by external actor.** Multiple HTTP routes that all serve "users" → one terminator. A gRPC server endpoint and an HTTP endpoint that both implement the same external API → still one terminator with two flows.
-3. **For each group, propose a terminator + its flows.** Emit nodes + edges as above. Be conservative on naming — generic but accurate (`Browser User` not `Chrome Desktop User`) so the architect can rename without renaming HP semantics.
-4. **Skip internal boundaries.** Health-check endpoints, debug endpoints, intra-cluster service mesh interfaces. Mark them with a `notes` field saying why you skipped, so the architect can audit.
-5. **Set confidence + provenance** on every emitted node/edge.
-6. **Write `intermediate/boundary.json`.**
+1. **Read the project glossary (H.4.c).** Load `intermediate/glossary.curated.json` (if present — the curator pass is optional). When naming terminators + boundary flows, prefer terms from this glossary over generic English. If a glossary term matches the entity you're naming, use it ("Pulse Producer" not "telemetry sender"; "Archi Consumer" not "GraphQL client"). Flow labels likewise: project vocabulary > wire-protocol vocabulary.
+2. **Read pre-stage file drops (architect guidance + external evidence).**
+   - **Hints:** check `intermediate/hints/boundary.md`. If present, treat its contents as binding architect guidance — when it conflicts with what the candidates suggest, the hint wins. Append a `HINT_LOADED` line to progress.log: `Bash: echo "$(date -u +%Y-%m-%dT%H:%M:%SZ) HINT_LOADED stage=1 agent=hp-ingest-boundary path=intermediate/hints/boundary.md" >> <intermediate-dir>/progress.log`.
+   - **External context:** read every file under `external-context/qa-test-plans/` and `external-context/requirements/`. These are the highest-signal outside-in sources — they describe what external actors expect the system to do. Use them to name terminators by role rather than protocol (per H.6 — *the user docs are the canonical source for role identification*). For each IR node that drew on an external-context file, record the source path in its `provenance.external_context_used: ["external-context/qa-test-plans/plan-001.md", ...]`.
+3. **Read inputs.** `intermediate/scan.json` (for project meta + framework hints) and `intermediate/boundary-candidates.json` (per-file kind + routes/topics + evidence). Also load — when present:
+   - `intermediate/user-docs.json` (H.6) — usage excerpts, actor phrases, intent phrases, API specs. The **strongest source for outside-in semantics**: name terminators by the *role* the docs treat them as (e.g. "Developer", "SRE Operator", "Telemetry Producer") rather than the wire shape (`ws_client`, `http_client`, `otlp_client`). Flow labels likewise: prefer intent-shaped phrases ("query the catalog") over protocol-shaped ones ("HTTP GET /catalog").
+   - `intermediate/testbeds.json` (H.7) — scenario titles + assertions from purpose-built testbeds. Each scenario describes a real operational use case from the outside; if a scenario references a terminator pattern your boundary candidates don't cover, surface it as a possible missing terminator. The Scenarios IDs + docstrings carry intent the candidates alone can't.
+4. **Group candidates by external actor.** Multiple HTTP routes that all serve "users" → one terminator. A gRPC server endpoint and an HTTP endpoint that both implement the same external API → still one terminator with two flows.
+5. **For each group, propose a terminator + its flows.** Emit nodes + edges as above. Be conservative on naming — generic but accurate (`Browser User` not `Chrome Desktop User`) so the architect can rename without renaming HP semantics.
+6. **Skip internal boundaries.** Health-check endpoints, debug endpoints, intra-cluster service mesh interfaces. Mark them with a `notes` field saying why you skipped, so the architect can audit.
+7. **Set confidence + provenance** on every emitted node/edge.
+8. **Write `intermediate/boundary.json`.**
 
 ## Discipline
 

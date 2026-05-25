@@ -23,9 +23,30 @@ from pydantic import BaseModel, Field
 from .schema import HpRoleHint, ProjectScan
 
 
+class CandidateEdge(BaseModel):
+    """A typed relationship between two candidate modules — extracted from
+    compose `depends_on`, k8s Service selector matching, or terraform
+    resource dependency. Per locked tuning H.5.a.
+
+    The architect agent turns these into architecture flows (or `refines:`
+    deployment-order edges, for asymmetric init-only relationships)."""
+
+    kind: str                                    # "compose_depends_on" | "compose_port_exposed" | "compose_volume_mount" | "k8s_service_selector" | "k8s_ingress_target" | "tf_resource_dependency" | "dockerfile_exposes"
+    source_candidate: str                        # candidate_id of one end
+    target_candidate: Optional[str] = None       # candidate_id of the other end (None for "port exposed to outside world")
+    evidence: Optional[str] = None               # raw extracted string
+
+
 class ModuleCandidate(BaseModel):
     """One deployment-unit candidate. The LLM decides if this becomes a
-    Stage-5 module + what kind (hardware / software / organizational)."""
+    Stage-5 module + what kind (hardware / software / organizational).
+
+    Per locked tuning H.5: rich structural fields are populated by the
+    format-specific parsers (compose_parser, dockerfile_parser, k8s_parser)
+    so the architect agent can read deployment relationships rather than
+    inferring them. `deployment_config` groups candidates by source
+    configuration (bluerockccpd / agate-test / aws-basic on cloudctlplane);
+    the same logical service can appear in multiple deployments."""
 
     candidate_id: str                            # synthetic short id
     kind_hint: str                               # "container" | "k8s_pod" | "package" | "infra_resource"
@@ -34,17 +55,51 @@ class ModuleCandidate(BaseModel):
     related_files: list[str] = Field(default_factory=list)  # related infra files
     evidence: list[str] = Field(default_factory=list)
 
+    # H.5.a — typed structural fields populated by format-specific parsers
+    deployment_config: Optional[str] = None      # which deployment configuration (compose file basename / k8s namespace) this lives in
+    image: Optional[str] = None                  # `image:` from compose / `FROM` in Dockerfile
+    build_context: Optional[str] = None          # `build:` in compose (in-tree build vs pre-built image)
+    ports_exposed: list[str] = Field(default_factory=list)
+    volumes_mounted: list[str] = Field(default_factory=list)
+    environment_keys: list[str] = Field(default_factory=list)   # env-var NAMES only (values can be secrets)
+    replicas: int = 1
+    profiles: list[str] = Field(default_factory=list)
+    healthcheck: bool = False
+
 
 class InterconnectCandidate(BaseModel):
     """One interconnect candidate — typically a docker-compose network, k8s
-    Service, or implicit network between containers."""
+    Service, or implicit network between containers.
+
+    Per H.5.a: scoped by `deployment_config` so the architect can produce
+    per-deployment interconnect topologies when multiple configurations
+    exist."""
 
     candidate_id: str
-    kind_hint: str                               # "compose_network" | "k8s_service" | "network_policy"
+    kind_hint: str                               # "compose_network" | "k8s_service" | "network_policy" | "k8s_ingress"
     name_hint: Optional[str] = None
     source_file: str
     endpoints_hinted: list[str] = Field(default_factory=list)  # module candidate ids it connects
     evidence: list[str] = Field(default_factory=list)
+
+    # H.5.a
+    deployment_config: Optional[str] = None
+    external: bool = False                       # exposes to outside world (Ingress / LoadBalancer / compose port-publish)
+
+
+class DeploymentConfig(BaseModel):
+    """One deployment configuration — a compose file or k8s namespace.
+
+    Per H.5.b: when multiple compose / k8s configs exist (cloudctlplane has
+    bluerockccpd / agate-test-deployment / aws-basic), each is one
+    DeploymentConfig. Modules appear in N of them; interconnect topologies
+    are per-config; the architect produces a union module set + per-config
+    interconnects."""
+
+    name: str                                    # short id ("bluerockccpd")
+    source_file: str                             # the compose / k8s manifest file
+    kind: str                                    # "compose" | "k8s"
+    candidate_ids: list[str] = Field(default_factory=list)
 
 
 class ArchitectureCandidates(BaseModel):
@@ -52,6 +107,8 @@ class ArchitectureCandidates(BaseModel):
 
     modules: list[ModuleCandidate] = Field(default_factory=list)
     interconnects: list[InterconnectCandidate] = Field(default_factory=list)
+    edges: list[CandidateEdge] = Field(default_factory=list)
+    deployments: list[DeploymentConfig] = Field(default_factory=list)
 
 
 # ─────────────────────────────────────────────────────────────────────
@@ -76,23 +133,35 @@ _PACKAGE_NAME_PYPRJ  = re.compile(r'(?:^|\n)\[(?:tool\.poetry|project)\][^\[]*?n
 
 def extract_candidates(scan: ProjectScan, codebase_root: Path) -> ArchitectureCandidates:
     """Walk the scan output, pull deployment-unit candidates from infra/config
-    files."""
+    files.
+
+    Per locked tuning H.5: dispatches to format-specific parsers
+    (`compose_parser`, `dockerfile_parser`, `k8s_parser`) for the rich
+    structural fields the architect agent needs. Falls back to the
+    regex-based local extractor for package manifests + terraform (the
+    latter is regex-only by design until a `python-hcl2` dep makes sense)."""
     modules: list[ModuleCandidate] = []
     interconnects: list[InterconnectCandidate] = []
+    edges: list[CandidateEdge] = []
+    deployments: list[DeploymentConfig] = []
 
     for f in scan.files:
         if not f.is_significant:
             continue
-        # We focus on infra files + package manifests
         if f.hp_role_hint not in (HpRoleHint.INFRA, HpRoleHint.CONFIG):
             continue
         abs_path = codebase_root / f.path
         content = _read_head(abs_path)
         if content is None:
             continue
-        _process_file(f.path, content, modules, interconnects)
+        _process_file(f.path, content, modules, interconnects, edges, deployments)
 
-    return ArchitectureCandidates(modules=modules, interconnects=interconnects)
+    return ArchitectureCandidates(
+        modules=modules,
+        interconnects=interconnects,
+        edges=edges,
+        deployments=deployments,
+    )
 
 
 def write_candidates(c: ArchitectureCandidates, out_path: Path) -> None:
@@ -123,77 +192,76 @@ def _process_file(
     content: str,
     modules: list[ModuleCandidate],
     interconnects: list[InterconnectCandidate],
+    edges: list[CandidateEdge],
+    deployments: list[DeploymentConfig],
 ) -> None:
+    # Lazy imports so the new parsers' YAML dependency doesn't fire for
+    # the package-manifest / terraform paths.
+    from .compose_parser import parse_compose
+    from .dockerfile_parser import parse_dockerfile
+    from .k8s_parser import parse_k8s
+
     name = Path(rel_path).name.lower()
 
-    # Dockerfile → one module per Dockerfile (the container image)
+    # Dockerfile → typed Dockerfile parse (H.5.a)
     if name == "dockerfile" or name.startswith("dockerfile."):
-        from_lines = [l.strip() for l in content.splitlines() if l.strip().startswith("FROM ")]
-        modules.append(ModuleCandidate(
+        df = parse_dockerfile(content)
+        module = ModuleCandidate(
             candidate_id=_candidate_id_from_path(rel_path),
             kind_hint="container",
             name_hint=_infer_container_name(rel_path),
             source_file=rel_path,
-            evidence=from_lines[:3],
-        ))
-        return
-
-    # docker-compose → multiple modules + a network interconnect
-    if name in {"docker-compose.yml", "docker-compose.yaml", "compose.yml", "compose.yaml"}:
-        # Extract services block — heuristic: find `services:` and then top-level keys
-        services_match = re.search(r"^services:\s*\n((?:[^\n]*\n)*?)(?:^\w|\Z)", content, re.MULTILINE)
-        services_block = services_match.group(1) if services_match else content
-        service_names = _COMPOSE_SERVICE_PATTERN.findall(services_block)
-        service_ids: list[str] = []
-        for svc in service_names:
-            sid = f"compose-{svc}"
-            service_ids.append(sid)
-            modules.append(ModuleCandidate(
-                candidate_id=sid,
-                kind_hint="container",
-                name_hint=svc,
-                source_file=rel_path,
-                evidence=[f"compose service: {svc}"],
-            ))
-        if len(service_ids) >= 2:
-            interconnects.append(InterconnectCandidate(
-                candidate_id=f"compose-network-{Path(rel_path).stem}",
-                kind_hint="compose_network",
-                name_hint="default compose network",
-                source_file=rel_path,
-                endpoints_hinted=service_ids,
-                evidence=[f"implicit network between {len(service_ids)} compose services"],
+            evidence=[
+                f"FROM: {df.from_image}" if df.from_image else "Dockerfile (no FROM extracted)",
+                *([f"CMD: {df.cmd}"] if df.cmd else []),
+                *([f"ENTRYPOINT: {df.entrypoint}"] if df.entrypoint else []),
+                *([f"LABEL.{k}: {v}" for k, v in list(df.labels.items())[:3]]),
+            ],
+            image=df.from_image,
+            ports_exposed=df.exposed_ports,
+            environment_keys=df.env_keys,
+            healthcheck=df.healthcheck,
+        )
+        modules.append(module)
+        # Outward port → external surface edge per port
+        for port in df.exposed_ports:
+            edges.append(CandidateEdge(
+                kind="dockerfile_exposes",
+                source_candidate=module.candidate_id,
+                target_candidate=None,
+                evidence=f"Dockerfile {rel_path}: EXPOSE {port}",
             ))
         return
 
-    # k8s manifests
+    # docker-compose → typed parser dispatch
+    if name in {"docker-compose.yml", "docker-compose.yaml", "compose.yml", "compose.yaml"} \
+            or _is_compose_named(name):
+        mods, ics, eds, deployment = parse_compose(rel_path, content)
+        modules.extend(mods)
+        interconnects.extend(ics)
+        edges.extend(eds)
+        if deployment:
+            deployments.append(deployment)
+        return
+
+    # k8s manifests — typed parser dispatch
     if rel_path.endswith((".yaml", ".yml")) and re.search(r"^apiVersion:", content, re.MULTILINE):
-        for kind_match in _K8S_KIND_PATTERN.finditer(content):
-            kind = kind_match.group(1)
-            # Find the closest name after the kind line
-            name_search_window = content[kind_match.start():kind_match.start() + 600]
-            name_match = _K8S_NAME_PATTERN.search(name_search_window)
-            resource_name = name_match.group(1) if name_match else "unnamed"
-
-            if kind in {"Deployment", "StatefulSet", "DaemonSet", "Job", "CronJob"}:
-                modules.append(ModuleCandidate(
-                    candidate_id=f"k8s-{resource_name}",
-                    kind_hint="k8s_pod",
-                    name_hint=resource_name,
-                    source_file=rel_path,
-                    evidence=[f"k8s {kind}: {resource_name}"],
-                ))
-            elif kind == "Service":
-                interconnects.append(InterconnectCandidate(
-                    candidate_id=f"k8s-svc-{resource_name}",
-                    kind_hint="k8s_service",
-                    name_hint=resource_name,
-                    source_file=rel_path,
-                    evidence=[f"k8s Service: {resource_name}"],
-                ))
+        mods, ics, eds, deployment = parse_k8s(rel_path, content)
+        modules.extend(mods)
+        interconnects.extend(ics)
+        edges.extend(eds)
+        if deployment:
+            deployments.append(deployment)
         return
 
-    # Terraform
+    # Terraform — regex extraction only. Locked tuning H.5.a lists
+    # `terraform_parser.py` (HCL2 via `python-hcl2`) as a sibling of
+    # compose/dockerfile/k8s parsers; deferred to a follow-up commit
+    # because (a) it adds a new dep and (b) tf resources are typically
+    # infra (S3 buckets, IAM roles) rather than process-allocation
+    # targets, so typed `tf_resource_dependency` edges don't help the
+    # architect much in the common case. Re-evaluate after a re-ingest
+    # confirms (or refutes) the gap.
     if rel_path.endswith(".tf"):
         for m in _TERRAFORM_RESOURCE_PATTERN.finditer(content):
             resource_kind, resource_name = m.group(1), m.group(2)
@@ -257,6 +325,15 @@ def _process_file(
                 source_file=rel_path,
                 evidence=[first_line],
             ))
+
+
+_COMPOSE_NAME_VARIANT = re.compile(r"^(docker-)?compose(\.[a-zA-Z0-9_-]+)?\.ya?ml$", re.IGNORECASE)
+
+
+def _is_compose_named(filename: str) -> bool:
+    """Recognize compose-file variants like `compose.prod.yml` /
+    `docker-compose.override.yml`."""
+    return bool(_COMPOSE_NAME_VARIANT.match(filename))
 
 
 def _candidate_id_from_path(rel_path: str) -> str:
