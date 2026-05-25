@@ -155,8 +155,14 @@ def reference_integrity(project: Project) -> ValidationReport:
 
 def hierarchy_consistency(project: Project) -> ValidationReport:
     """Verify hierarchy rules — `parent_state` only on states; sub-states
-    must point at composite parents; processes can only nest under sys/process."""
+    must point at composite parents; processes can only nest under sys/process.
+
+    Per locked HIERARCHICAL_INGEST_DESIGN.md (Branch 3): processes may now
+    nest — a process with `parent: proc_X` is a sub-process at one level
+    deeper than its parent. Non-leaf processes are organizational; they
+    can't carry CSPECs/PSPECs (those belong at leaves)."""
     report = ValidationReport()
+    entities_by_id = {e.id: e for e in project.all_entities()}
 
     for e in project.all_entities():
         # Only states can carry parent_state.
@@ -192,7 +198,83 @@ def hierarchy_consistency(project: Project) -> ValidationReport:
                 f"they don't decompose"
             ))
 
+        # Process with parent must point at sys_root or another process
+        # (HIERARCHICAL_INGEST_DESIGN.md: sub-processes nest under another
+        # process node at one level less deep).
+        if e.kind == EntityKind.PROCESS and e.parent and e.parent != "sys_root":
+            parent = entities_by_id.get(e.parent)
+            if parent is None:
+                report.issues.append(ValidationIssue(
+                    "error", "hierarchy", e.id,
+                    f"process has parent={e.parent!r} but that entity isn't in the dictionary"
+                ))
+            elif parent.kind != EntityKind.PROCESS:
+                report.issues.append(ValidationIssue(
+                    "error", "hierarchy", e.id,
+                    f"process has parent={e.parent!r} which is kind {parent.kind.value!r}; "
+                    f"expected 'process' or 'sys_root'"
+                ))
+
+        # Non-leaf process (one with CHILD PROCESSES) must NOT carry
+        # needs_cspec or a PSPEC (per HIERARCHICAL_INGEST_DESIGN.md Q3 —
+        # specs live at hierarchy leaves). "Hierarchy leaf" is distinct
+        # from `_is_leaf_process`'s "spec leaf": a process with STATE
+        # children but no PROCESS children IS still a hierarchy leaf —
+        # the states ARE its CSPEC, not a sub-decomposition.
+        if e.kind == EntityKind.PROCESS and _has_child_processes(project, e):
+            if e.needs_cspec:
+                report.issues.append(ValidationIssue(
+                    "error", "hierarchy", e.id,
+                    f"non-leaf process (has child processes) has needs_cspec=true; "
+                    f"specs live at leaves — push the CSPEC down into the child"
+                ))
+            for p in project.all_pspecs():
+                if p.parent_process == e.id:
+                    report.issues.append(ValidationIssue(
+                        "error", "hierarchy", e.id,
+                        f"non-leaf process has PSPEC {p.id!r} attached; specs live "
+                        f"at leaves — push the PSPEC down into a child or remove decomposition"
+                    ))
+
+    # Flow refinement chain — if a flow has refined_source/refined_target,
+    # the refined endpoint must be a descendant of the original endpoint
+    # (per H.1.3 + Branch 3 process-level refinement). A level-1 flow
+    # `proc_prism → proc_pulse` refined to `proc_prism_resolvers →
+    # proc_pulse_ingest` requires proc_prism_resolvers.parent == proc_prism.
+    for f in project.all_flows():
+        for end_role, refined, original in (
+            ("source", f.refined_source, f.source),
+            ("target", f.refined_target, f.target),
+        ):
+            if not refined or refined == original:
+                continue
+            # Walk refined's parent chain up; expect to encounter `original`
+            if not _is_ancestor(original, refined, entities_by_id):
+                report.issues.append(ValidationIssue(
+                    "warning", "hierarchy", f.id,
+                    f"flow refined_{end_role}={refined!r} is not a descendant of "
+                    f"{end_role}={original!r} via the process `parent` chain; "
+                    f"the refinement doesn't walk a valid hierarchy"
+                ))
+
     return report
+
+
+def _is_ancestor(ancestor_id: str, descendant_id: str, by_id: dict[str, "Entity"]) -> bool:
+    """True if walking up `parent` from descendant_id hits ancestor_id within
+    a sane depth. Used by the flow-refinement-chain check."""
+    if ancestor_id == "sys_root":
+        return True  # sys_root is the ancestor of everything
+    cursor = by_id.get(descendant_id)
+    depth = 0
+    while cursor is not None and depth < 10:
+        if cursor.id == ancestor_id:
+            return True
+        if not cursor.parent or cursor.parent == "sys_root":
+            return False
+        cursor = by_id.get(cursor.parent)
+        depth += 1
+    return False
 
 
 def coverage_metrics(project: Project) -> ValidationReport:
@@ -244,17 +326,29 @@ def coverage_metrics(project: Project) -> ValidationReport:
 
 
 def _is_leaf_process(project: Project, e: Entity) -> bool:
-    """A leaf process is a process with no children in the entities table
-    AND not flagged needs_cspec=True. Such a process needs a PSPEC."""
+    """A "spec-leaf" process: needs a PSPEC.
+
+    True iff the process is a hierarchy leaf (no child processes) AND not
+    state-rich (`needs_cspec` is False). Used by Rule 1 of the PSPEC
+    coverage check."""
     if e.kind != EntityKind.PROCESS:
         return False
     if e.needs_cspec:
         return False
-    # If any other entity has this as parent, it's decomposed → not a leaf.
+    return not _has_child_processes(project, e)
+
+
+def _has_child_processes(project: Project, e: Entity) -> bool:
+    """True iff any other entity has `parent == e.id` AND kind=process.
+
+    Distinct from `_is_leaf_process`: this is purely a hierarchy question.
+    A process with STATE children (a CSPEC) but no PROCESS children is
+    still a hierarchy leaf — its states *are* its spec, not a deeper
+    decomposition."""
     for other in project.all_entities():
         if other.parent == e.id and other.kind == EntityKind.PROCESS:
-            return False
-    return True
+            return True
+    return False
 
 
 def _process_inputs(project: Project, process_id: str) -> list[Flow]:
