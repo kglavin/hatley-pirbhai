@@ -32,7 +32,8 @@ Runs a 7-phase pipeline:
 | 0.5 | External-context solicitation (H.8.a) | Orchestrator conversation — auto-detect with fallback ask | `external-context/<category>/*` (user-managed) |
 | 1 | Boundary candidate prep + LLM | Script + [`hp-ingest-boundary`](hp-ingest-boundary.md) | `intermediate/boundary.json` |
 | 2 | Process candidate prep + LLM | Script + [`hp-ingest-processes`](hp-ingest-processes.md) | `intermediate/processes.json` |
-| 3+4 | State-machine detect + parallel LLM per leaf | Script + N×[`hp-ingest-leaf`](hp-ingest-leaf.md) (3–5 concurrent) | `intermediate/leaf-<proc>.json` per process |
+| 2-recurse | Hierarchical Stage-2 recursion (H.3) | Pure Python (`recursion.py`) + recursive [`hp-ingest-processes`](hp-ingest-processes.md) dispatches | `intermediate/<parent-proc-id>/processes.json` per recursing subsystem |
+| 3+4 | State-machine detect + parallel LLM per leaf | Script + N×[`hp-ingest-leaf`](hp-ingest-leaf.md) (3–5 concurrent) — leaves can be at any recursion depth | `intermediate/leaf-<proc>.json` per process |
 | Merge 1 | Deterministic merge | Pure Python (`merge_graph.py`) | `intermediate/hp-graph.json` + merge report |
 | 5 | Architecture candidate prep + rationale gather + LLM | Script + [`hp-ingest-architect`](hp-ingest-architect.md) | `intermediate/architecture.json` (+ `rationale-sources.json` for the architect's input) |
 | Merge 2 | Final merge with allocations | Pure Python | Updated `hp-graph.json` |
@@ -155,6 +156,52 @@ Dispatch `hp-ingest-processes` subagent. Pass:
 - `scan.json`, `boundary.json`, `process-candidates.json`
 - Required output: `<project-dir>/intermediate/processes.json`
 
+### Phase 2-recurse — Hierarchical decomposition (HIERARCHICAL_INGEST_DESIGN.md)
+
+Per locked H.3 + Branch 3: after Stage 2 emits `processes.json`, decide which processes deserve a **recursive Stage-2 dispatch** to produce their internal level-2 sub-processes. Cloudctlplane-scale monorepos contain 8+ subsystems compressed into single level-1 bubbles; this phase fills out the decomposition.
+
+```bash
+uv run python -m hp_toolkit.ingest.recursion \
+    --processes <project-dir>/intermediate/processes.json \
+    --scan <project-dir>/intermediate/scan.json \
+    --intermediate <project-dir>/intermediate \
+    --current-depth 1 \
+    [--threshold-files 30] \
+    [--threshold-lines 3000] \
+    [--max-depth 3] \
+    [--no-recurse]
+```
+
+The CLI:
+- Walks every process in `processes.json`.
+- For each, decides `should_recurse` per the locked Q2 + Q4 thresholds (default: ≥30 files AND ≥3000 lines AND depth < 3).
+- For passing processes: writes scoped `intermediate/<proc-id>/scan.json` + `intermediate/<proc-id>/process-candidates.json` containing only the subsystem's files.
+- Appends `RECURSE_DECISION` + `RECURSE_INTO` events to `progress.log`.
+- Emits JSON to stdout listing the subsystems queued for LLM dispatch.
+
+**For each subsystem in the output:**
+
+Dispatch `hp-ingest-processes` AGAIN as a recursive subagent. Pass:
+- The scoped `scan.json` from the subsystem dir
+- The PARENT processes.json (so the sub-agent knows which level-1 process it's decomposing — referenced via `parent_process_id`)
+- The scoped `process-candidates.json` from the subsystem dir
+- Required output: `<project-dir>/intermediate/<parent-proc-id>/processes.json`
+
+Each sub-agent emits IR nodes with `parent: <parent-proc-id>` per the H.3 hierarchy.
+
+**Then recurse again on the sub-result:**
+
+```bash
+uv run python -m hp_toolkit.ingest.recursion \
+    --processes <project-dir>/intermediate/<parent-proc-id>/processes.json \
+    --scan <project-dir>/intermediate/<parent-proc-id>/scan.json \
+    --intermediate <project-dir>/intermediate \
+    --current-depth 2 \
+    --threshold-files <same> --threshold-lines <same> --max-depth <same>
+```
+
+The depth cap (default 3) bounds the tree. The orchestrator can `--no-recurse` for fast/flat runs.
+
 ### Phases 3 + 4 — Per-process leaf analysis (parallel)
 
 Detect state-machine candidates first (deterministic):
@@ -166,7 +213,7 @@ uv run python -m hp_toolkit.ingest.state_machine_detector \
     --output <project-dir>/intermediate/state-machine-candidates.json
 ```
 
-Then for **each leaf process** (every `process` node in `processes.json` that doesn't have child processes), dispatch one `hp-ingest-leaf` subagent. **Run them in parallel — up to 5 concurrent via the Task tool's parallel-dispatch feature.** Each invocation gets:
+Then for **each leaf process** dispatch one `hp-ingest-leaf` subagent. **Run them in parallel — up to 5 concurrent via the Task tool's parallel-dispatch feature.** Per H.3 hierarchy: a leaf process is one with **no child processes** in the IR — recursion-tree leaves can be at any level (proc_prism_resolvers at level 2 is a leaf if it has no further sub-processes). Collect leaves by walking the full processes.json + every `<parent-proc-id>/processes.json` written by the recursion phase. Each invocation gets:
 - Its one target process node (from `processes.json`)
 - Path to `scan.json` (for file metadata)
 - Path to `state-machine-candidates.json` (for state extraction hints)
