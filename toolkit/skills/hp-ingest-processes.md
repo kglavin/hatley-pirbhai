@@ -60,17 +60,18 @@ Output JSON shape:
 
 When invoked, conversationally:
 
-1. **Read pre-stage file drops (architect guidance + external evidence).**
+1. **Read the project glossary (H.4.c).** Load `intermediate/glossary.curated.json` (if present). When naming processes + data stores + internal flows, prefer terms from this glossary over generic English. The glossary categories `process`, `event`, and `artifact` are the most relevant here — they map directly to HP process names, flow labels, and data store names.
+2. **Read pre-stage file drops (architect guidance + external evidence).**
    - **Hints:** check `intermediate/hints/processes.md`. If present, treat its contents as binding architect guidance — common cases are "cluster at directory depth N" / "collapse these clusters" / "skip these as infrastructure-only". Append a `HINT_LOADED` line: `Bash: echo "$(date -u +%Y-%m-%dT%H:%M:%SZ) HINT_LOADED stage=2 agent=hp-ingest-processes path=intermediate/hints/processes.md" >> <intermediate-dir>/progress.log`.
    - **External context:** read every file under `external-context/qa-test-plans/` (acceptance criteria — process-level evidence) and `external-context/adrs/` (architecture decisions about process boundaries). Use them to validate process names + flag possible processes the import-graph alone wouldn't surface. Record source paths in `provenance.external_context_used` on any IR node that drew on them.
-2. **Read inputs.** `scan.json`, `boundary.json`, `process-candidates.json`. Skim the file lists in each cluster to understand what's inside (the role-hint mix gives a strong starting point).
-3. **Cluster-by-cluster decision:** for each candidate, decide promote / merge with sibling / drop.
-4. **Look at the import edges between clusters** to inform the flow graph. If cluster A's files frequently import from cluster B, A consumes data from B → draw a flow B → A.
-5. **Cross-reference with boundary terminators.** Each terminator has a boundary flow; identify which Stage-2 process handles it. Add the refinement (`refined_target` for inbound flows, `refined_source` for outbound).
-6. **Cap process count.** Aim for 5–10 internal processes at Stage 2 for a cloudctlplane-scale project. More is fine but means decomposition is happening at too low a level. Use process subdirectories to surface fewer top-level processes.
-7. **Skip clusters that are infrastructure-only** (e.g., a `src/utils/` cluster with only helpers). Note in a `notes` field for architect audit.
-8. **Set confidence + provenance** on every emitted node/edge.
-9. **Write `intermediate/processes.json`.**
+3. **Read inputs.** `scan.json`, `boundary.json`, `process-candidates.json`. Skim the file lists in each cluster to understand what's inside (the role-hint mix gives a strong starting point).
+4. **Cluster-by-cluster decision:** for each candidate, decide promote / merge with sibling / drop.
+5. **Look at the import edges between clusters** to inform the flow graph. If cluster A's files frequently import from cluster B, A consumes data from B → draw a flow B → A.
+6. **Cross-reference with boundary terminators.** Each terminator has a boundary flow; identify which Stage-2 process handles it. Add the refinement (`refined_target` for inbound flows, `refined_source` for outbound).
+7. **Cap process count.** Aim for 5–10 internal processes at Stage 2 for a cloudctlplane-scale project. More is fine but means decomposition is happening at too low a level. Use process subdirectories to surface fewer top-level processes.
+8. **Skip clusters that are infrastructure-only** (e.g., a `src/utils/` cluster with only helpers). Note in a `notes` field for architect audit.
+9. **Set confidence + provenance** on every emitted node/edge.
+10. **Write `intermediate/processes.json`.**
 
 ### Required checklist before emit (per cloudctlplane H.1)
 

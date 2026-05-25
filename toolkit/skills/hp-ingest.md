@@ -23,11 +23,14 @@ Runs a 7-phase pipeline:
 | Phase | Step | Mechanism | Output |
 |---|---|---|---|
 | 0 | Scan codebase | Pure Python (`scan_codebase`) | `intermediate/scan.json` — per-file role hint + significance |
+| 0b | Documentation corpus | Pure Python (`docs_walker.py`) | `intermediate/docs-corpus.json` — typed doc-file inventory |
+| 0c | Glossary candidates (extract) | Pure Python (`glossary_extractor.py`) | `intermediate/glossary-candidates.json` — deterministic harvest |
+| 0c-curate | Glossary curation (optional LLM) | [`hp-ingest-glossary`](hp-ingest-glossary.md) | `intermediate/glossary.curated.json` — canonical 30–60-term glossary |
 | 1 | Boundary candidate prep + LLM | Script + [`hp-ingest-boundary`](hp-ingest-boundary.md) | `intermediate/boundary.json` |
 | 2 | Process candidate prep + LLM | Script + [`hp-ingest-processes`](hp-ingest-processes.md) | `intermediate/processes.json` |
 | 3+4 | State-machine detect + parallel LLM per leaf | Script + N×[`hp-ingest-leaf`](hp-ingest-leaf.md) (3–5 concurrent) | `intermediate/leaf-<proc>.json` per process |
 | Merge 1 | Deterministic merge | Pure Python (`merge_graph.py`) | `intermediate/hp-graph.json` + merge report |
-| 5 | Architecture candidate prep + LLM | Script + [`hp-ingest-architect`](hp-ingest-architect.md) | `intermediate/architecture.json` |
+| 5 | Architecture candidate prep + rationale gather + LLM | Script + [`hp-ingest-architect`](hp-ingest-architect.md) | `intermediate/architecture.json` (+ `rationale-sources.json` for the architect's input) |
 | Merge 2 | Final merge with allocations | Pure Python | Updated `hp-graph.json` |
 | Review | Repair + validate | [`hp-ingest-review`](hp-ingest-review.md) | Validation pass + `ingest-report.md` (+ optional `ingest-conflicts.md` for incremental) |
 | Emit | IR → YAML | Pure Python (`emit_dictionary.py`) | `dictionary.yaml` |

@@ -59,6 +59,7 @@ from hp_toolkit.ingest.architecture_candidates import ArchitectureCandidates
 from hp_toolkit.ingest.boundary_candidates import BoundaryCandidates
 from hp_toolkit.ingest.docs_walker import DocCorpus, load_corpus, walk_docs, write_corpus
 from hp_toolkit.ingest.external_context import ensure_external_context_dir, summarize_presence
+from hp_toolkit.ingest.glossary_extractor import GlossaryCandidates, extract as extract_glossary, write_candidates as write_glossary_candidates
 from hp_toolkit.ingest.hints import ensure_hints_dir, list_dropped_hints
 from hp_toolkit.ingest.process_candidates import ProcessCandidates
 from hp_toolkit.ingest.progress_log import log_done, log_skip, log_start
@@ -256,6 +257,31 @@ def main(argv: list[str] | None = None) -> int:
         print(_color(f"  wrote {docs_path.name} ({len(corpus.files)} doc files)", "32"))
         log_done(intermediate, stage="0-docs", agent="docs_walker",
                  docs=len(corpus.files))
+    print()
+
+    # ─── Stage 0c: glossary candidates ──────────────────────────────
+    # Deterministic extraction of project-vocabulary terms from the
+    # doc corpus. Output feeds the LLM curator (hp-ingest-glossary
+    # skill) which produces the curated 30–60-entry glossary the
+    # naming agents consume. Per locked tuning H.4.a.
+    gc_path = intermediate / "glossary-candidates.json"
+    existing_gc = _try_load(gc_path, GlossaryCandidates) if args.resume else None
+    if existing_gc is not None:
+        print(_color(f"[resume] skipping Stage 0c — {gc_path.name} present "
+                     f"({len(existing_gc.terms)} candidates)", "36"))
+        log_skip(intermediate, stage="0-glossary", agent="glossary_extractor",
+                 reason="output_present", terms=len(existing_gc.terms))
+    else:
+        log_start(intermediate, stage="0-glossary", agent="glossary_extractor")
+        print(_color("==> Stage 0c — glossary candidates", "1"))
+        gc = extract_glossary(corpus, codebase)
+        write_glossary_candidates(gc, gc_path)
+        print(_color(f"  wrote {gc_path.name} ({len(gc.terms)} candidate terms)", "32"))
+        if gc.terms:
+            top = ", ".join(t.term for t in gc.terms[:8])
+            print(f"    top: {top}")
+        log_done(intermediate, stage="0-glossary", agent="glossary_extractor",
+                 terms=len(gc.terms))
     print()
 
     # The candidate-prep block runs by default. --no-architecture skips
