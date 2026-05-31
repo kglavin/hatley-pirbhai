@@ -113,7 +113,7 @@ def build_dictionary_dict(graph: IRGraph) -> dict[str, Any]:
             flow_counter += 1
         elif e.kind == IREdgeKind.TRIGGERS:
             txn_id = _transition_id(e)
-            transitions[txn_id] = _emit_transition(e)
+            transitions[txn_id] = _emit_transition(e, by_id=by_id)
         elif e.kind == IREdgeKind.ALLOCATES_TO:
             _apply_allocation(e, architecture_modules, entities)
         elif e.kind == IREdgeKind.PHYSICAL_EDGE:
@@ -382,16 +382,33 @@ def _emit_flow(e: IREdge) -> dict[str, Any]:
     # flow from terminator to sys_root); Stage 2 = level 1 (internal flow).
     # The validator uses level to drive its hierarchy checks.
     level = 0 if e.stage == 1 else 1
-    return {
+    out: dict[str, Any] = {
         "label": e.label or f"{e.source} → {e.target}",
         "kind": "data" if e.kind == IREdgeKind.DATA_FLOW else "control",
         "level": level,
         "source": e.source,
         "target": e.target,
     }
+    # H.1 (Branch 1): refined_source / refined_target carry the level-N+1
+    # endpoint for boundary flows whose level-N endpoint is sys_root or a
+    # parent process. The cytoscape + d2 + mermaid level-N+1 DFD renderers
+    # all read these fields to substitute the visible endpoint into the
+    # decomposed view; without them the renderer draws edges to/from a
+    # node that doesn't exist at that level (the level-1 cytoscape DFD
+    # silently fails to lay anything out when an edge points at sys_root,
+    # which is at level 0).
+    refined_source = e.model_dump().get("refined_source")
+    refined_target = e.model_dump().get("refined_target")
+    if refined_source:
+        out["refined_source"] = refined_source
+    if refined_target:
+        out["refined_target"] = refined_target
+    if getattr(e, "optional", None):
+        out["optional"] = True
+    return out
 
 
-def _emit_transition(e: IREdge) -> dict[str, Any]:
+def _emit_transition(e: IREdge, by_id: Optional[dict[str, IRNode]] = None) -> dict[str, Any]:
     out: dict[str, Any] = {
         "label": e.label or f"{e.source} → {e.target}",
         "source_state": e.source,
@@ -399,10 +416,25 @@ def _emit_transition(e: IREdge) -> dict[str, Any]:
     }
     extras = e.model_dump(exclude={"source", "target", "kind", "stage", "confidence", "provenance", "label"})
     extras = {k: v for k, v in extras.items() if v is not None}
+    # `parent_machine` is REQUIRED on a Transition. The leaf agent may emit
+    # it directly on the IREdge; otherwise derive from the source state's
+    # `parent_machine`.
     if "parent_machine" in extras:
         out["parent_machine"] = extras.pop("parent_machine")
+    elif by_id:
+        src_node = by_id.get(e.source)
+        if src_node and src_node.parent_machine:
+            out["parent_machine"] = src_node.parent_machine
+        elif src_node and src_node.parent:
+            # State's `parent` (the owning process id) doubles as parent_machine
+            out["parent_machine"] = src_node.parent
+    # `event` is REQUIRED. Default to the edge label so a level-1 trigger
+    # shows up cleanly even when the leaf agent didn't break out event vs
+    # action explicitly.
     if "event" in extras:
         out["event"] = extras.pop("event")
+    else:
+        out["event"] = e.label or f"{e.source} → {e.target}"
     if "action" in extras:
         out["action"] = extras.pop("action")
     out.update(extras)

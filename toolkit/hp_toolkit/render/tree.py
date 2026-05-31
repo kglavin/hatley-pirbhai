@@ -266,9 +266,17 @@ def _build_modernization(project: Project, project_dir: Path) -> TreeNode:
 
 def _build_reference(project: Project) -> TreeNode:
     s = TreeNode(label="Reference", kind="section")
+    # Default link → HTML viewer; the page itself has a "Download raw" button
+    # for users who want the .yaml verbatim. Prevents the browser-downloads-
+    # the-file UX hiccup from clicking the sidebar entry.
     s.add(TreeNode(
-        label="Dictionary (dictionary.yaml)",
+        label="Dictionary (browse)",
         kind="artifact",
+        href="dictionary.generated.html",
+    ))
+    s.add(TreeNode(
+        label="Dictionary (raw YAML, download)",
+        kind="external",
         href="dictionary.yaml",
     ))
     s.add(TreeNode(

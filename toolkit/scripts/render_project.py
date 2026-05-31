@@ -33,6 +33,7 @@ from hp_toolkit.render import (
     adr as render_adr,
     index as render_index,
     markdown_artifact as render_md,
+    dictionary_browser as render_dict_browser,
     pdf as render_pdf,
 )
 from hp_toolkit.render.tree import build_project_tree, TreeNode
@@ -167,6 +168,9 @@ def main(project_dir: Path, *, pdf_only: bool = False, no_pdf: bool = False) -> 
     if runbook_dir.is_dir() and any(runbook_dir.glob("*.md")):
         render_runbook_htmls(project_dir, tree=tree)
 
+    # ─── Dictionary browser (raw YAML wrapped with syntax highlighting) ───
+    render_dictionary_browser(project_dir, tree=tree)
+
     # ─── Project portal index ───
     render_project_index(project_dir, project)
 
@@ -219,6 +223,27 @@ def _extract_title(md_text: str) -> str | None:
             # First non-empty line is not an H1 — give up
             return None
     return None
+
+
+def render_dictionary_browser(project_dir: Path, *, tree: TreeNode | None = None) -> None:
+    """Wrap `dictionary.yaml` in a sidebar'd HTML viewer with Prism.js
+    syntax highlighting + a Download-raw button. Solves the "browser
+    downloads the YAML instead of showing it" UX."""
+    yaml_path = project_dir / "dictionary.yaml"
+    if not yaml_path.exists():
+        return
+    print(_color("==> Dictionary browser (HTML wrap of dictionary.yaml)", "1"))
+    html = render_dict_browser.render_dictionary_browser_html(
+        yaml_text=yaml_path.read_text(),
+        tree=tree,
+        current_path="dictionary.generated.html",
+        title=f"{project_dir.name} — dictionary.yaml",
+        download_href="dictionary.yaml",
+    )
+    out = project_dir / "dictionary.generated.html"
+    out.write_text(html)
+    print(f"  wrote {out.name} ({len(html)} bytes)")
+    print()
 
 
 def render_project_index(project_dir: Path, project) -> None:

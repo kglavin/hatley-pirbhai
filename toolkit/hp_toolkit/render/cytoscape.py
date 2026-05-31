@@ -499,7 +499,7 @@ _CONTEXT_HTML_TEMPLATE = """<!DOCTYPE html>
       }}
       var ref = hpRefMap[d.kind];
       if (ref) {{
-        html += '<p style="font-size:11px;color:#888;margin-top:10px;"><a href="' + hpRefBase + ref + '">[?] What is a ' + d.kind.replace('-optional','').replace('-grid','') + '?</a> &middot; <a href="../dictionary.yaml">dictionary entry</a></p>';
+        html += '<p style="font-size:11px;color:#888;margin-top:10px;"><a href="' + hpRefBase + ref + '">[?] What is a ' + d.kind.replace('-optional','').replace('-grid','') + '?</a> &middot; <a href="../dictionary.generated.html">dictionary entry</a></p>';
       }}
       render(html);
     }});
@@ -556,7 +556,7 @@ def _build_nav(project: Project, drill_target: str | None) -> str:
     parts = ["Level 0 (top of hierarchy)."]
     if drill_target:
         parts.append(f'<strong>↓ Drill down:</strong> <a href="{drill_target}">Level-1 DFD</a> &middot;')
-    parts.append('<a href="../dictionary.yaml">Dictionary</a> &middot;')
+    parts.append('<a href="../dictionary.generated.html">Dictionary</a> &middot;')
     parts.append('<a href="../../../toolkit/reference/HP_QUICK_REF.md">HP Reference</a>')
 
     nav = '<p style="margin:4px 0 4px 0;">' + " ".join(parts) + "</p>"
@@ -722,7 +722,7 @@ def _build_dfd_nav(project: Project) -> str:
     return (
         '<p style="margin:4px 0 4px 0;"><strong>↑ Parent:</strong> '
         '<a href="../00-context/context.generated.html">Level-0 Context Diagram</a> '
-        '&middot; <a href="../dictionary.yaml">Dictionary</a> '
+        '&middot; <a href="../dictionary.generated.html">Dictionary</a> '
         '&middot; <a href="../../../toolkit/reference/HP_QUICK_REF.md">HP Reference</a></p>\n'
         '    <p style="margin:0 0 12px 0;font-size:11px;color:#888;">'
         'Tip: <strong>double-click</strong> any double-bordered bubble '
@@ -1094,7 +1094,7 @@ def _build_arch_nav(project: Project, view: str) -> str:
     return (
         f'<a href="../00-context/context.generated.html">↑ Context</a>'
         f' &middot; <a href="../01-level1/dfd.generated.html">↑ DFD</a>'
-        f' &middot; <a href="../dictionary.yaml">dictionary</a>'
+        f' &middot; <a href="../dictionary.generated.html">dictionary</a>'
         f' &middot; <span style="color:#888;">{view}</span>'
     )
 
