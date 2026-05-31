@@ -1,0 +1,354 @@
+# Solar Local Stack — Naming Dictionary
+#
+# HP's Requirements Dictionary in YAML form. This is the canonical source
+# for entity identifiers and labels in the solar dogfood project.
+# Artifacts (Mermaid, HTML, D2, SVGs) reference entities by their
+# stable_id; rendering pulls labels from this file at render time.
+#
+# Rename = edit a label here, then regenerate dependent artifacts.
+#
+# Schema:
+#   project, version, last_updated  — metadata
+#   entities/<id>                   — system, terminators, processes (bubbles)
+#   flows/<id>                      — data and control flows
+#   edges/<id>                      — non-data edges (e.g., physical AC)
+#
+# Each entity carries: kind, label, level, description, optional fields.
+# Each flow carries:   source, target, kind, medium, level, optional notes.
+
+project: Solar Local Stack
+version: 0.1
+last_updated: 2026-05-22
+
+# ─────────────────────────────────────────────────────────────────────
+# ENTITIES — the system and its terminators (level 0); internal bubbles
+# at higher levels get added here as decomposition proceeds.
+# ─────────────────────────────────────────────────────────────────────
+entities:
+
+  sys_root:
+    kind: system
+    label: "Solar Local Stack"
+    level: 0
+    description: |
+      The orchestration software + local telemetry abstraction layer —
+      the system under design. Replaces dependence on Hoymiles S-Miles
+      Cloud. Implements dynamic excess-solar diversion, auto-discharge at
+      night, and outage coordination with the Battery System.
+
+  term_inverters:
+    kind: terminator
+    label: "Solar Inverters"
+    level: 0
+    description: |
+      Microinverters (Hoymiles HMS-2000-4T-NA) performing per-channel
+      MPPT and DC-AC conversion. Telemetry via Sub-1G RF to a DTU or
+      OpenDTU/AhoyDTU gateway.
+
+  term_meter:
+    kind: terminator
+    label: "Net Power Meter"
+    level: 0
+    description: |
+      Utility-grade smart meter (Chint DTSU666) sensing net grid power
+      direction over RS485 Modbus RTU. Primary sensor for the diversion
+      loop — its sign tells the system whether the house is exporting
+      or importing.
+
+  term_battery_system:
+    kind: terminator
+    label: "Battery System"
+    level: 0
+    description: |
+      Battery inverter-charger plus GX gateway (Victron MultiPlus + Cerbo
+      GX). Two-way MQTT and Modbus TCP. Handles outage transfer (<20 ms)
+      and ESS night-discharge natively via Venus OS.
+
+  term_grid:
+    kind: terminator
+    label: "Utility Grid"
+    level: 0
+    description: |
+      External utility (PG&E) under zero-export tariff. Observed via the
+      Net Power Meter; not addressed by the system directly. Compliance:
+      PG&E non-export rule + NEC 690.12 rapid shutdown.
+
+  term_user:
+    kind: terminator
+    label: "Owner"
+    level: 0
+    description: |
+      The homeowner. Configures the system, issues manual overrides,
+      reviews dashboards, receives alerts.
+
+  term_smiles_cloud:
+    kind: terminator
+    label: "S-Miles Cloud"
+    level: 0
+    optional: true
+    description: |
+      Hoymiles cloud monitoring platform. Optional terminator — off by
+      default; only used if the owner wants belt-and-suspenders cloud
+      forwarding. The vendor name is kept in the label because the
+      meaning of this terminator is specifically "the vendor cloud the
+      system is replacing."
+
+  # ─── Level 1 — internal processes (bubbles inside sys_root) ───
+  # Decomposition locked 2026-05-22 via 01-level1/proposal.md.
+  # Working names below pending the level-1 naming review.
+
+  proc_acquire_telemetry:
+    kind: process
+    label: "Acquire Telemetry"          # working name
+    level: 1
+    parent: sys_root
+    description: |
+      Multi-protocol ingest layer. Owns the device-facing protocols
+      (Sub-1G RF or OpenDTU, Modbus RTU, MQTT/Modbus TCP); normalizes
+      raw frames into uniform internal data. Single writer to
+      store_system_state.
+
+  proc_compute_balance:
+    kind: process
+    label: "Energy Manager"             # renamed from "Compute Energy Balance" via naming-review
+    level: 1
+    parent: sys_root
+    needs_cspec: true
+    description: |
+      The brain. Implements the diversion control loop, the night-
+      discharge logic, and the outage handling (per Decision 2: outage
+      is a mode of this bubble's CSPEC, not a separate process). State-
+      rich → requires a CSPEC at the next stage. Also the source of
+      alert events (per Decision 5).
+
+  proc_dispatch_commands:
+    kind: process
+    label: "Dispatch Commands"          # working name
+    level: 1
+    parent: sys_root
+    description: |
+      Output-side adapter. Translates internal commands (cmd_setpoint,
+      cmd_inverter_limit) into vendor-specific protocols and writes
+      them to actuators.
+
+  proc_serve_ui:
+    kind: process
+    label: "Serve UI"                   # working name
+    level: 1
+    parent: sys_root
+    description: |
+      Presentation. Renders dashboards from store_system_state, surfaces
+      alerts emitted by proc_compute_balance.
+
+  proc_handle_user_input:
+    kind: process
+    label: "Handle Input"               # renamed from "Handle User Input" via naming-review
+    level: 1
+    parent: sys_root
+    description: |
+      Owner-facing input — configuration, manual overrides, enable/
+      disable.
+
+  proc_cloud_forward:
+    kind: process
+    label: "Cloud Forward"              # working name
+    level: 1
+    parent: sys_root
+    optional: true
+    description: |
+      Optional telemetry forward to S-Miles Cloud when enabled.
+      Separated from proc_acquire_telemetry to make optionality
+      explicit (per Decision 1, 5-bubble default kept the optional 6th).
+
+  # ─── Level 1 — data stores ───
+
+  store_system_state:
+    kind: data_store
+    label: "System State"               # working name
+    level: 1
+    parent: sys_root
+    description: |
+      Normalized, unified system-state snapshot. Per Decision 4, modeled
+      as an explicit data store rather than implicit flows. Single
+      writer (proc_acquire_telemetry); multiple readers
+      (proc_compute_balance, proc_serve_ui, proc_cloud_forward).
+
+# ─────────────────────────────────────────────────────────────────────
+# FLOWS — labeled data and control flows crossing entities.
+# Level-0 flows are between sys_root and terminators.
+# Higher-level flows (between internal bubbles) appear as decomposition
+# proceeds.
+# ─────────────────────────────────────────────────────────────────────
+flows:
+
+  flow_f1_inverter_telemetry:
+    label: "F1: per-channel telemetry"
+    source: term_inverters
+    target: sys_root
+    kind: data
+    medium: "Sub-1G RF → DTU-Pro-S or OpenDTU"
+    level: 0
+    notes: "~30 s native polling; near-realtime via OpenDTU."
+
+  flow_f2_power_limit:
+    label: "F2: power-limit setpoints"
+    source: sys_root
+    target: term_inverters
+    kind: control
+    medium: "OpenDTU only (not via official DTU)"
+    level: 0
+    notes: "Conditional on DTU architectural choice. See PLAN.md > Open Questions."
+
+  flow_f3_net_grid_power:
+    label: "F3: net grid power, V/I/PF"
+    source: term_meter
+    target: sys_root
+    kind: data
+    medium: "RS485 Modbus RTU"
+    level: 0
+    notes: "Primary sensing input for the diversion loop."
+
+  flow_f4_battery_state:
+    label: "F4: SoC, mode, AC-in"
+    source: term_battery_system
+    target: sys_root
+    kind: data
+    medium: "MQTT / Modbus TCP"
+    level: 0
+    notes: "Inbound side of a bidirectional channel."
+
+  flow_f5_battery_command:
+    label: "F5: max-charge, grid setpoint"
+    source: sys_root
+    target: term_battery_system
+    kind: control
+    medium: "MQTT publish"
+    level: 0
+    notes: "Primary actuating output for the diversion loop."
+
+  flow_f6_user_input:
+    label: "F6: config, override"
+    source: term_user
+    target: sys_root
+    kind: "data+control"
+    medium: "UI"
+    level: 0
+    notes: "Mostly config; some commands are control-flow."
+
+  flow_f7_user_view:
+    label: "F7: dashboards, alerts"
+    source: sys_root
+    target: term_user
+    kind: data
+    medium: "UI"
+    level: 0
+
+  flow_f8_cloud_forward:
+    label: "F8: optional telemetry fwd"
+    source: sys_root
+    target: term_smiles_cloud
+    kind: data
+    medium: "HTTPS"
+    level: 0
+    optional: true
+    notes: "Off by default; only used if owner wants Hoymiles cloud retention."
+
+  # ─── Level 1 — internal flows (between bubbles and the store) ───
+  # Style per Decision 3: event-driven (publishes on state change),
+  # not polling. Names are working names pending naming review.
+
+  flow_telemetry_to_state:
+    label: "normalized state"
+    source: proc_acquire_telemetry
+    target: store_system_state
+    kind: data
+    level: 1
+    notes: "Sole writer path into store_system_state."
+
+  flow_state_to_brain:
+    label: "system_state"
+    source: store_system_state
+    target: proc_compute_balance
+    kind: data
+    level: 1
+    notes: "Brain reads current state to compute commands."
+
+  flow_state_to_ui:
+    label: "system_state"
+    source: store_system_state
+    target: proc_serve_ui
+    kind: data
+    level: 1
+
+  flow_state_to_cloud:
+    label: "system_state"
+    source: store_system_state
+    target: proc_cloud_forward
+    kind: data
+    level: 1
+    optional: true
+
+  flow_cmd_setpoint:
+    label: "cmd_setpoint"
+    source: proc_compute_balance
+    target: proc_dispatch_commands
+    kind: control
+    level: 1
+    notes: "Battery max-charge / grid-setpoint commands."
+
+  flow_cmd_inverter_limit:
+    label: "cmd_inverter_limit"
+    source: proc_compute_balance
+    target: proc_dispatch_commands
+    kind: control
+    level: 1
+    notes: "Inverter throttle (only if OpenDTU + F2 active)."
+
+  flow_event_alert:
+    label: "event_alert"
+    source: proc_compute_balance
+    target: proc_serve_ui
+    kind: control
+    level: 1
+    notes: "Threshold-driven alert events. Generated by brain per Decision 5."
+
+  flow_event_override:
+    label: "event_override"
+    source: proc_handle_user_input
+    target: proc_compute_balance
+    kind: control
+    level: 1
+    notes: "Manual override events from owner — bypass or coerce the brain's decisions."
+
+  flow_event_config:
+    label: "event_config"
+    source: proc_handle_user_input
+    target: proc_acquire_telemetry
+    kind: control
+    level: 1
+    notes: "Configuration changes (e.g., polling cadence, channel enablement)."
+
+# ─────────────────────────────────────────────────────────────────────
+# EDGES — non-data physical or implicit connections shown in diagrams
+# for context but not modeled as flows.
+# ─────────────────────────────────────────────────────────────────────
+edges:
+
+  edge_grid_to_inverters:
+    label: "AC power"
+    source: term_grid
+    target: term_inverters
+    kind: physical_ac_power
+    level: 0
+    notes: "Physical AC power line. Not modeled as a flow; shown for context."
+
+  edge_grid_to_battery:
+    label: "AC power"
+    source: term_grid
+    target: term_battery_system
+    kind: physical_ac_power
+    level: 0
+    notes: |
+      Physical AC power line via Victron AC-IN. AC-coupled microgrid
+      during outages (Battery System generates micro-grid; Solar Inverters
+      stay alive via frequency-shift throttling).

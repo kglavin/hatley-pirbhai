@@ -6,14 +6,14 @@ Status: draft for review. Six uncertainty items pending Kevin's call (see PLAN.m
 
 ```mermaid
 graph LR
-    HM[Hoymiles HMS-2000-4T-NA Array]
-    CM[Chint DTSU666 Meter]
-    VX[Victron Cerbo GX + MultiPlus]
-    GRID[PG&E Utility Grid]
-    USR[User / Homeowner]
+    HM[Solar Inverters]
+    CM[Net Power Meter]
+    VX[Battery System]
+    GRID[Utility Grid]
+    USR[Owner]
     SMC([S-Miles Cloud<br/><i>optional</i>])
 
-    SYS(("Solar Local Stack<br/>b+d scope"))
+    SYS(("Solar Local Stack"))
 
     HM     -- "F1: per-channel telemetry"   --> SYS
     SYS    -- "F2: power-limit setpoints"   --> HM
@@ -41,13 +41,13 @@ graph LR
 
 | ID | Source | Target | Name | Kind | Medium | Notes |
 |----|--------|--------|------|------|--------|-------|
-| F1 | Hoymiles Array | System | per-channel power / V / I / temp / fault state | data | Sub-1G RF → DTU-Pro-S *or* OpenDTU | ~30 s native; near-realtime via OpenDTU |
-| F2 | System | Hoymiles Array | per-channel power-limit setpoint | control | OpenDTU only | **Conditional on DTU architectural choice** |
-| F3 | Chint Meter | System | net grid power, per-phase V/I/PF, direction | data | RS485 Modbus RTU | *primary* sensing input for diversion loop |
-| F4 | Victron Cerbo | System | battery SoC, charging state, AC-in power, system mode | data | MQTT / Modbus TCP | inbound side of bidirectional channel |
-| F5 | System | Victron Cerbo | max-charge current, grid setpoint, ESS params | control | MQTT publish | *primary* actuating output for diversion loop |
-| F6 | User | System | config, manual override, enable/disable | data + control | UI | mostly config; some are control events |
-| F7 | System | User | dashboard views, alerts, status | data | UI | reverse of F6 |
+| F1 | Solar Inverters | System | per-channel power / V / I / temp / fault state | data | Sub-1G RF → DTU-Pro-S *or* OpenDTU | ~30 s native; near-realtime via OpenDTU |
+| F2 | System | Solar Inverters | per-channel power-limit setpoint | control | OpenDTU only | **Conditional on DTU architectural choice** |
+| F3 | Net Power Meter | System | net grid power, per-phase V/I/PF, direction | data | RS485 Modbus RTU | *primary* sensing input for diversion loop |
+| F4 | Battery System | System | battery SoC, charging state, AC-in power, system mode | data | MQTT / Modbus TCP | inbound side of bidirectional channel |
+| F5 | System | Battery System | max-charge current, grid setpoint, ESS params | control | MQTT publish | *primary* actuating output for diversion loop |
+| F6 | Owner | System | config, manual override, enable/disable | data + control | UI | mostly config; some are control events |
+| F7 | System | Owner | dashboard views, alerts, status | data | UI | reverse of F6 |
 | F8 | System | S-Miles Cloud | optional telemetry forward | data | HTTPS | off by default |
 
 ## Open uncertainties (resolve next)

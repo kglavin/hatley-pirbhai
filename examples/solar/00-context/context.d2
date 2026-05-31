@@ -1,0 +1,68 @@
+# Solar Local Stack — Context Diagram v0 (D2)
+#
+# To render:
+#   d2 context.d2 context.svg
+# Or for live preview:
+#   d2 --watch context.d2 context.svg
+#
+# Install d2 if needed:
+#   curl -fsSL https://d2lang.com/install.sh | sh -s --
+
+direction: right
+
+# --- System under design ---
+SYS: "Solar Local Stack" {
+  shape: oval
+  style.fill: "#4a90e2"
+  style.font-color: white
+  style.bold: true
+  style.font-size: 18
+}
+
+# --- Terminators (external entities) ---
+HM: "Solar Inverters" {
+  shape: rectangle
+}
+CM: "Net Power Meter" {
+  shape: rectangle
+}
+VX: "Battery System" {
+  shape: rectangle
+}
+GRID: "Utility Grid" {
+  shape: rectangle
+}
+USR: "Owner" {
+  shape: rectangle
+}
+SMC: "S-Miles Cloud\n(optional)" {
+  shape: rectangle
+  style.stroke-dash: 5
+  style.opacity: 0.6
+  style.font-color: "#666"
+}
+
+# --- Flows (F1–F8) ---
+HM -> SYS: "F1: per-channel telemetry"
+SYS -> HM: "F2: power-limit setpoints"
+CM -> SYS: "F3: net grid power, V/I/PF"
+VX -> SYS: "F4: SoC, mode, AC-in"
+SYS -> VX: "F5: max-charge, grid setpoint"
+USR -> SYS: "F6: config, override"
+SYS -> USR: "F7: dashboards, alerts"
+SYS -> SMC: "F8: optional telemetry fwd" {
+  style.stroke-dash: 5
+  style.opacity: 0.6
+}
+
+# --- Physical AC power (no arrow, distinct color) ---
+GRID -- HM: "AC power" {
+  style.stroke: "#e74c3c"
+  style.stroke-width: 3
+  style.opacity: 0.7
+}
+GRID -- VX: "AC power" {
+  style.stroke: "#e74c3c"
+  style.stroke-width: 3
+  style.opacity: 0.7
+}

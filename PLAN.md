@@ -63,6 +63,17 @@ How we work, not what we build.
 Chronological, most recent first.
 
 **2026-05-22**
+- *Workspace as hypertext.* HTML workspaces now carry navigation links — vertical (level-up / level-down via decomposable bubbles), to `dictionary.yaml`, and to `HP_QUICK_REF.md` entries by entity kind. Decomposable nodes get a double-border marker. Demonstrated on `00-context/context.html` (sys_root → level-1 dfd) and `01-level1/dfd.html` (Energy Manager → future Stage-3 CSPEC; parent link → level-0). New tactic in Methodology Tactics > B. Generalizes to every future level. *Implication: same pattern shipped with the eventual toolkit — every generated workspace carries the links automatically based on dictionary + level metadata.*
+- *Stage 2 complete — level-1 DFD locked.* The first decomposition of `sys_root` into 5 + 1 (optional) internal processes plus the `System State` data store is locked. Naming review resolved with two renames (`proc_compute_balance` → "Energy Manager"; `proc_handle_user_input` → "Handle Input"); all other working names kept. All three views rendered: `dfd.md` (Mermaid + balancing check + internal-flow summary), `dfd.html` (interactive Cytoscape workspace), `dfd.d2` (declarative), plus `dfd-mermaid.svg` and `dfd-d2.svg`. Dictionary now has 13 entities (7 level-0 + 6 level-1) and 18 flows (8 level-0 + 9 level-1, plus 2 AC edges). The form-based review pattern worked end-to-end: 2 decisions screens (decomposition + naming), 2 round-trips, no chat back-and-forth. Next: Stage 3 — CSPEC for `Energy Manager`.
+- *Markdown Preview Enhanced as the recommended viewer.* The VSCode extension **Markdown Preview Enhanced (MPE)** is the right environment for working with toolkit artifacts. It (a) renders embedded SVGs (proposal diagrams, recap diagrams) natively, (b) renders fenced Mermaid blocks natively, (c) **lets the user click `[ ]` checkboxes in the preview to toggle them** — turning form-based reviews into click-to-decide instead of edit-raw-markdown. Confirmed by Kevin 2026-05-22: "the radio button changes are possible which reduces friction." The form-based review tactic depends on this affordance; without it, users would have to edit raw markdown to toggle decisions. Worth surfacing in toolkit/README.md as a prerequisite when the toolkit ships.
+- *Propose graphically before prose.* When proposing a structural artifact (decomposition, control logic, architecture), ship a draft diagram first; let descriptive prose be supporting detail in a collapsible block. New tactic in Methodology Tactics > B. Applied retroactively: the level-1 decomposition in `01-level1/proposal.md` is now a rendered `proposal-dfd.svg` + compact role/flow tables + collapsible detail, replacing the 60-line dense paragraph block. Pairs with [Recap with diagrams] — together: diagrams everywhere structure matters.
+- *Recap with diagrams, not text walls.* When working at level N, recap level N-1 by embedding its rendered SVG, not by reproducing its content as text/table. New tactic in Methodology Tactics > B. Applied retroactively: the level-1 proposal's "Context recap" section now embeds `../00-context/context-mermaid.svg` instead of duplicating the 8-flow table. Caught by Kevin before engaging with the proposal — instinct that the duplication was wrong was correct.
+- *Form-based batch review tactic.* When the AI needs multiple decisions from a human (naming, ambiguity, decomposition choices), do not iterate chat-by-chat — emit a single form file (markdown checkboxes or YAML), human fills out once, saves, pings. AI applies in one pass. New tactic in Methodology Tactics > A. *Lived through the level-0 naming review: 11 round-trips that would have been 1.*
+- *Dictionary materialized.* `examples/solar/dictionary.yaml` written — HP's Requirements Dictionary in YAML form, populated with all level-0 entities and flows from the resolved naming review. First concrete realization of the per-project dictionary architecture. Future renames edit this file; renderers will read from it.
+- *Stage 2 begun.* Created `examples/solar/01-level1/` with a level-1 DFD proposal (checkbox-form for decomposition decisions). Decomposes `sys_root` into internal bubbles + internal flows.
+- *Repo hierarchy mirrors HP hierarchy.* The file system is now organized to reflect HP's containment structure 1:1. Numeric-prefixed level directories (`00-context/`, future `01-level1/`, `02-level2/`, `architecture/`, `mechanisms/`) sort the listing in HP order. Same convention applies to the toolkit's eventual project-scaffolding output. Immediate consequence: all Context Diagram v0 artifacts moved from `examples/solar/views/` and `examples/solar/` → `examples/solar/00-context/`. Naming reviews are per-level too. See Methodology Tactics > B.
+- *Naming dictionary + Confirm Naming AI move.* Two related insights surfaced during the presentation experiment: (1) **Names are first-class artifacts that need a dictionary** — every entity gets a stable_id + human-readable label; artifacts reference by stable_id; rename = edit one dictionary entry, regenerate everything. Kevin's framing: "mapping db." This is HP's Requirements Dictionary in modern form. (2) **New AI move added: Confirm Naming** — after any proposal that introduces named entities, list them with provenance and invite explicit rename before they harden. *Surfaced when Kevin caught Claude embedding "(b+d scope)" — internal chat shorthand — into a permanent diagram label.* See Methodology Tactics (Sections A and B) and AI Moves Catalog.
+- *Workspace reframing.* The HTML5 interactive view feels like a *graphical IDE*, not just a "view." Workspaces produce their own artifacts (layout positions, annotations, view state) — a layer between model and rendered output, worth pinning in git as "the way we look at this." See Methodology Tactics > B for the layered layout (`model.yaml` → `views/*.layout.json` → rendered `*.svg`/`*.html`).
 - *Workshop / toolkit split.* Repo restructured to separate the **workshop** (where we develop the toolkit — PLAN.md, examples, graphify analysis, source PDFs) from the **toolkit** (the deliverable that ships to practitioners — under `toolkit/`). Files moved: `bootstrap.sh` → `toolkit/bootstrap.sh`; `reference-docs/HP_QUICK_REF.md` → `toolkit/reference/HP_QUICK_REF.md`. PDFs moved to `reference-docs/` (gitignored). Future Python package, skills, and pyproject.toml live under `toolkit/`.
 - *Toolkit coding begun.* First code artifact: `toolkit/bootstrap.sh` — sets up uv (Python env manager) + d2 + mmdc (the renderers the methodology needs). User-space install, no sudo, idempotent. **This marks the transition from design conversation to actually building the toolkit.** Future `toolkit/pyproject.toml` and `toolkit/hp_toolkit/` Python package land on this foundation.
 - *Document of record established.* This file (`PLAN.md`) is canonical for project decisions, in-progress vocabulary, and open questions.
@@ -91,6 +102,14 @@ Chronological, most recent first.
 **Presentation format (in flight):**
 - Mermaid (rendered) vs HTML5-interactive (Cytoscape/D3/vis) vs D2 vs Excalidraw vs Obsidian Canvas vs static SVG.
 - Working hypothesis: model = source of truth (JSON/YAML); multiple derived views, each best for a different moment.
+- 2026-05-22 update: Kevin's read after seeing rendered versions of all three — "all three are good; the HTML5 begins to look like a graphical IDE." Workspace reframing captured.
+
+**Dictionary / naming architecture (deferred to Stage 2):**
+- Stable-id format — kebab-case? snake_case? prefix-by-kind (e.g., `term_*`, `flow_*`, `sys_*`)?
+- Dictionary file format — one `dictionary.yaml` at project root? per-stage files? embedded in `model.yaml`?
+- Provenance fields per entry — what to track (extracted-from / AI-inference / user-defined / default).
+- Rename command semantics — regenerate just the views, or also rewrite the model file? (Probably both, with backup.)
+- Defer detailed design until we hit enough entities to need it (likely Stage 2 — level-1 DFD on solar dogfood, with ~10–15 internal bubbles + dictionary entries for every flow).
 
 ---
 
@@ -108,6 +127,7 @@ The toolkit's vocabulary. Three tiers: mundane → genuinely new → transformat
 - **Propose** — "here are 4 candidate level-1 bubbles; pick or correct."
 - **Challenge** — "you said one bubble, but described three transformation patterns. Did you mean to merge them?"
 - **Surface Ambiguity** — explicitly flag choices made under uncertainty; invite human steering. *(Added 2026-05-22 during Context Diagram v0 — the numbered "things I'm uncertain about" list was doing real work.)*
+- **Confirm Naming** — after any move that introduces named entities, list them with provenance ("extracted from your paste"; "AI inference"; "your wording, kept"); invite accept / rename / alias on each. Don't bury chat shorthand into permanent artifacts. This is HP's Requirements Dictionary in operation. *(Added 2026-05-22 — Kevin caught Claude embedding "(b+d scope)" — internal conversation shorthand — into a permanent diagram label.)*
 - **Semantic completeness check** — "CSPEC moves to Ready on event X; Bubble 4's PSPEC needs Bubble 3 first. Possible race."
 - **Cross-model reasoning** — "your Coin Acceptor is like a Card Reader in another project; apply the same TSPEC?"
 
@@ -167,6 +187,12 @@ HP-method experience is *independent* of general engineering experience. A senio
 **Surface Ambiguity, not yes/no.**
 When the AI makes assumptions, do not hide them. Surface them as a numbered list of *axes of decision* that the human can steer along. A "things I'm uncertain about" list is more useful than a binary confirmation request, because it tells the human *which dimensions matter*. *Lived 2026-05-22 with the six Context Diagram uncertainties.* *Implication:* every proposal artifact ships with an explicit ambiguity sidebar.
 
+**Batch human review via files, not chat round-trips.**
+When the AI needs multiple decisions from a human (naming, ambiguity resolution, scope choices, decomposition), do **not** iterate decision-by-decision through chat. Round-trip cost is high (each answer is a separate LLM invocation), the human's mental context fragments, and total wall-clock time grows linearly with the number of decisions. Instead: emit a single **form file** — markdown task list with `[ ]` / `[x]` checkboxes plus free-text override and notes lines, *or* a YAML structure with `choose:` fields. The human fills it out in one editing session, saves once, pings when done. The AI parses everything in one pass and applies. *Lived 2026-05-22: the level-0 naming review took 11 chat round-trips via IDE selections; the same content as a single checkbox form would have been one round-trip.* *Implication:* every multi-decision AI move offers a form file by default — proposals, naming reviews, ambiguity resolutions, decomposition picks. Each form is also a **traceable artifact** of the decisions, preserved in git history.
+
+**Confirm names early, before they propagate.**
+After any AI move that introduces new named entities (Propose, Extract, Auto-fill), pause and list the proposed names with their *provenance* — "extracted from your paragraph 2"; "AI inference"; "kept your wording"; "default from acronym". Invite explicit **accept / rename / alias** on each. Auto-generated names from chat shorthand, acronyms, or AI inference often look fine in the moment but are opaque to anyone (including future-you) outside the conversation. Naming is high-leverage: getting it right early costs little; getting it wrong is expensive to undo. *Lived 2026-05-22 — Kevin caught Claude embedding "(b+d scope)" into a permanent diagram label.* *Implication:* every artifact-proposal move ends with a Confirm Naming pass, not just a "thoughts?" prompt. See also tactic **Names are first-class artifacts** in Section B.
+
 **Refuse to proceed until the prior stage is locked.**
 At each methodology stage (Context, Level-1 DFD, CSPECs, …), the AI's discipline is partly *not advancing* until the prior level is signed off. This is the structural anti-rathole mechanism — discipline as a property of the toolkit, not human willpower. *Implication:* the toolkit literally refuses to draft level-N+1 content until level-N is accepted, and tells the human *why*.
 
@@ -181,8 +207,49 @@ Hear the *category* an example illustrates, not the specific instance. "The ster
 **Make rigor measurable.**
 Every validation reports a *number*. Coverage percentages (Trace coverage, Interface coverage, Test coverage, PSPEC completeness, flow-balance %, etc.) are progress metrics, not just status indicators. Avoid "looks good" — quantify or it didn't happen. *Implication:* the toolkit's validator always emits percentages; progress is the percentage climbing toward 100.
 
-**Model = source of truth; views are derived.**
+**Model = source of truth; views are derived; some views are *workspaces*.**
 Storage form (JSON / YAML / markdown-with-frontmatter) is separate from presentation form (Mermaid / HTML5-interactive / Excalidraw / SVG / D2 / Canvas). The toolkit maintains the model; multiple views render on demand, each best for a different moment. *Implication:* the toolkit's data model is notation-neutral; renderers are pluggable.
+
+*Subtlety added 2026-05-22:* some views are **workspaces**, not just static renderings. The HTML5 interactive view in particular feels like a *graphical IDE* — drag nodes, click into specs, drill into bubbles, annotate. **Workspaces generate their own artifacts** (saved layout positions, annotations, view state) that are separate from the model and worth pinning in git as "the way we look at this." That introduces a third layer between model and rendered output:
+
+```
+project/
+├── dictionary.yaml             ← cross-cutting naming (HP's Requirements Dictionary)
+├── 00-context/                 ← HP level-0 / Context
+│   ├── model.yaml              ← what the system is at this level (source of truth)
+│   ├── context.html            ← workspace itself (interactive)
+│   ├── context.layout.json     ← arrangement (workspace artifact, pinned)
+│   ├── context-d2.svg          ← rendered (derived, static)
+│   ├── context-mermaid.svg     ← rendered (derived, static)
+│   └── naming-review.md        ← per-level naming review artifact
+├── 01-level1/                  ← HP level-1 / first decomposition (future)
+├── 02-level2/                  ← (future)
+├── architecture/               ← parallel architecture branch (future)
+├── mechanisms/                 ← 2000-book layer (future)
+└── trace-matrix.html           ← cross-cutting traceability view (future)
+```
+
+**Workspace as hypertext: cross-link across levels and to reference.**
+Each rendered workspace is not just a viewer — it's a **navigation surface** over the entire HP model. Three kinds of cross-link are first-class:
+1. **Vertical (level) links.** Decomposable bubbles in level-N click-through to their level-(N+1) workspace. Every workspace has a "↑ Parent" link back to its parent level. Decomposable nodes carry a visible marker (double border) so users see at a glance which bubbles drill down.
+2. **Dictionary links.** Every entity's side panel links to its entry in `dictionary.yaml` (and eventually a rendered HTML dictionary view).
+3. **HP reference links.** Entity kinds (terminator, process, data store, CSPEC, etc.) link to their definition in `toolkit/reference/HP_QUICK_REF.md` via the existing anchor scheme.
+
+*Implication:* the HTML workspace stops being a diagram and becomes a hypertext **system browser** for the HP model — walk the system by clicking, not by opening files in succession. Mermaid and D2 can support similar links via their native click/link primitives. *Lived 2026-05-22 — Kevin asked "is cross-linking possible?" after engaging with the level-1 HTML; the infrastructure was all in place (level directories, dictionary IDs, HP_QUICK_REF anchors), workspaces just needed to surface the links.* The two existing HTML workspaces (context.html, dfd.html) now demonstrate all three cross-link kinds.
+
+**Click semantics for navigable bubbles:** single-click inspects (shows side-panel detail), **double-click drills** (navigates to the next-level workspace). Matches IDE / file-explorer conventions; the double-border visual cue telegraphs which bubbles are double-clickable. Cytoscape doesn't emit `dbltap` natively — implemented via a small manual timing detector (350ms threshold) in the tap handler. *Lived 2026-05-22 — Kevin asked "could clicking on a bubble navigate to the next level detail?" The answer is yes, with the double-click discipline preserving the inspect affordance.*
+
+**Propose graphically before prose.**
+When proposing a non-trivial structure (decomposition, control logic, architecture), generate a **draft visual first**, then describe details. Humans grok the *shape* from a diagram in seconds; the same shape in prose takes minutes and the cognitive load is much higher. Even a draft — pre-naming, pre-locked — is better than dense paragraphs. The text descriptions become **supporting detail** for the diagram, ideally in a collapsible `<details>` block. *Lived 2026-05-22 — Kevin flagged the 5-bubble decomposition section as dense; rendering the same content as `proposal-dfd.svg` made the shape grokable in one glance.* *Implication:* every "Propose" AI move on a structural artifact ships with a draft diagram. The diagram lives at `<level-dir>/proposal-<artifact-kind>.{d2,svg}`. Same renderers (d2, mmdc, HTML5) — just used at *proposal* time, not only at lock time. Pairs with [Recap with diagrams, not text walls](#) below.
+
+**Recap with diagrams, not text walls.**
+When working at level N of an HP decomposition, recap level N-1 by **embedding the rendered diagram** from N-1's directory — not by re-listing its content as text or a table. The level-1 doc embeds `../00-context/context-mermaid.svg`; the naming-review file embeds the current diagram so the user sees what's being renamed; CSPEC docs embed their parent DFD. Why: text recaps drift from the actual diagram, are tedious to maintain, and ignore that the artifact already exists *in the form we want*. *Lived 2026-05-22 — Kevin caught Claude duplicating the level-0 boundary as a markdown table inside the level-1 proposal when the rendered SVG was right there.* *Implication:* every "Context recap" / "Where we came from" / "Current view" section embeds the relevant prior diagram via `![...](relative/path.svg)`, not its text equivalent. Same principle for the dictionary — link to it, don't re-list entries.
+
+**Repo / output hierarchy mirrors HP's methodology hierarchy.**
+HP has a natural containment structure: Context (level 0) → Level-1 DFD → Level-2 DFDs → ... → Primitives; with a parallel Architecture Model branch (ACD → AFD → AID → AMS/AIS); plus the Mechanisms Model (2000) and cross-cutting Dictionary and Traceability. **The file system reflects this 1:1.** A practitioner walking the directory tree should be walking the HP model. Don't accumulate files at the same flat level when they belong at different levels of decomposition. *Numeric-prefixed directory names* (`00-context/`, `01-level1/`, `02-level2/`, ...) sort the listing in HP order without depending on alphabetical accident. *Lived 2026-05-22 — Kevin caught Claude letting `context-d2.svg`, `context-mermaid.svg`, `context.html`, `context.md`, `naming-review.md` all accumulate at the same flat level alongside future level-1 / level-2 / architecture artifacts.* *Implication:* every output lands in a directory named for its HP location. The cross-cutting `dictionary.yaml` lives at the project root.
+
+**Names are first-class artifacts; reify them in a dictionary.**
+Every named entity in the model gets two distinct fields: a **stable identifier** (machine-friendly, never changes — e.g., `system_root`, `term_inverters`, `flow_f3_grid_power`) and a **human-readable label** (display name; can change anytime). Labels live in a per-project **dictionary** — Kevin's "mapping db" — which is HP's Requirements Dictionary in modern form. Artifacts reference entities by stable_id; rendering pulls labels from the dictionary at render time. **Renaming = edit one dictionary entry and regenerate** — not 50 manual edits across 50 artifacts. *Lived 2026-05-22 — Kevin caught Claude embedding "(b+d scope)" into a permanent label and named the architectural fix.* *Implication:* the toolkit needs (1) a `dictionary.{yaml,json}` per project storing stable_id + label + provenance + description, (2) a `rename <id> <new-label>` command, (3) a regeneration pipeline driven from the dictionary. This is also the bridge to **drift detection** — the dictionary is where identity lives across model versions. See also tactic **Confirm names early** in Section A.
 
 **Reflect on each significant move; let the methodology evolve.**
 Each substantive AI move ends with a brief reflection: *what moves were used, what worked, what was missing*. Missing moves get added to the AI Moves Catalog. Working tactics get added to this section. **The methodology improves *through* its use, not separately.** *Lived 2026-05-22 — the "Surface Ambiguity" move was added to the catalog mid-flight after I noticed I'd been using it unnamed.* *Implication:* a "reflect" step is built into the toolkit's workflow — not optional, not skippable on busy days.
@@ -214,8 +281,10 @@ Where things live in this repo.
 | Path | What it is | Status |
 |---|---|---|
 | `PLAN.md` | This file — plan / document of record | Active |
-| `examples/solar/` | Dogfood project artifacts — Context Diagram, DFDs, CSPECs, PSPECs as they emerge | Active |
-| `examples/solar/views/` | Candidate presentation experiments for Context Diagram v0 (Mermaid `.md`, HTML5 Cytoscape `.html`, D2 `.d2`) | Active — under review |
+| `examples/solar/` | Dogfood project root — subdirectories follow HP hierarchy (`00-context/`, future `01-level1/`, `02-level2/`, `architecture/`, `mechanisms/`) | Active |
+| `examples/solar/00-context/` | HP level-0 / Context Diagram artifacts — Mermaid, HTML5, D2 sources + rendered SVGs + naming-review (resolved) | ✅ Locked |
+| `examples/solar/dictionary.yaml` | Per-project naming dictionary — stable IDs, labels, descriptions for every entity and flow across all levels | Active |
+| `examples/solar/01-level1/` | HP level-1 / first decomposition — proposal, naming review (both resolved), `dfd.{md,html,d2}` sources, rendered SVGs | ✅ Locked |
 | `graphify-out/` | Knowledge graph of both HP books (187 nodes / 234 edges / 20 communities) | One-time workshop reference; see `graphify-out/GRAPH_REPORT.md` |
 | `reference-docs/` | Workshop reading aids — source PDFs (1988 and 2000 HP books). `.gitignore`'d. | Local-only |
 | `proposals/` | (empty, placeholder) | Reserved |
