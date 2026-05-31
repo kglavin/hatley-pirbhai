@@ -1036,7 +1036,57 @@ The first is what the orchestrator effectively did manually. Codifying it in `re
 
 **Priority:** **MEDIUM.** Not blocking but the docs are wrong by 5× and that's user-experience-affecting. Bigger targets (PX4-scale ~5k files, cloudctlplane-scale monorepos) would balloon proportionally — anyone budgeting an ingest based on the current docs gets a surprise.
 
-### H.17 *(placeholder — add as you find more)*
+### H.18 Level-N DFD renderers don't filter cross-level edges (dangling endpoints into recursion sub-decompositions)
+
+**Finding raised:** 2026-05-25 — dbt-core dogfood, post-render review. User reported "level-1 DFD has no drawings" in the Cytoscape interactive viewer.
+
+**Root cause:** When a process recurses into sub-decomposition (Branch 3 hierarchical mode), some flows have one endpoint at level-1 and the other endpoint at level-2 (a sub-process or sub-store inside the recursed parent). These flows are correctly stored in the IR at `level=1`. But the level-1 DFD renderers (`render_dfd_elements` in [cytoscape.py](hp_toolkit/render/cytoscape.py), `render_dfd` in [mermaid.py](hp_toolkit/render/mermaid.py) and [d2.py](hp_toolkit/render/d2.py)) emit *all* flows at child_level *unconditionally*, including those with level-2 endpoints.
+
+Concrete impact on dbt-core: the level-1 DFD's cytoscape elements list contained **21 nodes + edges referencing 17 sub-process/sub-store IDs that weren't declared as nodes**. Cytoscape silently fails layout when edges reference non-existent nodes → entire diagram renders blank. Mermaid is more tolerant (auto-creates ugly bare-id nodes) but the result is unreadable.
+
+**Fix applied:** filter `internal_flows` at child_level to only those where both endpoints are visible in this view:
+
+```python
+visible_ids = {p.id for p in processes} | {s.id for s in stores} | term_ids
+internal_flows = [
+    f for f in project.flows_at_level(child_level)
+    if f.source in visible_ids and f.target in visible_ids
+]
+```
+
+Applied to all three renderers (cytoscape, mermaid, d2). The dropped edges belong in the recursed parent's own sub-DFD view (`02-decomp/<parent>/dfd.generated.html`), not the level-1 parent's view.
+
+**Verification (dbt-core after fix):** 21 nodes / 0 dangling endpoints in the level-1 cytoscape elements list (was 17 dangling).
+
+**Priority:** **HIGH** — bug renders every hierarchical-mode ingest's level-1 DFD blank in Cytoscape. Landed inline as part of the dogfood (this commit).
+
+**Composes with:** **H.12** (sister bug — H.12 is "merger doesn't *include* recursion subdirs", H.18 is "renderers don't *segregate* level boundaries when they do include them"). Same Branch-3-integration family.
+
+### H.19 CSPEC Mermaid render breaks on state names with hyphens + verbose transition labels with semicolons
+
+**Finding raised:** 2026-05-25 — dbt-core dogfood, post-render review. User reported "first two CSPEC diagrams do not render but third one does." Two of the five CSPECs (`node-lifecycle`, `partial-parse-diff`) had no Mermaid SVG; the other three rendered fine.
+
+**Root causes (two distinct):**
+
+1. **State names with hyphens / slashes / parens.** Mermaid `stateDiagram-v2` interprets `-` as part of transition-arrow syntax (`-->`, `-.->`). A state label like `Executing Pre-Hook` or `Abandoned - Full Reparse` breaks the parse at the hyphen. The renderer was using state labels directly as identifiers (`{src_label} --> {tgt_label}`), which works for clean names like `Validating Args` but breaks on hyphenated ones.
+
+2. **Verbose transition labels with `;` separators.** Mermaid's `stateDiagram-v2` parser treats `;` as a statement separator within transition labels, causing INVALID-token errors mid-label. The LLM produces rich descriptive transition labels like `"set arithmetic complete; per-file classification begins"` — semicolons collide with the parser. (Also `:` collides with the label introducer if it appears in the body.)
+
+**Fix applied (both in [mermaid.py](hp_toolkit/render/mermaid.py)):**
+
+- **State-name escape:** Added `_state_needs_escape()` + `_state_ident()` helpers. Any state label with a reserved char (`-/():,;{}[]<>|`) gets a separate `state "Display Label" as sanitized_ident` declaration; transitions reference the sanitized ident; display is preserved.
+- **Transition-label escape:** Added `_tx_label_esc()` helper. Replaces `;` → `,` and `:` → ` -` in transition labels (after the existing newline + quote sanitization). Keeps the LLM's verbose description meaning while satisfying the parser.
+- **Defensive state-universe construction:** `render_state_machine` now pulls in any state referenced by a transition that didn't match the direct-`parent`-of-machine filter — defensive against IR shapes where sub-states attribute `parent` to the composite rather than the machine.
+
+**Verification (dbt-core after fix):** all 5 CSPECs now have Mermaid SVGs (cli-dispatch 23.8KB, load-manifest 51.3KB, node-lifecycle 40.7KB, partial-parse-diff 22.5KB, task-dispatch 21.1KB).
+
+**Priority:** **HIGH** — rendered immediately blocking for any dictionary with hyphenated state names or LLM-style verbose transition labels (which is most ingests). Landed inline as part of the dogfood (this commit).
+
+**Composes with:** **H.15** (this is another instance of "the LLM produces rich content the toolkit doesn't fully accommodate" — except where H.15 is about *schema* undermodeling, H.19 is about *renderer* undermodeling. The fix here is at the renderer layer because the IR shape is fine; only the Mermaid serialization needed to escape).
+
+**Future work:** the d2 + cytoscape renderers may have analogous issues with hyphenated state names — not surfaced yet because dbt-core's d2 + cytoscape views did render. Audit when a future dogfood hits a similar shape.
+
+### H.20 *(placeholder — add as you find more)*
 
 *(... etc — add as many as needed)*
 

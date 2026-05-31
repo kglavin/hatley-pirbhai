@@ -6,6 +6,8 @@ follow once the dictionary models boundary-flow refinement.
 
 from __future__ import annotations
 
+import re
+
 from ..model import (
     Project, Entity, Flow, Edge, Transition, EntityKind, FlowKind,
     ArchModule, ArchFlow, ArchInterconnect, ArchModuleKind,
@@ -15,6 +17,49 @@ from ..model import (
 def _esc(text: str) -> str:
     """Quote a Mermaid edge label — strip newlines and any quotes."""
     return text.replace('"', "'").replace("\n", " ")
+
+
+def _tx_label_esc(text: str) -> str:
+    """Sanitize a transition label for Mermaid stateDiagram-v2.
+
+    The v2 parser treats `;` as a statement separator and chokes on it
+    mid-label; `:` would collide with the label-introducer (we already
+    use it once between the arrow and the body). Strip newlines + quotes
+    as in _esc, and additionally normalize the problem chars to safe
+    substitutes. Keeps the meaning of the LLM's verbose transition
+    descriptions while keeping the parser happy. See INGEST_TUNING_DESIGN.md
+    H.19.
+    """
+    return (
+        text.replace('"', "'")
+            .replace("\n", " ")
+            .replace(";", ",")
+            .replace(":", " -")
+    )
+
+
+# R.2 — Mermaid stateDiagram-v2 treats `-` `/` `(` `)` etc. as syntax tokens
+# (transition arrows, choice operators), so a state label like
+# "Executing Pre-Hook" or "Abandoned - Full Reparse" breaks the parse.
+# When a label contains a reserved char, emit `state "Display Label" as ident`
+# and refer to the state by `ident` everywhere. See INGEST_TUNING_DESIGN.md H.19.
+
+_MERMAID_STATE_RESERVED_CHARS = set("-/():,;{}[]<>|")
+
+
+def _state_needs_escape(label: str) -> bool:
+    return any(c in label for c in _MERMAID_STATE_RESERVED_CHARS)
+
+
+def _state_ident(label: str) -> str:
+    """Sanitize a label to a valid Mermaid stateDiagram-v2 identifier.
+
+    Caller should emit `state "<label>" as <ident>` for every label that
+    needs escaping so display text is preserved.
+    """
+    if not _state_needs_escape(label):
+        return label
+    return re.sub(r"[^A-Za-z0-9_]+", "_", label).strip("_")
 
 
 def _node_decl(e: Entity) -> str:
@@ -185,8 +230,18 @@ def render_dfd(project: Project, parent_id: str = "sys_root") -> str:
     terminators = [project.entity(tid) for tid in term_ids
                    if project.entity(tid).kind == EntityKind.TERMINATOR]
 
-    # Internal flows at child_level
-    internal_flows = [f for f in project.flows_at_level(child_level)]
+    # Internal flows at child_level — but only edges where both endpoints
+    # are visible in this view. When a process recurses (Branch 3 hierarchical
+    # mode), some flows at child_level have one endpoint in the level-N+2
+    # sub-decomposition; rendering those here produces dangling references
+    # (Mermaid auto-creates ugly bare-id nodes; Cytoscape silently fails).
+    # Those edges belong in the recursed process's own sub-DFD view, not
+    # in this parent's view. R.1 fix; see INGEST_TUNING_DESIGN.md H.18.
+    visible_ids = {p.id for p in processes} | {s.id for s in stores} | term_ids
+    internal_flows = [
+        f for f in project.flows_at_level(child_level)
+        if f.source in visible_ids and f.target in visible_ids
+    ]
 
     # ─── Emit ───
     lines: list[str] = ["graph LR"]
@@ -263,7 +318,7 @@ def render_dfd(project: Project, parent_id: str = "sys_root") -> str:
 
 def _tx_label(t: Transition) -> str:
     """Pick a transition's diagram label — `label` if set, otherwise `event`."""
-    return _esc(t.label or t.event)
+    return _tx_label_esc(t.label or t.event)
 
 
 def render_state_machine(project: Project, parent_machine_id: str) -> str:
@@ -309,27 +364,71 @@ def render_state_machine(project: Project, parent_machine_id: str) -> str:
     # Find the machine-level initial state
     initial_top = next((s for s in top_level_states if s.is_initial), None)
 
+    # R.2 — build a state.id -> mermaid identifier map. Any label containing
+    # Mermaid stateDiagram-v2 reserved chars (`-`, `/`, parens, etc.) is
+    # rewritten to a sanitized identifier with a separate `state "label" as
+    # ident` declaration preserving display.
+    #
+    # Universe is `all_states` (direct parent == machine) PLUS any state
+    # referenced by a transition that didn't match that filter — defensive
+    # against IR shapes where sub-states attribute `parent` to the composite
+    # rather than the machine.
+    state_universe: dict[str, Entity] = {s.id: s for s in all_states}
+    for t in transitions:
+        for sid in (t.source_state, t.target_state):
+            if sid in state_universe:
+                continue
+            entity = project.entities.get(sid)
+            if entity and entity.kind in (EntityKind.STATE, EntityKind.STATE_COMPOSITE):
+                state_universe[sid] = entity
+
+    state_ident: dict[str, str] = {
+        sid: _state_ident(s.label) for sid, s in state_universe.items()
+    }
+    needs_decl = [s for s in state_universe.values()
+                  if _state_needs_escape(s.label)]
+
+    def _ref(state_id: str) -> str:
+        if state_id in state_ident:
+            return state_ident[state_id]
+        # Last-resort fallback — emit the raw id (will be visible in the
+        # rendered diagram if it leaks through; better than a KeyError).
+        return state_id
+
     lines: list[str] = ["stateDiagram-v2", "    direction LR", ""]
 
+    # Display-preserving declarations for states with reserved chars in
+    # their labels (must come before any reference to them).
+    for s in needs_decl:
+        # Composite states declare via the block syntax below, so we only
+        # pre-declare leaf states here.
+        if s.kind != EntityKind.STATE_COMPOSITE:
+            lines.append(f'    state "{s.label}" as {state_ident[s.id]}')
+    if needs_decl:
+        lines.append("")
+
     if initial_top:
-        lines.append(f"    [*] --> {initial_top.label}")
+        lines.append(f"    [*] --> {_ref(initial_top.id)}")
         lines.append("")
 
     # Top-level transitions
     for t in top_txns:
-        src_label = project.entities[t.source_state].label
-        tgt_label = project.entities[t.target_state].label
-        lines.append(f"    {src_label} --> {tgt_label} : {_tx_label(t)}")
+        lines.append(
+            f"    {_ref(t.source_state)} --> {_ref(t.target_state)} : {_tx_label(t)}"
+        )
     lines.append("")
 
     # Composite blocks
     for comp in composite_states:
-        lines.append(f"    state {comp.label} {{")
+        # Composite state: declare label-mapping if needed, then open block.
+        if _state_needs_escape(comp.label):
+            lines.append(f'    state "{comp.label}" as {state_ident[comp.id]}')
+        lines.append(f"    state {state_ident[comp.id]} {{")
         lines.append("        direction LR")
         substates = [s for s in all_states if s.parent_state == comp.id]
         initial_sub = next((s for s in substates if s.is_initial), None)
         if initial_sub:
-            lines.append(f"        [*] --> {initial_sub.label}")
+            lines.append(f"        [*] --> {_ref(initial_sub.id)}")
         # Substates that have no transitions to/from (e.g., siblings in Fault)
         # need to be declared explicitly so they appear in the diagram
         referenced_in_block: set[str] = set()
@@ -338,15 +437,15 @@ def render_state_machine(project: Project, parent_machine_id: str) -> str:
         for t in composite_txns[comp.id]:
             referenced_in_block.add(t.source_state)
             referenced_in_block.add(t.target_state)
-        # Declare unreferenced sub-states with bare labels
+        # Declare unreferenced sub-states with bare ident
         for s in substates:
             if s.id not in referenced_in_block:
-                lines.append(f"        {s.label}")
+                lines.append(f"        {state_ident[s.id]}")
         # Inner transitions
         for t in composite_txns[comp.id]:
-            src_label = project.entities[t.source_state].label
-            tgt_label = project.entities[t.target_state].label
-            lines.append(f"        {src_label} --> {tgt_label} : {_tx_label(t)}")
+            lines.append(
+                f"        {_ref(t.source_state)} --> {_ref(t.target_state)} : {_tx_label(t)}"
+            )
         lines.append("    }")
         lines.append("")
 

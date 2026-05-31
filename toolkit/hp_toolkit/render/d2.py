@@ -190,7 +190,15 @@ def render_dfd(project: Project, parent_id: str = "sys_root") -> str:
     terminators = [project.entity(tid) for tid in term_ids
                    if project.entity(tid).kind == EntityKind.TERMINATOR]
 
-    internal_flows = list(project.flows_at_level(child_level))
+    # Internal flows at child_level — only edges where both endpoints are
+    # visible in this view; cross-level edges (endpoint in a recursion
+    # sub-decomposition) belong in the sub-DFD view, not the parent's.
+    # R.1 fix; see INGEST_TUNING_DESIGN.md H.18.
+    visible_ids = {p.id for p in processes} | {s.id for s in stores} | term_ids
+    internal_flows = [
+        f for f in project.flows_at_level(child_level)
+        if f.source in visible_ids and f.target in visible_ids
+    ]
 
     lines: list[str] = ["direction: right", ""]
 

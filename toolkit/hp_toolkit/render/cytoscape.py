@@ -692,8 +692,17 @@ def render_dfd_elements(
         if f.notes:  data["notes"]  = f.notes
         elements.append({"data": data})
 
-    # Internal flows at child_level
+    # Internal flows at child_level — but only edges where both endpoints
+    # are visible in this view. When a process recurses (Branch 3 hierarchical
+    # mode), some flows at child_level have one endpoint in the level-N+2
+    # sub-decomposition; rendering those here produces dangling edges that
+    # Cytoscape silently fails to lay out. Those edges belong in the
+    # recursed process's own sub-DFD view (02-decomp/<parent>/dfd...), not
+    # in this parent's view. R.1 fix; see INGEST_TUNING_DESIGN.md H.18.
+    visible_ids = {p.id for p in processes} | {s.id for s in stores} | term_ids
     for f in project.flows_at_level(child_level):
+        if f.source not in visible_ids or f.target not in visible_ids:
+            continue
         data = {
             "id": f.id, "source": f.source, "target": f.target,
             "label": f.label, "kind": _flow_kind(f),
