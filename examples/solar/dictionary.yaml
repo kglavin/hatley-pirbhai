@@ -618,3 +618,109 @@ edges:
       Physical AC power line via Victron AC-IN. AC-coupled microgrid
       during outages (Battery System generates micro-grid; Solar Inverters
       stay alive via frequency-shift throttling).
+
+
+# ─── Stage 4 — PSPECs (leaf-process functional contracts) ───
+# Format: 2000 Fig 4.46 (INPUTS / OUTPUTS / TRANSFORMATION).
+# Source: see toolkit/PSPEC_DESIGN.md.
+
+pspecs:
+
+  pspec_acquire_telemetry:
+    parent_process: proc_acquire_telemetry
+    transformation:
+      style: textual
+      body: |
+        Each ingest cycle:
+          Read F1 PER CHANNEL TELEMETRY from the inverter side via the
+          configured DTU adapter (DTU-Pro-S, OpenDTU, or AhoyDTU).
+          Read F3 NET GRID POWER V I PF from the grid-tied power meter
+          via Modbus RTU.
+          Read F4 SOC MODE AC IN from the battery system via MQTT or
+          Modbus TCP.
+        On receipt of EVENT CONFIG:
+          Apply the new configuration values (sample rates, source
+          selection, scaling).
+        Normalize all readings into the canonical NORMALIZED STATE shape
+        and write it to store_system_state.
+    computational_constraints:
+      frequency: "≥ 1 Hz aggregate ingest rate; ≥ 0.5 Hz per source"
+      timing: "End-to-end ingest → store_system_state write latency < 1 s"
+    comments: |
+      Sole writer into the telemetry portion of the store. Vendor adapter
+      details and reconnection policy live in the architecture model,
+      not here (PSPECs specify what, not how — 1988 §13.1).
+
+  pspec_dispatch_commands:
+    parent_process: proc_dispatch_commands
+    transformation:
+      style: textual
+      body: |
+        On receipt of CMD SETPOINT:
+          Translate the desired inverter power-limit setpoint into the
+          vendor-specific frame and issue F2 POWER LIMIT SETPOINTS to
+          the inverter side via the configured DTU adapter.
+        On receipt of CMD INVERTER LIMIT:
+          Translate the desired battery charge / grid-setpoint command
+          and issue F5 MAX CHARGE GRID SETPOINT to the battery system
+          via MQTT publish.
+    computational_constraints:
+      timing: "Command → actuator latency < 500 ms"
+      accuracy: "Translated values honor command to within vendor protocol resolution"
+    comments: |
+      Adapter logic. The "issue" keyword in the body marks F2 and F5 as
+      time-transient (1988 §13.3) — each command propagates once, not
+      held by this bubble.
+
+  pspec_serve_ui:
+    parent_process: proc_serve_ui
+    transformation:
+      style: textual
+      body: |
+        Render F7 DASHBOARDS ALERTS combining:
+          the current SYSTEM STATE (power flows, SoC, mode, recent
+          history),
+          and any EVENT ALERT received from the Energy Manager.
+        Provide drill-in views for inverter-side, grid-side, and
+        battery-side detail.
+    computational_constraints:
+      frequency: "Dashboard refresh ≥ 1 Hz; alert latency < 500 ms"
+    comments: |
+      Read-only presentation. No commands originate here; user actions
+      go through proc_handle_user_input.
+
+  pspec_handle_user_input:
+    parent_process: proc_handle_user_input
+    transformation:
+      style: textual
+      body: |
+        On receipt of F6 CONFIG OVERRIDE from the angler / owner:
+          Classify the input:
+            - structural changes (setpoints, source enable/disable,
+              policy thresholds) → issue EVENT CONFIG;
+            - immediate operational overrides (manual mode, enable/
+              disable, force-recompute) → issue EVENT OVERRIDE.
+          Apply input validation; reject malformed inputs.
+    computational_constraints:
+      timing: "Input → emitted event latency < 200 ms"
+    comments: |
+      Owner-facing input gateway. Both EVENT CONFIG and EVENT OVERRIDE
+      are transient (1988 §13.3) — the "issue" keyword reflects that.
+
+  pspec_cloud_forward:
+    parent_process: proc_cloud_forward
+    transformation:
+      style: textual
+      body: |
+        If cloud forwarding is enabled by configuration:
+          Subscribe to changes in SYSTEM STATE and issue
+          F8 OPTIONAL TELEMETRY FORWARD to S-Miles Cloud at the
+          configured cadence.
+        Otherwise, do nothing.
+    computational_constraints:
+      frequency: "Configurable; default 1/min when enabled"
+      timing: "Best-effort; not in the diversion-control critical path"
+    comments: |
+      Optional bubble (per Stage 1 Decision 5). The "issue" keyword marks
+      F8 as time-transient — each posting is a single event, not a held
+      output (1988 §13.3).

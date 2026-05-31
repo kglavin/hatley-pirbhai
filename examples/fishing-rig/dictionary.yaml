@@ -526,3 +526,56 @@ pspecs:
     comments: |
       First-cut PSPEC. Recent-history buffer size N pending Stage 5 sizing —
       see TSPEC notes once that artifact exists.
+
+  pspec_reel_controller:
+    parent_process: proc_reel_controller
+    transformation:
+      style: textual
+      body: |
+        On receipt of MOTOR CMD:
+          Decode direction, target torque, and speed.
+          Enforce safety limits — max current, stall threshold, and max
+          continuous run time.
+          Drive the reel actuator via F4 REEL TORQUE CMD with the bounded
+          torque value at the requested direction.
+          When stall or current limit is reached, hold torque at the
+          enforced limit until MOTOR CMD changes.
+    computational_constraints:
+      timing: "MOTOR CMD → F4 REEL TORQUE CMD latency < 10 ms"
+      accuracy: "Commanded torque honored to within ±5% under non-saturated load"
+    comments: |
+      Safety limits live in this PSPEC; the bite-detection state machine
+      (CSPEC for Bite Detector) trusts that they are enforced here.
+
+  pspec_serve_ui:
+    parent_process: proc_serve_ui
+    transformation:
+      style: textual
+      body: |
+        Render F2 STATUS ALERTS from the current SYSTEM STATE
+        (tension samples + bite-detection mode + reel state) and from
+        any EVENT ALERT received.
+        Display F1 CONFIG ARM DISARM controls to the angler.
+        On angler override actions taken in the UI (manual cast/reel,
+        disarm), emit EVENT OVERRIDE.
+    computational_constraints:
+      frequency: "UI refresh ≥ 10 Hz; alert latency < 100 ms"
+    comments: |
+      Presentation layer. Decisions about which alerts to surface vs
+      suppress live with the user; this PSPEC just renders what arrives.
+
+  pspec_cloud_forward:
+    parent_process: proc_cloud_forward
+    transformation:
+      style: textual
+      body: |
+        If cloud forwarding is enabled by configuration:
+          When SYSTEM STATE indicates a completed catch or session event,
+          issue F6 CATCH LOG containing the relevant fields (timestamp,
+          tension peak, bite-to-set delay, reel-in duration).
+        Otherwise, do nothing.
+    computational_constraints:
+      timing: "Best-effort; not in the bite-detection critical path"
+    comments: |
+      Optional bubble. The "issue" keyword in the body marks F6 CATCH LOG
+      as time-transient (1988 §13.3) — emitted once per event, not held.
