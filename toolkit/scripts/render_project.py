@@ -111,18 +111,13 @@ def main(project_dir: Path) -> int:
     if has_internals:
         render_level1_dfd(project_dir, project)
 
-    # CSPECs (next slice — for each process with needs_cspec=True)
+    # ─── CSPECs (one per process flagged needs_cspec) ───
     cspec_processes = [
         e for e in project.all_entities()
         if e.kind == EntityKind.PROCESS and e.needs_cspec
     ]
-    if cspec_processes:
-        print(_color(
-            f"  ℹ {len(cspec_processes)} process(es) flagged for CSPEC; "
-            f"state-machine rendering not yet wired into render_project.py "
-            f"(use render_dogfood.py for solar's Energy Manager).",
-            "36"
-        ))
+    for proc in cspec_processes:
+        render_cspec(project_dir, project, proc)
 
     print(_color(f"Done.", "32"))
     return 0
@@ -152,6 +147,36 @@ def render_level1_dfd(project_dir: Path, project) -> None:
     print(_color("==> Level-1 DFD — HTML (Cytoscape)", "1"))
     html = render_cytoscape.wrap_dfd_html(project, parent_id="sys_root")
     out = l1_dir / "dfd.generated.html"
+    out.write_text(html)
+    print(f"  wrote {out.name} ({len(html)} bytes)")
+    print()
+
+
+def render_cspec(project_dir: Path, project, proc) -> None:
+    """Render a CSPEC for one process (needs_cspec=True): Mermaid + D2 + HTML + SVGs."""
+    subdir = proc.id.replace("proc_", "").replace("_", "-")
+    cspec_dir = project_dir / "01-level1" / "cspecs" / subdir
+    cspec_dir.mkdir(parents=True, exist_ok=True)
+
+    print(_color(f"==> CSPEC for {proc.label} — Mermaid", "1"))
+    src = render_mermaid.render_state_machine(project, proc.id)
+    out = cspec_dir / "cspec.generated.mmd"
+    out.write_text(src)
+    print(f"  wrote {out.name} ({len(src)} bytes)")
+    _try_svg(out, cspec_dir / "cspec.generated-mermaid.svg", "mermaid")
+    print()
+
+    print(_color(f"==> CSPEC for {proc.label} — D2", "1"))
+    src = render_d2.render_state_machine(project, proc.id)
+    out = cspec_dir / "cspec.generated.d2"
+    out.write_text(src)
+    print(f"  wrote {out.name} ({len(src)} bytes)")
+    _try_svg(out, cspec_dir / "cspec.generated-d2.svg", "d2")
+    print()
+
+    print(_color(f"==> CSPEC for {proc.label} — HTML (Cytoscape)", "1"))
+    html = render_cytoscape.wrap_state_machine_html(project, proc.id)
+    out = cspec_dir / "cspec.generated.html"
     out.write_text(html)
     print(f"  wrote {out.name} ({len(html)} bytes)")
     print()

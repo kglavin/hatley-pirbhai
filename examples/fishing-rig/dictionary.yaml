@@ -141,6 +141,77 @@ entities:
       event. Single writer (Acquire Tension); multiple readers
       (Bite Detector, Serve UI, optionally Cloud Forward).
 
+  # ─── Level 2 (CSPEC) — states inside proc_bite_detector ───
+  # Locked 2026-05-22 via cspecs/bite-detector/proposal.md.
+  # Flat structure (no composites) — sequence is linear.
+
+  state_initializing:
+    kind: state
+    label: "Initializing"
+    level: 2
+    parent: proc_bite_detector
+    is_initial: true
+    description: "Startup self-test. Verify motor and sensor are responsive."
+
+  state_idle:
+    kind: state
+    label: "Idle"
+    level: 2
+    parent: proc_bite_detector
+    description: "Disarmed; awaiting angler to arm the rig."
+
+  state_tightening:
+    kind: state
+    label: "Tightening"
+    level: 2
+    parent: proc_bite_detector
+    description: "After arm: actively pulling the line to the configured tension setpoint."
+
+  state_armed:
+    kind: state
+    label: "Armed"
+    level: 2
+    parent: proc_bite_detector
+    description: "Line at tension setpoint; watching for a bite spike."
+
+  state_bite_detected:
+    kind: state
+    label: "BiteDetected"
+    level: 2
+    parent: proc_bite_detector
+    description: "Tension spike observed; brief delay before setting the hook (let fish swallow)."
+
+  state_setting_hook:
+    kind: state
+    label: "SettingHook"
+    level: 2
+    parent: proc_bite_detector
+    description: "Sharp reel-in command to drive the hook home."
+
+  state_reeling:
+    kind: state
+    label: "Reeling"
+    level: 2
+    parent: proc_bite_detector
+    description: "Fish hooked; reeling in at controlled speed."
+
+  state_landed:
+    kind: state
+    label: "Landed"
+    level: 2
+    parent: proc_bite_detector
+    description: "Line fully in; fish landed. Awaits manual reset by angler."
+
+  state_fault:
+    kind: state
+    label: "Fault"
+    level: 2
+    parent: proc_bite_detector
+    description: |
+      Fault state — captures sensor disconnect, motor stall, configuration
+      error, or any safety violation. Category recorded as data attribute;
+      recovery requires explicit angler reset.
+
 flows:
 
   # ─── Level 0 — boundary flows ───
@@ -256,6 +327,156 @@ flows:
     kind: control
     level: 1
     notes: "Angler config + arm/disarm + manual overrides."
+
+# ─────────────────────────────────────────────────────────────────────
+# TRANSITIONS — Bite Detector CSPEC (locked 2026-05-22)
+# Flat state machine; 18 transitions.
+# ─────────────────────────────────────────────────────────────────────
+transitions:
+
+  tx_init_to_idle:
+    label: "self-test passed"
+    source_state: state_initializing
+    target_state: state_idle
+    parent_machine: proc_bite_detector
+    event: "Initializing complete; motor + sensor responsive"
+    action: "enable Acquire Tension at low-rate sampling"
+
+  tx_init_to_fault:
+    label: "startup failure"
+    source_state: state_initializing
+    target_state: state_fault
+    parent_machine: proc_bite_detector
+    event: "self-test failed (sensor or motor unresponsive)"
+    action: "emit event_alert (startup-fault)"
+
+  tx_idle_to_tightening:
+    label: "armed by angler"
+    source_state: state_idle
+    target_state: state_tightening
+    parent_machine: proc_bite_detector
+    event: "event_override: arm"
+    action: "switch Acquire Tension to high-rate; enable Reel Controller (slow pull)"
+
+  tx_tightening_to_armed:
+    label: "tension at setpoint"
+    source_state: state_tightening
+    target_state: state_armed
+    parent_machine: proc_bite_detector
+    event: "tension ≥ tension_setpoint"
+    action: "disable Reel Controller; emit alert (armed)"
+
+  tx_tightening_to_idle:
+    label: "disarmed during tighten"
+    source_state: state_tightening
+    target_state: state_idle
+    parent_machine: proc_bite_detector
+    event: "event_override: disarm"
+    action: "disable Reel Controller; release tension"
+
+  tx_armed_to_bite:
+    label: "tension spike"
+    source_state: state_armed
+    target_state: state_bite_detected
+    parent_machine: proc_bite_detector
+    event: "tension > bite_threshold (rising)"
+    action: "start hook_set_delay timer; emit alert (bite)"
+
+  tx_armed_to_tightening:
+    label: "slack detected"
+    source_state: state_armed
+    target_state: state_tightening
+    parent_machine: proc_bite_detector
+    event: "tension < (tension_setpoint - slack_hysteresis)"
+    action: "re-enable Reel Controller (slow pull); resume tighten"
+
+  tx_armed_to_idle:
+    label: "disarmed"
+    source_state: state_armed
+    target_state: state_idle
+    parent_machine: proc_bite_detector
+    event: "event_override: disarm"
+    action: "release tension; back to low-rate sampling"
+
+  tx_bite_to_setting:
+    label: "after hook_set_delay"
+    source_state: state_bite_detected
+    target_state: state_setting_hook
+    parent_machine: proc_bite_detector
+    event: "hook_set_delay timer expires"
+    action: "enable Reel Controller (sharp pull); start settle-window timer"
+
+  tx_bite_to_armed:
+    label: "false bite"
+    source_state: state_bite_detected
+    target_state: state_armed
+    parent_machine: proc_bite_detector
+    event: "tension drops below bite_threshold during hook_set_delay"
+    action: "cancel hook_set_delay timer; emit alert (false-bite)"
+
+  tx_setting_to_reeling:
+    label: "fish confirmed"
+    source_state: state_setting_hook
+    target_state: state_reeling
+    parent_machine: proc_bite_detector
+    event: "after settle-window: tension still > hook_set_threshold"
+    action: "switch Reel Controller to landing-reel speed; emit alert (hooked)"
+
+  tx_setting_to_armed:
+    label: "missed strike"
+    source_state: state_setting_hook
+    target_state: state_armed
+    parent_machine: proc_bite_detector
+    event: "after settle-window: tension dropped below threshold"
+    action: "stop Reel Controller; emit alert (missed-strike)"
+
+  tx_reeling_to_landed:
+    label: "line fully in"
+    source_state: state_reeling
+    target_state: state_landed
+    parent_machine: proc_bite_detector
+    event: "reel encoder at limit (line fully retrieved)"
+    action: "stop Reel Controller; emit alert (landed); enable Cloud Forward if configured"
+
+  tx_reeling_to_fault:
+    label: "line slack or motor stall"
+    source_state: state_reeling
+    target_state: state_fault
+    parent_machine: proc_bite_detector
+    event: "tension drops to zero OR motor stall detected"
+    action: "stop Reel Controller; emit alert (fault-during-reel)"
+
+  tx_landed_to_idle:
+    label: "angler reset"
+    source_state: state_landed
+    target_state: state_idle
+    parent_machine: proc_bite_detector
+    event: "event_override: reset"
+    action: "clear catch state; back to low-rate sampling"
+
+  tx_idle_to_fault:
+    label: "fault event"
+    source_state: state_idle
+    target_state: state_fault
+    parent_machine: proc_bite_detector
+    event: "any fault category detected (sensor / motor / config)"
+    action: "emit event_alert (fault)"
+
+  tx_armed_to_fault:
+    label: "fault event"
+    source_state: state_armed
+    target_state: state_fault
+    parent_machine: proc_bite_detector
+    event: "any fault category detected during armed monitoring"
+    action: "stop Reel Controller; emit event_alert (fault)"
+
+  tx_fault_to_idle:
+    label: "fault cleared + reset"
+    source_state: state_fault
+    target_state: state_idle
+    parent_machine: proc_bite_detector
+    event: "event_override: reset + fault category cleared"
+    action: "resume normal operation in Idle"
 
 edges:
 
