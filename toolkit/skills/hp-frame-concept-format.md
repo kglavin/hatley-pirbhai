@@ -50,10 +50,24 @@ reference_portfolio:                     # required; ≥1
     why_inadequate: <prose>              # optional — why what exists isn't enough
     why_relevant: <prose>                # optional — what it shows us
 
+# Load-bearing constraints — hard requirements that drive WHICH alternatives get evaluated
+load_bearing_constraints:                # optional; capture when a requirement rules out whole
+  - constraint: <prose>                  #   categories of approach before evaluation
+    rationale: <prose>                   # why this is non-negotiable + what selection it forces
+                                          # Often surfaces from the boundary branch — something in
+                                          # `environment` the user is responding to via a `controlled`
+                                          # design choice. Distinct from outcomes (not what success
+                                          # looks like), tensions (not in conflict with something),
+                                          # and unknowns (we *do* know we need it).
+
 # Tensions surfaced + reframed (Rebovich Ch 2 §2.4.1, complementarity)
 tensions:                                # optional; record those that came up
   - statement: <prose>                   # the apparent "A vs. B"
     reframed_as_and: <prose>             # optional; the "A and B" if found
+                                          # Special case worth watching: sizing-complementarity —
+                                          # when two outcomes appear to compete for a single
+                                          # physical resource (battery, fleet, headcount, budget)
+                                          # but one's standard automatically satisfies the other's.
 
 # Slack indicators (Rebovich Ch 2 §2.4.2, interdependence)
 slack_indicators:                        # optional
@@ -62,7 +76,11 @@ slack_indicators:                        # optional
 # Variation recorded (Rebovich Ch 2 §2.5.4)
 alternatives_considered:                 # optional but encouraged
   - approach: <prose>
-    rejected_because: <prose>            # operative reason, not vague
+    status: <prose>                      # for emergence-phase concepts: "not yet evaluated"
+                                          # for converging concepts: "rejected — <operative reason>"
+                                          # Don't force fake rejection reasons on a user still
+                                          # exploring; record honest evaluation status instead.
+    rejected_because: <prose>            # optional — required only when status starts with "rejected"
 
 # Where in the variation cycle (Rebovich Ch 2 §2.5.4.1, Table 2.1)
 phase: <emergence | convergence | efficiency>  # optional
@@ -199,6 +217,7 @@ The homeowner gets timely awareness when the system stops producing...
 | `stakeholders[]` | Seeded into the dictionary's `actors:` or `terminators:` section depending on whether they consume the system or just have stake |
 | `reference_portfolio[]` | Captured as `references:` for downstream proposal skills to consult |
 | `tensions[]`, `alternatives_considered[]` | Become `adrs:` candidates (the consumer offers to promote each into an ADR via `hp-capture-adr` if it meets the three criteria) |
+| `load_bearing_constraints[]` | Surfaced to Stage-1 as design constraints — every candidate Stage-1 architecture must satisfy these; treated as hard filter, not preference |
 | `unknowns[]`, `open_questions[]` | Carried forward as `open_questions:` in the dictionary; resurfaced by Stage-1+ skills |
 
 Fields the consumer does **not** read: `phase`, `phase_rationale`, `slack_indicators` — these are framing-layer artifacts useful to humans reading `concept.md` later, but HP's structural stages don't act on them directly.

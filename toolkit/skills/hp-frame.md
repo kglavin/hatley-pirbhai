@@ -35,11 +35,13 @@ When invoked, conversationally:
 2. **Pick a starting branch.** Usually `synthesis` (the *containing whole*) or `outcomes` (what the user gets). Synthesis goes first if the pitch is vague about purpose; outcomes goes first if the pitch is clear on purpose but vague on what "working" means.
 3. **Walk one branch at a time.** Ask one question. Wait. Recommend an answer with brief rationale. Let the user accept, modify, or push back. Capture to `concept.md` frontmatter inline as each field resolves.
 4. **Follow threads, not a checklist.** When a user answer raises a new ambiguity, dig into that — don't push to the next branch yet. Branch order is opportunistic, not fixed.
-5. **Offer 2–3 alternatives where there's real choice.** Don't volunteer a single recommendation when the choice is genuinely open. Trade-offs explicit, user picks. Rejected alternatives go into `alternatives_considered:` with reasons, not into the prose only.
-6. **Stress-test with concrete scenarios.** When a relationship or boundary feels resolved, invent a specific scenario that probes the edge. "When she's away on vacation and the inverter throws an error code at 2 AM, what should happen?" Force precision.
-7. **Distinguish *unknowns* from *open questions*.** Unknowns are things the user can't currently answer (data we don't have, behavior we haven't observed). Open questions are decisions deliberately deferred. Both stay in frontmatter; the consumer treats them differently.
-8. **Close when the boundary triage is stable.** When the user can answer "what do you control / influence / not control?" with confidence and the outcomes are operationally precise (effect / standard / conditions), framing is done. Resist over-framing — Stage 1 will surface things this skill can't.
-9. **Emit `concept.md`.** Frontmatter follows [`hp-frame-concept-format.md`](hp-frame-concept-format.md). Body is the conversation narrative — prose elaborations of each frontmatter field, in the order they came up.
+5. **When the user names 2+ candidate purposes/outcomes, ask for a ranking before grilling on any one.** The ranking identifies which outcome's standard is the *forcing function* (drives sizing/scope) and which are secondary. Without ranking, you'll waste turns on co-equal threads.
+6. **Offer 2–3 alternatives where there's real choice.** Don't volunteer a single recommendation when the choice is genuinely open. Trade-offs explicit, user picks. Rejected alternatives go into `alternatives_considered:` with reasons. Candidates the user hasn't yet evaluated also go there — with `status:` "not yet evaluated" instead of a rejection reason. Don't force fake rejection reasons on a user who's still in the *emergence* phase.
+7. **Stress-test with concrete scenarios.** When a relationship or boundary feels resolved, invent a specific scenario that probes the edge. "When the dependency is unreachable at 2 AM, what should happen?" Force precision.
+8. **Re-baseline on contradicting evidence.** When the user supplies new data (numbers, screenshots, architecture detail) that contradicts an earlier inference you'd captured, treat it as a correction, not noise. Re-write the affected `concept.md` fields inline; don't leave the contradicted version standing. Narrate the correction in the prose body so future readers see the trajectory.
+9. **Distinguish *unknowns* from *open questions*.** Unknowns are things the user can't currently answer (data we don't have, behavior we haven't observed). Open questions are decisions deliberately deferred. Both stay in frontmatter; the consumer treats them differently.
+10. **Close when the boundary triage is stable.** When the user can answer "what do you control / influence / not control?" with confidence and the outcomes are operationally precise (effect / standard / conditions), framing is done. Resist over-framing — Stage 1 will surface things this skill can't.
+11. **Emit `concept.md`.** Frontmatter follows [`hp-frame-concept-format.md`](hp-frame-concept-format.md). Body is the conversation narrative — prose elaborations of each frontmatter field, in the order they came up.
 
 After lock, `hp-init --from-concept concept.md` (or the eventual equivalent — the consumer is separate; see *Discipline* below) seeds the HP project's `dictionary.yaml` with terminator candidates from `boundary.influenced + boundary.environment` and Stage-1 flows from the `outcomes:` list.
 
@@ -58,6 +60,8 @@ After lock, `hp-init --from-concept concept.md` (or the eventual equivalent — 
 - **Controlled / Influenced / Environment** *(Rebovich Ch 2 §2.2, Fig 2.4)*. The triage is the seed of HP's Stage 1 terminator set. Force the user to assign every named entity to one of the three zones.
 - **Outcomes use CBEA structure** *(Anderson & Webb Ch 4 §4.2.2.1)*. Each outcome = `effect` (the change the user experiences) + `standard` (the proficiency required to call it "working") + `conditions` (the environmental variables under which it must hold). *Tasks* are deliberately excluded — that's HP's job from Stage 1.
 - **Complementarity over compromise** *(Rebovich Ch 2 §2.4.1)*. When tensions emerge as "A vs. B," look for the "A *and* B" reframing. Capture both the original tension and the reframing — the reframing isn't a deletion, it's a creative move worth preserving.
+- **Sizing-complementarity** *(specific case of the above)*. When two outcomes appear to compete for a shared *physical* resource (battery capacity, panel area, headcount, server fleet, budget), look for the *sizing-dominates* case where one outcome's standard automatically satisfies the other's. The dominated outcome becomes a *verify-after-sizing* check, not an independent sizing input. Common pattern, often missed without specific prompting.
+- **Load-bearing constraints get their own field.** A *load-bearing constraint* is a hard requirement that drives which alternatives are even *evaluated* — not which is chosen. It's distinct from outcomes (not what success looks like), tensions (not in conflict with something), and unknowns (we *do* know we need it). When one emerges (often surfaced via the boundary branch — something in *environment* the user is responding to via a *controlled* design choice), capture it in `load_bearing_constraints:`, not buried in prose.
 - **Slack indicators, not slack guesses** *(Rebovich Ch 2 §2.4.2)*. Ask the user: "where might optimization hit a wall the system itself causes?" Concrete slack indicators (rate limits, vendor dependencies, regulatory ceilings) are worth capturing; speculative ones aren't.
 - **Variation is recorded, not just discussed** *(Rebovich Ch 2 §2.5.4)*. Every rejected alternative goes into `alternatives_considered:` with an operative reason — not a vague one. "Rejected: complexity" is too vague. "Rejected: requires homeowner to maintain a Raspberry Pi" is operative.
 - **Reference portfolio is mandatory** *(Anderson & Webb Ch 4 §4.3.2.5)*. The user always has comparables. Force the listing — what's the closest thing that already exists, and why is it inadequate? Greenfield concepts that can't name their reference portfolio are usually still vapor.
@@ -71,19 +75,22 @@ After lock, `hp-init --from-concept concept.md` (or the eventual equivalent — 
 
 ## Branches walked
 
-The interview walks these nine branches, in opportunistic order based on what's still ambiguous:
+The interview walks these branches, in opportunistic order based on what's still ambiguous:
 
 | Branch | What the LLM challenges on | Frontmatter fields populated |
 |---|---|---|
 | **Synthesis** | "What containing whole does this serve? What stops working if this doesn't exist?" | `purpose`, `serves` |
-| **Outcomes** | "Who experiences what change? Under what conditions? How fast / accurate / cheap to be 'working'?" | `outcomes[]` (each as `effect / standard / conditions`) |
+| **Outcomes** | "Who experiences what change? Under what conditions? How fast / accurate / cheap to be 'working'?" *(If the user names 2+ outcomes, ask for a ranking before going deep on any one.)* | `outcomes[]` (each as `effect / standard / conditions`) |
 | **Stakeholders** | "Who has stake in those outcomes? What do they need, what do they contribute, what do they depend on?" | `stakeholders[]` (with `interest / contributes / depends_on`) |
 | **Boundary** | "Of everything you've named, what do you *control*? *Influence*? Just *live with*?" | `boundary.controlled / influenced / environment` |
 | **Reference portfolio** | "What's the closest thing that already exists? Why is it inadequate? Why is it relevant?" | `reference_portfolio[]` |
-| **Complementarity** | "Where are 'A vs. B' tradeoffs that might be 'A *and* B' if reframed?" | `tensions[]` (each with `statement / reframed_as_and`) |
+| **Constraints** | "Are there hard requirements that rule out whole categories of approach before evaluation? (Often surfaces as an *environment* constraint the user is responding to via a *controlled* design choice.)" | `load_bearing_constraints[]` |
+| **Complementarity** | "Where are 'A vs. B' tradeoffs that might be 'A *and* B' if reframed? Where might two outcomes share a single physical resource so one's sizing satisfies the other's?" | `tensions[]` (each with `statement / reframed_as_and`) |
 | **Slack** | "Where might effort hit a wall the system itself causes? Where might redesign beat optimization?" | `slack_indicators[]` |
-| **Variation** | "What else did you consider? Why not? What's still in scope vs. ruled out?" | `alternatives_considered[]`, `phase`, `phase_rationale` |
+| **Variation** | "What else did you consider? Why not? What's still in scope vs. ruled out?" *(For not-yet-evaluated candidates, capture with `status: not yet evaluated` rather than fake rejection reasons.)* | `alternatives_considered[]`, `phase`, `phase_rationale` |
 | **Uncertainty** | "What don't you know yet that could change the shape? What decisions are you deliberately deferring?" | `unknowns[]`, `open_questions[]` |
+
+**Couplings note:** the interdependencies the LLM should grill on (how components affect each other, where one's failure propagates) don't get their own frontmatter field — they *route into* `slack_indicators` (where the coupling creates a wall), `tensions` (where two outcomes compete via the coupling), `unknowns` (where coupling behavior isn't known), or `load_bearing_constraints` (where the coupling forces a design choice). Walk the couplings tree; capture the entries in the right existing buckets.
 
 ## Lived examples
 
