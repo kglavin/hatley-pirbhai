@@ -216,9 +216,9 @@ def _build_modernization(project: Project, project_dir: Path) -> TreeNode:
                   f"{len(project.all_translations())} ACL(s)",
         ))
         bc_sub.add(TreeNode(
-            label="Context Map (Mermaid SVG)",
+            label="Context Map",
             kind="artifact",
-            href="context-map.generated-mermaid.svg",
+            href="context-map.generated-d2.svg",
         ))
 
     runbook_dir = project_dir / "runbooks"
