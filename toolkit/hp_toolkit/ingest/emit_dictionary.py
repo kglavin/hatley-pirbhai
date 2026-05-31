@@ -163,7 +163,8 @@ def _emit_pspec(n: IRNode) -> dict[str, Any]:
     out: dict[str, Any] = {
         "parent_process": n.parent or n.id.replace("pspec_", "proc_"),
     }
-    # The leaf agent attaches `transformation` directly on the node (extra="allow")
+    # The leaf agent attaches `transformation` + (per H.2.c) `comments`
+    # directly on the node (extra="allow")
     extras = n.model_dump(exclude={
         "id", "kind", "label", "stage", "confidence", "provenance",
         "implemented_by", "summary", "description", "needs_cspec",
@@ -176,6 +177,13 @@ def _emit_pspec(n: IRNode) -> dict[str, Any]:
             "style": "textual",
             "body": n.summary or n.description or "(transformation body pending review)",
         }
+    # H.2.a: if no `comments` extra was emitted but the provenance carries
+    # substantive rationale, seed comments with it so the architect-facing
+    # "why" isn't lost.
+    if "comments" not in extras:
+        seeded = _seed_from_rationale(n)
+        if seeded:
+            extras["comments"] = seeded
     out.update(extras)
     return out
 
@@ -217,20 +225,95 @@ def _emit_arch_interconnect(n: IRNode) -> dict[str, Any]:
 
 
 def _emit_ams(n: IRNode) -> dict[str, Any]:
-    return {
+    """Per H.2.a: surface what the IR has rather than hard-coding the placeholder.
+
+    The architect agent emits `design_rationale` / `design_justification` /
+    `required_constraints` as extras on the IR node (per the H.2.c prompt
+    tightening). If those are present, they pass through verbatim. If not,
+    fall back to `provenance.rationale` when it's substantive (> 1 sentence
+    worth of prose). The placeholder only fires when the IR truly has
+    nothing to surface."""
+    out: dict[str, Any] = {
         "parent_module": n.id,
         "description": n.summary or n.description
             or f"Module specification for {n.label}.",
-        "design_rationale": "(ingest-authored; architect review pending)",
     }
+    extras = n.model_dump(exclude={
+        "id", "kind", "label", "stage", "confidence", "provenance",
+        "implemented_by", "summary", "description", "needs_cspec",
+        "is_initial", "optional", "parent", "parent_machine",
+        # AMS doesn't carry the architecture-module structural fields —
+        # those belong on the `architecture_modules:` entry, not the AMS
+        "module_kind", "trust_zone", "endpoints", "carries",
+        "allocated_processes", "allocated_cspecs", "allocated_stores",
+    })
+    extras = {k: v for k, v in extras.items() if v is not None}
+
+    # `design_rationale` is the marquee field; pull from extras if present,
+    # else seed from provenance.rationale when it carries substantive prose.
+    rationale = extras.pop("design_rationale", None) or _seed_from_rationale(n)
+    out["design_rationale"] = rationale or "(ingest-authored; architect review pending)"
+
+    # Pass through any other AMS prose fields the architect agent emitted
+    out.update(extras)
+    return out
 
 
 def _emit_ais(n: IRNode) -> dict[str, Any]:
-    return {
+    """Per H.2.a: same treatment as `_emit_ams` for interconnect specs.
+
+    The architect agent's `design_rationale` extra (when emitted) becomes
+    the AIS's rationale field; otherwise fall back to provenance.rationale.
+    Extras like `protocol`, `medium`, `bandwidth_estimate` flow through."""
+    out: dict[str, Any] = {
         "parent_interconnect": n.id,
         "description": n.summary or n.description
             or f"Interconnect specification for {n.label}.",
     }
+    extras = n.model_dump(exclude={
+        "id", "kind", "label", "stage", "confidence", "provenance",
+        "implemented_by", "summary", "description", "needs_cspec",
+        "is_initial", "optional", "parent", "parent_machine",
+        # Structural fields live on `architecture_interconnects:`, not AIS
+        "endpoints", "carries",
+    })
+    extras = {k: v for k, v in extras.items() if v is not None}
+
+    rationale = extras.pop("design_rationale", None) or _seed_from_rationale(n)
+    if rationale:
+        out["design_rationale"] = rationale
+
+    out.update(extras)
+    return out
+
+
+_PLACEHOLDER_RATIONALES = {
+    "(no rationale)",
+    "(architect review pending)",
+    "(ingest-authored; architect review pending)",
+}
+
+
+def _seed_from_rationale(n: IRNode) -> Optional[str]:
+    """Return `provenance.rationale` if it carries substantive prose.
+
+    Per H.2.a: the architect agent's one-line rationale (e.g. *"TS package
+    + Dockerfile + compose service across deployments. Single node:22-alpine
+    runtime. Owns proc_explore_graphql including the WS subscription
+    lifecycle CSPEC."*) IS the seed for `design_rationale` when no richer
+    prose extra was emitted. Discard placeholder strings + one-word
+    rationales that aren't useful as prose."""
+    if n.provenance is None:
+        return None
+    r = (n.provenance.rationale or "").strip()
+    if not r or r in _PLACEHOLDER_RATIONALES:
+        return None
+    # A "substantive" rationale is anything longer than 40 characters OR
+    # containing >=1 sentence-ending punctuation — captures the example
+    # rationales the architect agent currently produces.
+    if len(r) >= 40 or any(p in r for p in ".!?"):
+        return r
+    return None
 
 
 def _emit_flow(e: IREdge) -> dict[str, Any]:

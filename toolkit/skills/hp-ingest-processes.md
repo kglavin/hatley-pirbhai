@@ -32,12 +32,14 @@ Output JSON shape:
       "stage": 2, "confidence": 0.82, "needs_cspec": false,
       "implemented_by": ["src/orders/validate.rs", "src/orders/rules.rs", "src/orders/types.rs"],
       "summary": "Applies business rules to inbound order events.",
+      "description": "Centralizes order-validation logic so any inbound order — HTTP API, message bus, batch import — passes through the same rule pipeline. Owns the live RULE_TABLE; emits VALIDATED_ORDER on success, VALIDATION_FAILURE with rule-violation detail otherwise. Cross-references the customer + inventory stores to bind the order to current pricing before validation runs.",
       "provenance": { "agent": "hp-ingest-processes",
-                      "rationale": "Directory cluster `src/orders/` with 3 pure-logic files, one inbound import path from api/handlers.rs" } },
+                      "rationale": "Directory cluster `src/orders/` with 3 pure-logic files, one inbound import path from api/handlers.rs. Module docstring describes rule-table-driven validation." } },
     { "id": "store_orders_db", "kind": "data_store", "label": "Orders DB",
       "stage": 2, "confidence": 0.9,
       "implemented_by": ["src/db/orders_repo.rs"],
-      "summary": "Persistent storage for orders + line items." },
+      "summary": "Persistent storage for orders + line items.",
+      "description": "Authoritative store for order records across their lifecycle (placed → validated → fulfilled → completed). Schema versioned via Diesel migrations under db/migrations/." },
     ...
   ],
   "edges": [
@@ -84,6 +86,7 @@ If any check fails, fix in `processes.json` before emitting.
 
 ## Discipline
 
+- **Process `description` is 2–3 sentences (H.2.c).** Beyond the 1-line `summary`, every process node MUST carry a `description` field with 2–3 sentences capturing scope + rationale: what work the process does end-to-end, why it's a separate process from its siblings, and any constraint that anchors its boundary. Pull from module docstrings + the cluster's README. The emitter surfaces this as the process's `description:` in `dictionary.yaml` (the architect's first-pass reading material). A terse one-line `summary` is fine; a terse one-line `description` is the sidecar-feels-lifeless symptom H.2 is fixing.
 - **HP processes are verb-noun.** "Validate Order" not "Validation". "Compute Balance" not "Balance Service". Match the existing examples (`proc_acquire_tension`, `proc_compute_balance`, `proc_reel_controller`).
 - **Process granularity is architectural, not file-system.** Don't make every directory a process. A process is a meaningful unit of behavior — the thing an architect would draw on a whiteboard. Many directories collapse into one process.
 - **Data stores are passive.** A data store stores data; it doesn't transform. If a cluster's files include both DB access AND business logic, it's a process (with `implemented_by` including the DB access files) — not a separate data store.

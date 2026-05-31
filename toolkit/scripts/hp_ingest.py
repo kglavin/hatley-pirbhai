@@ -57,10 +57,12 @@ from hp_toolkit.ingest.process_candidates import (
 )
 from hp_toolkit.ingest.architecture_candidates import ArchitectureCandidates
 from hp_toolkit.ingest.boundary_candidates import BoundaryCandidates
+from hp_toolkit.ingest.docs_walker import DocCorpus, load_corpus, walk_docs, write_corpus
 from hp_toolkit.ingest.external_context import ensure_external_context_dir, summarize_presence
 from hp_toolkit.ingest.hints import ensure_hints_dir, list_dropped_hints
 from hp_toolkit.ingest.process_candidates import ProcessCandidates
 from hp_toolkit.ingest.progress_log import log_done, log_skip, log_start
+from hp_toolkit.ingest.rationale_sources import RationaleSources, gather as gather_rationale, write_sources as write_rationale_sources
 from hp_toolkit.ingest.scan import scan_codebase, write_scan
 from hp_toolkit.ingest.schema import IRGraph, ProjectScan
 from hp_toolkit.ingest.significance import SignificanceConfig
@@ -233,6 +235,29 @@ def main(argv: list[str] | None = None) -> int:
         print(_color("Done (scan-only).", "32"))
         return 0
 
+    # ─── Stage 0b: documentation corpus ─────────────────────────────
+    # Walk doc-like files (READMEs, usage docs, ADRs, glossaries, API
+    # specs) once + cache the corpus. Shared infrastructure for the
+    # input-expansion extractors (T6 rationale_sources, future T7
+    # glossary, T9 user-docs). Cheap pass.
+    docs_path = intermediate / "docs-corpus.json"
+    existing_docs = _try_load(docs_path, DocCorpus) if args.resume else None
+    if existing_docs is not None:
+        corpus = existing_docs  # type: ignore[assignment]
+        print(_color(f"[resume] skipping Stage 0b — {docs_path.name} present "
+                     f"({len(corpus.files)} docs)", "36"))
+        log_skip(intermediate, stage="0-docs", agent="docs_walker",
+                 reason="output_present", docs=len(corpus.files))
+    else:
+        log_start(intermediate, stage="0-docs", agent="docs_walker")
+        print(_color("==> Stage 0b — documentation corpus", "1"))
+        corpus = walk_docs(codebase)
+        write_corpus(corpus, docs_path)
+        print(_color(f"  wrote {docs_path.name} ({len(corpus.files)} doc files)", "32"))
+        log_done(intermediate, stage="0-docs", agent="docs_walker",
+                 docs=len(corpus.files))
+    print()
+
     # The candidate-prep block runs by default. --no-architecture skips
     # Stage 5; --resume short-circuits any stage whose output JSON already
     # exists + parses.
@@ -332,6 +357,34 @@ def main(argv: list[str] | None = None) -> int:
                 log_done(intermediate, stage="5-prep", agent="architecture_candidates",
                          modules=len(ac.modules),
                          interconnects=len(ac.interconnects))
+            print()
+
+            # ─── Stage 5-rationale: per-candidate evidence (H.2.b) ──
+            rs_path = intermediate / "rationale-sources.json"
+            existing_rs = _try_load(rs_path, RationaleSources) if args.resume else None
+            if existing_rs is not None:
+                print(_color(f"[resume] skipping Stage 5-rationale — {rs_path.name} present "
+                             f"({len(existing_rs.by_candidate)} candidates)", "36"))
+                log_skip(intermediate, stage="5-rationale", agent="rationale_sources",
+                         reason="output_present", candidates=len(existing_rs.by_candidate))
+            else:
+                log_start(intermediate, stage="5-rationale", agent="rationale_sources")
+                print(_color("==> Stage 5-rationale — per-candidate rationale evidence", "1"))
+                # Load candidates from disk (may have been resumed above)
+                ac_loaded = _try_load(ac_path, ArchitectureCandidates) or ac
+                rs = gather_rationale(ac_loaded, corpus, codebase)
+                write_rationale_sources(rs, rs_path)
+                total_readmes = sum(len(e.nearby_readmes) for e in rs.by_candidate.values())
+                total_headers = sum(len(e.file_headers) for e in rs.by_candidate.values())
+                total_infra = sum(len(e.infra_comments) for e in rs.by_candidate.values())
+                print(_color(f"  wrote {rs_path.name} "
+                             f"({len(rs.by_candidate)} candidates: "
+                             f"{total_readmes} READMEs, {total_headers} file headers, "
+                             f"{total_infra} infra-comment blocks)", "32"))
+                log_done(intermediate, stage="5-rationale", agent="rationale_sources",
+                         candidates=len(rs.by_candidate),
+                         readmes=total_readmes, headers=total_headers,
+                         infra_blocks=total_infra)
             print()
 
     if args.prep_candidates:
