@@ -61,6 +61,7 @@ from hp_toolkit.ingest.process_candidates import ProcessCandidates
 from hp_toolkit.ingest.progress_log import log_done, log_skip, log_start
 from hp_toolkit.ingest.scan import scan_codebase, write_scan
 from hp_toolkit.ingest.schema import IRGraph, ProjectScan
+from hp_toolkit.ingest.significance import SignificanceConfig
 from hp_toolkit.ingest.state_machine_detector import (
     StateMachineCandidates,
     extract_candidates as extract_state_machine_candidates,
@@ -136,6 +137,14 @@ def main(argv: list[str] | None = None) -> int:
                              "components. Useful for monorepos where the natural process "
                              "boundary is `<repo>/<category>/<service>` (depth 3) rather "
                              "than the leaf directory. Default unlimited.")
+    parser.add_argument("--min-pure-logic", type=int, default=None,
+                        metavar="LINES",
+                        help="Minimum line count for a pure-logic file to be considered "
+                             "significant. Default 50 — works for small projects (<200 "
+                             "files). Tighten to 100–125 for medium projects (200–1000 "
+                             "files), 150–250 for cloudctlplane-scale monorepos (>1000 "
+                             "files). Highest-leverage cost lever per INGEST_DESIGN.md > "
+                             "Tuning guide.")
     parser.add_argument("--resume", action="store_true",
                         help="Skip stages whose output JSON already exists in intermediate/. "
                              "Per-stage check: scan.json, boundary-candidates.json, "
@@ -175,10 +184,13 @@ def main(argv: list[str] | None = None) -> int:
         log_skip(intermediate, stage="0", agent="hp-ingest-scan",
                  reason="output_present", **_scan_stats(scan))
     else:
+        sig_config = (SignificanceConfig(min_pure_logic_lines=args.min_pure_logic)
+                      if args.min_pure_logic is not None else None)
         log_start(intermediate, stage="0", agent="hp-ingest-scan",
-                  codebase=str(codebase))
+                  codebase=str(codebase),
+                  min_pure_logic=str(args.min_pure_logic) if args.min_pure_logic else "default")
         print(_color(f"==> Scanning {codebase}", "1"))
-        scan = scan_codebase(codebase)
+        scan = scan_codebase(codebase, significance_config=sig_config)
         _print_scan_summary(scan)
         write_scan(scan, scan_path)
         print(_color(f"  wrote {scan_path.name} ({scan_path.stat().st_size} bytes)", "32"))

@@ -67,6 +67,18 @@ When invoked, conversationally:
 7. **Set confidence + provenance** on every emitted node/edge.
 8. **Write `intermediate/processes.json`.**
 
+### Required checklist before emit (per cloudctlplane H.1)
+
+Before writing `intermediate/processes.json`, verify every item:
+
+- [ ] **Every Stage-1 boundary flow in `boundary.json` has `refined_source` or `refined_target` set on it.** Walk every entry; for each, identify the Stage-2 process that handles it (inbound boundary → `refined_target=<proc_id>`; outbound → `refined_source=<proc_id>`). Without this, the level-1 DFD renders with boundary arrows dangling at `sys_root` (which isn't a node in the level-1 view). **Required, not optional** — the merger's H.1.2 warning will flag missing refinements, and the reviewer will repair, but doing it correctly here saves a repair cycle.
+- [ ] Every Stage-2 process node has `parent: sys_root` + `level: 1` set.
+- [ ] Every data-store node has `parent: sys_root` + `level: 1` set + `kind: data_store`.
+- [ ] Every internal flow has both endpoints in `entities` (terminator or process or data_store).
+- [ ] `confidence` + `provenance.{agent, rationale}` on every emitted node and edge.
+
+If any check fails, fix in `processes.json` before emitting.
+
 ## Discipline
 
 - **HP processes are verb-noun.** "Validate Order" not "Validation". "Compute Balance" not "Balance Service". Match the existing examples (`proc_acquire_tension`, `proc_compute_balance`, `proc_reel_controller`).
