@@ -830,7 +830,40 @@ The user can drop files into `external-context/` *at any time before the relevan
 - **Token cost rises proportionally** to what the user pastes. Heavy paste (full QA test plan suite) could add 50–100k tokens; minimal paste (one stakeholder brief) ~10k. Each user can scale to taste.
 - **The solicitation interaction is itself an architect-in-the-loop pattern** — fits naturally with F.3.b (stage-boundary pauses). The phase-0.5 prompt is just F.3.b applied at the start.
 
-### H.9 *(placeholder — add as you find more)*
+### H.9 Domain-specific Python prep — generic engine + LLM-discovered profiles
+
+**Finding raised:** 2026-05-25 — surfaced reviewing the Branch 4 (embedded-firmware) work. The deterministic prep scripts in [`hp_toolkit/ingest/`](hp_toolkit/ingest/) (`boundary_candidates.py`, `embedded_arch_extractor.py`, `role_classifier.py`, `state_machine_detector.py`, etc.) have substantial *domain-specific knowledge baked in*. Branch 1–3 was implicitly cloud-shaped (HTTP listeners, file clusters, Docker/k8s/compose); Branch 4 doubled the vocabulary to include firmware (FreeRTOS / NuttX / Zephyr / ChibiOS / Mbed / ESP-IDF / Arduino / AUTOSAR / STM32 HAL / Micro-ROS / ROS 2 / MAVLink / uORB / DDS + hardware peripherals + `px4_add_module` + `.ioc` + `.px4board` + linker scripts).
+
+Each new dogfood domain — scientific simulation, data pipeline, mobile app, robotics-other-than-PX4, etc. — will hit the same wall: add patterns to the Python, ship a branch, dogfood, repeat. **That doesn't scale.**
+
+**Proposed direction.** Refactor the prep into three layers:
+
+| Layer | What it owns | Hardcoded or data? |
+|---|---|---|
+| HP semantic categories | `boundary` / `pure-logic` / `state-machine` / `data-store` / `infra` / `config` — methodology vocabulary | **Hardcoded** (these are HP, not domain) |
+| Domain-specific patterns | Which file shapes / regexes / manifest names / build-system idioms / framework signatures map into each HP category for *this* repo | **Becomes data** (a profile) |
+| Scanner engine | The Python that walks files + applies patterns + emits candidates | **Becomes generic** (engine reads the profile) |
+
+A new pipeline stage — **Stage 0a: domain reconnaissance** — would run before the deterministic scan. An LLM agent reads top-level manifests + README + a sample of file headers + directory shape, then emits a `domain-profile.yaml` that parameterizes the scanner. Token spend is bounded (~50–100k tokens for one shot) and it's a one-time-per-repo cost (cache by repo signature).
+
+**Why this matters.** Branch 4 is effectively a checked-in "embedded firmware" domain profile, just compiled into Python rather than stored as data. The cloud patterns are similarly a profile, just older. Making the profile *data* means new domains add a checked-in YAML (or trigger LLM discovery), not a new branch of Python edits. This is how production scanners work — Tree-sitter language grammars, Semgrep rule packs, ESLint plugins.
+
+**Open questions to lock in a follow-up design doc:**
+
+- [ ] **What does the LLM emit?** Narrow (enum sets per HP category), medium (declarative profile with patterns + framework signatures + manifest paths), or wide (actual regex/scanner code — most general, most risky)?
+- [ ] **Community-contributed profiles vs always-discovered?** Well-known domains (PX4, ROS, FastAPI, Django, Rails) get checked-in `toolkit/domain-profiles/*.yaml`. Unknown domains trigger LLM discovery. Reduces token cost + variance for common cases; preserves generality for novel ones.
+- [ ] **Caching + persistence.** Keyed by repo signature (Git remote + top-level manifest hash?). Explicit `--rediscover` flag forces re-run.
+- [ ] **Validation.** LLM-discovered patterns can be wrong. Current hand-tuned patterns survived dogfood validation; LLM-generated ones haven't. Mitigation: reviewer agent at pipeline end gets the profile in context and flags pattern misses.
+
+**Proposed handling:** **Defer to a follow-up design doc + branch** (e.g., `DOMAIN_PROFILE_DESIGN.md` + `kg/hp-ingest-domain-profiles`). Same form-based-proposal pattern as the prior arcs (HIERARCHICAL / EMBEDDED). Trigger to actually spawn the doc: **the third concrete domain target** (scientific simulation? data pipeline? mobile? robotics?) — at that point the cost of adding patterns in-code exceeds the refactor cost, and we have enough triangulation to know what the abstraction should look like.
+
+**Priority for tuning branch:** **none** (architectural pivot — too big for this branch). **Priority for follow-up design:** **medium-high** when triggered. Without this, the Python prep ossifies around the two domains we've seen, and the third-domain dogfood will be painful enough to make the refactor undeniable.
+
+**Composes with other findings:**
+- **H.4 (glossary):** the glossary extractor's vocabulary is itself partly domain-shaped. A generic glossary extractor + domain-profile vocabulary list is the cleaner factoring.
+- **H.5 (deployment artifacts):** compose/k8s/dockerfile parsers are cloud-domain-specific. The firmware analog (CMake / `.ioc` / `.px4board`) is in `embedded_arch_extractor.py`. Same pattern: deployment-artifact parser is generic, the *which artifacts to parse* is in the domain profile.
+
+### H.10 *(placeholder — add as you find more)*
 
 *(... etc — add as many as needed)*
 
