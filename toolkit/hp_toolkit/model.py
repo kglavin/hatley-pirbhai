@@ -140,6 +140,25 @@ class ADRStatus(str, Enum):
     SUPERSEDED = "superseded"
 
 
+class MetricKind(str, Enum):
+    """Observability metric kind (Modernization #1).
+
+    Mirrors OpenTelemetry semantic conventions / Prometheus's four
+    fundamental metric types."""
+    COUNTER   = "counter"
+    GAUGE     = "gauge"
+    HISTOGRAM = "histogram"
+    SUMMARY   = "summary"
+
+
+class AlertSeverity(str, Enum):
+    """Severity level for alerts (Modernization #1 / #33)."""
+    INFO     = "info"
+    WARNING  = "warning"
+    CRITICAL = "critical"
+    PAGE     = "page"
+
+
 class TPMDirection(str, Enum):
     """Whether a TPM's threshold is a ceiling (less-is-better, e.g. latency,
     cost, mass) or a floor (more-is-better, e.g. uptime, MTBF, accuracy).
@@ -297,6 +316,8 @@ class PSpec(BaseModel):
     comments: Optional[str] = None       # rationale; 1988 §13.5 — NOT part of formal spec
     # ─── Modernization #25 — V&V ───
     verification: Optional[VerificationPlan] = None
+    # ─── Modernization #1 — runtime observability surface ───
+    observability: Optional[Observability] = None
 
 
 class ArchModule(BaseModel):
@@ -320,6 +341,8 @@ class ArchModule(BaseModel):
     allocated_stores: list[str] = Field(default_factory=list)
     # ─── Modernization #8.1 — security posture ───
     trust_zone: Optional[TrustZone] = None
+    # ─── Modernization #1 — runtime observability surface ───
+    observability: Optional[Observability] = None
 
 
 class ArchFlow(BaseModel):
@@ -389,6 +412,92 @@ class ArchModuleSpec(BaseModel):
     interfaces: Optional[str] = None
     # ─── Modernization #25 — V&V ───
     verification: Optional[VerificationPlan] = None
+
+
+class Metric(BaseModel):
+    """A metric a module / process emits at runtime.
+
+    Source: OpenTelemetry semantic conventions; Prometheus naming guide.
+    Modernization #1."""
+    model_config = ConfigDict(extra="allow")
+
+    name: str
+    kind: MetricKind
+    unit: Optional[str] = None
+    description: Optional[str] = None
+
+
+class Trace(BaseModel):
+    """A span name the module emits (distributed tracing). Modernization #1."""
+    model_config = ConfigDict(extra="allow")
+
+    span: str
+    description: Optional[str] = None
+
+
+class LogCategory(BaseModel):
+    """A log category the module emits. Modernization #1."""
+    model_config = ConfigDict(extra="allow")
+
+    category: str
+    level: str   # debug | info | warning | error | critical
+
+
+class Alert(BaseModel):
+    """An alertable condition. Carries an optional runbook reference
+    (Modernization #33) that connects to operator action."""
+    model_config = ConfigDict(extra="allow")
+
+    name: str
+    when: str                                # PromQL-style condition or natural-language
+    severity: AlertSeverity
+    runbook: Optional[str] = None            # path (relative) to runbook markdown
+    escalation_after_min: Optional[int] = None
+
+
+class Observability(BaseModel):
+    """The observability surface a module / process declares.
+
+    Source: OpenTelemetry semantic conventions; Google SRE Workbook ch. 5
+    (Alerting on SLOs). Modernization #1."""
+    model_config = ConfigDict(extra="allow")
+
+    metrics: list[Metric] = Field(default_factory=list)
+    traces: list[Trace] = Field(default_factory=list)
+    logs: list[LogCategory] = Field(default_factory=list)
+    alerts: list[Alert] = Field(default_factory=list)
+
+
+class SLI(BaseModel):
+    """Service Level Indicator — what's measured (Google SRE Book 2016)."""
+    model_config = ConfigDict(extra="allow")
+
+    query: str                               # PromQL / equivalent (informational)
+    unit: Optional[str] = None
+    description: Optional[str] = None
+
+
+class SLO(BaseModel):
+    """Service Level Objective — committed target.
+
+    The SLI → SLO → error budget → SLA chain. Cross-links to TPMs
+    (`derives_from_tpm`) and to runbooks (`runbook_on_burn`) close the
+    loop from design-time intent to runtime operator action.
+
+    Source: Google SRE Book (2016) + SRE Workbook (2018).
+    Modernization #32."""
+    model_config = ConfigDict(extra="allow")
+
+    id: str
+    name: str
+    sli: SLI
+    target: float
+    window: str                              # "30d", "7d", "24h", etc.
+    error_budget_pct: float                  # 0.0–100.0
+    applies_to: dict[str, list[str]] = Field(default_factory=dict)
+    sla: Optional[str] = None                # customer-facing prose
+    derives_from_tpm: Optional[str] = None   # cross-ref to TPM id
+    runbook_on_burn: Optional[str] = None    # path to budget-burn runbook
 
 
 class Budget(BaseModel):
@@ -531,6 +640,8 @@ class Project(BaseModel):
     # ─── Modernization #21 / #22 — Budgets + TPMs ───
     budgets: dict[str, Budget] = Field(default_factory=dict)
     tpms: dict[str, TPM] = Field(default_factory=dict)
+    # ─── Modernization #32 — SLI/SLO/SLA ───
+    service_level_objectives: dict[str, SLO] = Field(default_factory=dict)
 
     # ─── Convenience accessors ───
 
@@ -594,6 +705,17 @@ class Project(BaseModel):
 
     def tpms_for_budget(self, budget_id: str) -> list[TPM]:
         return [t for t in self.tpms.values() if t.derived_from_budget == budget_id]
+
+    def all_slos(self) -> list[SLO]:
+        return list(self.service_level_objectives.values())
+
+    def slos_for_module(self, module_id: str) -> list[SLO]:
+        return [s for s in self.service_level_objectives.values()
+                if module_id in s.applies_to.get("modules", [])]
+
+    def slos_for_tpm(self, tpm_id: str) -> list[SLO]:
+        return [s for s in self.service_level_objectives.values()
+                if s.derives_from_tpm == tpm_id]
 
     def entity(self, id: str) -> Entity:
         return self.entities[id]

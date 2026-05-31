@@ -658,6 +658,22 @@ pspecs:
         - "Sustained 1 Hz aggregate ingest across all three sources for 24 hours"
         - "DTU reconnect within 30 s of a transient network drop"
         - "Modbus RTU CRC failure causes only that sample to be discarded, not session drop"
+    # ─── Modernization #1 — runtime observability ───
+    observability:
+      metrics:
+        - { name: "telemetry_samples_total", kind: counter, description: "Total telemetry samples ingested (all sources)" }
+        - { name: "telemetry_ingest_seconds", kind: histogram, unit: s, description: "End-to-end ingest cycle duration" }
+        - { name: "telemetry_source_lag_seconds", kind: gauge, unit: s, description: "Per-source age of latest sample" }
+      traces:
+        - { span: "telemetry.ingest_cycle", description: "One full multi-protocol ingest cycle" }
+      logs:
+        - { category: "telemetry.adapter", level: info }
+      alerts:
+        - name: telemetry_source_stale
+          when: "max(telemetry_source_lag_seconds) > 30"
+          severity: warning
+          runbook: runbooks/telemetry-source-stale.md
+          escalation_after_min: 15
 
   pspec_dispatch_commands:
     parent_process: proc_dispatch_commands
@@ -1032,3 +1048,36 @@ tpms:
     trend_notes: |
       No associated budget (informational TPM). p99 dominated by
       initial WebSocket connect; warm renders are ~150 ms.
+
+
+# ─── Modernization #32 — SLOs ───
+
+service_level_objectives:
+
+  slo_diversion_loop_latency:
+    name: "Diversion-loop response latency"
+    sli:
+      query: 'histogram_quantile(0.99, rate(diversion_loop_seconds_bucket[5m]))'
+      unit: seconds
+      description: "p99 latency from grid-sense reading to inverter setpoint command."
+    target: 1.0                          # = budget_diversion_loop_latency.system_target (1000ms)
+    window: 30d
+    error_budget_pct: 0.5                # 0.5% of cycles may exceed 1s over 30d
+    applies_to:
+      modules: [am_controller_host]
+    sla: "Diversion-loop p99 response under 1 second over any 30-day window."
+    derives_from_tpm: tpm_diversion_response_p99
+    runbook_on_burn: runbooks/slo-diversion-burn.md
+
+  slo_monthly_cost:
+    name: "Monthly cloud cost SLO"
+    sli:
+      query: 'sum(cloud_cost_usd_monthly_total)'
+      unit: USD
+      description: "Sum of all cloud-cost-explorer line items tagged solar-stack."
+    target: 5.0                          # = budget_monthly_cloud_cost.system_target
+    window: 30d
+    error_budget_pct: 20.0               # 20% margin — generous for cost SLOs
+    applies_to:
+      modules: [am_controller_host, am_dashboard_app]
+    derives_from_tpm: tpm_actual_monthly_cost

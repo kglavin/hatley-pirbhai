@@ -25,6 +25,7 @@ from pathlib import Path
 from .model import (
     Project, Entity, EntityKind, Flow, PSpec, ADR, ADRStatus,
     AuthRequired, Encryption, Budget, TPM, TPMDirection,
+    Observability, Alert, SLO,
 )
 
 
@@ -897,6 +898,108 @@ def modernization_validation(project: Project, project_dir: Path | None = None) 
                 _check_paths(p.id, p.verification)
             for a in project.all_architecture_module_specs():
                 _check_paths(a.id, a.verification)
+
+    # ─── #1: observability coverage + alert path checks ───
+    am_ids_set = set(project.architecture_modules.keys())
+
+    def _validate_observability(holder_id: str, obs) -> None:
+        if obs is None:
+            return
+        seen_alert_names: set[str] = set()
+        for alert in obs.alerts:
+            if alert.name in seen_alert_names:
+                report.issues.append(ValidationIssue(
+                    "error", "modernization", holder_id,
+                    f"duplicate alert name {alert.name!r} within this observability block"))
+            seen_alert_names.add(alert.name)
+            # #33 — runbook path validation
+            if alert.runbook is not None and project_dir is not None:
+                if alert.runbook.startswith("/") or ".." in Path(alert.runbook).parts:
+                    report.issues.append(ValidationIssue(
+                        "error", "modernization", holder_id,
+                        f"alert {alert.name!r} runbook path {alert.runbook!r} "
+                        f"must be relative and within project"))
+                elif not (project_dir / alert.runbook).exists():
+                    report.issues.append(ValidationIssue(
+                        "warning", "modernization", holder_id,
+                        f"alert {alert.name!r} runbook {alert.runbook!r} does not exist"))
+
+    for ps in project.all_pspecs():
+        _validate_observability(ps.id, ps.observability)
+    for am in project.all_architecture_modules():
+        _validate_observability(am.id, am.observability)
+
+    obs_holders_total = len(project.pspecs) + len(project.architecture_modules)
+    if obs_holders_total > 0:
+        obs_with = (
+            sum(1 for ps in project.all_pspecs() if ps.observability is not None)
+            + sum(1 for am in project.all_architecture_modules() if am.observability is not None)
+        )
+        report.metrics["observability_coverage_pct"] = round(100 * obs_with / obs_holders_total, 1)
+
+    # Coverage metric: alerts with runbook (#33)
+    all_alerts: list = []
+    for ps in project.all_pspecs():
+        if ps.observability:
+            all_alerts.extend(ps.observability.alerts)
+    for am in project.all_architecture_modules():
+        if am.observability:
+            all_alerts.extend(am.observability.alerts)
+    if all_alerts:
+        n_with_runbook = sum(1 for a in all_alerts if a.runbook is not None)
+        report.metrics["alert_runbook_coverage_pct"] = round(100 * n_with_runbook / len(all_alerts), 1)
+        report.counts["alerts_total"] = len(all_alerts)
+
+    # ─── #32: SLO validator ───
+    tpm_ids = set(project.tpms.keys())
+    window_re = re.compile(r"^\d+(s|m|h|d|w)$")
+    for slo in project.all_slos():
+        if not (0 <= slo.error_budget_pct <= 100):
+            report.issues.append(ValidationIssue(
+                "error", "modernization", slo.id,
+                f"error_budget_pct {slo.error_budget_pct} not in [0, 100]"))
+        if not window_re.match(slo.window):
+            report.issues.append(ValidationIssue(
+                "error", "modernization", slo.id,
+                f"window {slo.window!r} does not match \\d+[smhdw] (e.g. '30d', '24h')"))
+        all_known: dict[str, set[str]] = {
+            "modules": am_ids_set,
+            "flows": set(project.flows.keys()),
+            "interconnects": set(project.architecture_interconnects.keys()),
+            "processes": entity_ids,
+        }
+        for kind, ids in slo.applies_to.items():
+            known = all_known.get(kind)
+            if known is None:
+                continue
+            for ref_id in ids:
+                if ref_id not in known:
+                    report.issues.append(ValidationIssue(
+                        "error", "modernization", slo.id,
+                        f"applies_to[{kind!r}] references {ref_id!r} which is not in the dictionary"))
+        if slo.derives_from_tpm is not None and slo.derives_from_tpm not in tpm_ids:
+            report.issues.append(ValidationIssue(
+                "error", "modernization", slo.id,
+                f"derives_from_tpm {slo.derives_from_tpm!r} not in dictionary"))
+        if slo.runbook_on_burn is not None and project_dir is not None:
+            rb = slo.runbook_on_burn
+            if rb.startswith("/") or ".." in Path(rb).parts:
+                report.issues.append(ValidationIssue(
+                    "error", "modernization", slo.id,
+                    f"runbook_on_burn {rb!r} must be relative and within project"))
+            elif not (project_dir / rb).exists():
+                report.issues.append(ValidationIssue(
+                    "warning", "modernization", slo.id,
+                    f"runbook_on_burn {rb!r} does not exist"))
+
+    if project.architecture_modules:
+        slo_module_ids = set()
+        for slo in project.all_slos():
+            slo_module_ids.update(slo.applies_to.get("modules", []))
+        report.metrics["slo_coverage_pct"] = round(
+            100 * len(slo_module_ids & am_ids_set) / len(am_ids_set), 1)
+    if project.service_level_objectives:
+        report.counts["slos_total"] = len(project.service_level_objectives)
 
     return report
 

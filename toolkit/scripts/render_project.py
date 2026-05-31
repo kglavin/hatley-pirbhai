@@ -231,6 +231,15 @@ def render_architecture(project_dir: Path, project) -> None:
             print(f"  wrote specs/interconnects/{out.name} ({len(md)} bytes)")
         print()
 
+    # SLOs project-level summary (modernization #32)
+    if project.service_level_objectives:
+        print(_color(f"==> SLOs summary ({len(project.service_level_objectives)} SLO(s))", "1"))
+        md = render_arch.render_slos_summary(project)
+        out = arch_dir / "slos.md"
+        out.write_text(md)
+        print(f"  wrote {out.name} ({len(md)} bytes)")
+        print()
+
 
 def render_pspecs(project_dir: Path, project) -> None:
     """Render each declared PSPEC into its own markdown sidecar.
