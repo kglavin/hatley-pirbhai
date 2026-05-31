@@ -31,6 +31,12 @@ notifications drive the display directly with no polling.
 - **Reliability:** Reconnects to controller within 5 s after BLE loss.
 - **Physical:** Runs on iOS ≥ 15, Android ≥ 11.
 
+## BUDGETS (allocations to this module)
+
+| Budget | Unit | This module | System target | Reserve |
+|---|---|---:|---:|---:|
+| `budget_telemetry_to_app_latency` — Telemetry → app render latency (informational; not safety-critical) | ms | 150.0 | 300.0 | 50.0 |
+
 ---
 
 *Format: 2000 §4.2.5.4 — typical AMS contents. See [`../../ARCH_DESIGN.md`](../../ARCH_DESIGN.md).*

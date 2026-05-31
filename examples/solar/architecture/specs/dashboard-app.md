@@ -29,6 +29,18 @@ the owner's LAN without install.
 - **Reliability:** Reconnects to controller within 5 s of WebSocket drop; surfaces 'disconnected' state to the owner.
 - **Physical:** Runs in any modern browser (Chrome, Safari, Firefox).
 
+## BUDGETS (allocations to this module)
+
+| Budget | Unit | This module | System target | Reserve |
+|---|---|---:|---:|---:|
+| `budget_monthly_cloud_cost` — Monthly cloud cost | USD | 1.0 | 5.0 | 1.0 |
+
+## TPMs (tracking this module's budgets)
+
+| TPM | Unit | Current | Growth allowance | Threshold |
+|---|---|---:|---:|---:|
+| `tpm_actual_monthly_cost` — Actual monthly cloud cost (last 30d) | USD | 2.3 | 2.7 | 5.0 |
+
 ---
 
 *Format: 2000 §4.2.5.4 — typical AMS contents. See [`../../ARCH_DESIGN.md`](../../ARCH_DESIGN.md).*

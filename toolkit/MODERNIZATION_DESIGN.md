@@ -244,22 +244,29 @@ class Budget(BaseModel):
 **Schema additions.** New top-level section:
 
 ```python
+class TPMDirection(str, Enum):
+    LESS_IS_BETTER = "less_is_better"   # threshold is a ceiling (latency, cost, mass)
+    MORE_IS_BETTER = "more_is_better"   # threshold is a floor (uptime, MTBF, accuracy)
+
 class TPM(BaseModel):
     """Technical Performance Measure — tracked over time."""
     id: str
     name: str
     unit: str
-    threshold: float                      # don't-cross
+    direction: TPMDirection = TPMDirection.LESS_IS_BETTER  # surfaced during impl
+    threshold: float                      # don't-cross (ceiling or floor by direction)
     target: Optional[float] = None        # aim for
     current_estimate: float
-    growth_allowance: float               # threshold - current_estimate
-    measurement_method: str               # how it's measured (query / formula)
+    growth_allowance: float               # safety margin in the direction of threshold
+    measurement_method: str
     derived_from_budget: Optional[str] = None     # cross-ref to Budget id
     derived_from_slo: Optional[str] = None        # cross-ref to SLO id (#32)
-    trend_notes: Optional[str] = None     # narrative trend; later: time-series
+    trend_notes: Optional[str] = None
 ```
 
-**Validator.** `current_estimate + growth_allowance ≤ threshold` (hard rule). `derived_from_budget` references a real Budget; `derived_from_slo` references a real SLO (resolvable once #32 lands).
+**Note on `direction:`** — surfaced during Commit 2 implementation when authoring a BLE-uptime TPM. Less-is-better TPMs (latency, cost) treat the threshold as a ceiling: `current + growth_allowance ≤ threshold`. More-is-better TPMs (uptime, MTBF, accuracy, throughput) treat it as a floor: `current − growth_allowance ≥ threshold`. NASA SE Handbook §6.7.2 handles both directions; missing this distinction would either falsely error on healthy uptime TPMs or silently miss real breaches on safety TPMs.
+
+**Validator.** Direction-aware threshold rule (hard). `derived_from_budget` references a real Budget; `derived_from_slo` references a real SLO (resolvable once #32 lands).
 
 **Coverage metric.** `tpm_within_threshold_pct` = (TPMs where current_estimate ≤ threshold) / total. `tpm_growth_safety_pct` = (TPMs where current_estimate + growth_allowance ≤ threshold) / total.
 

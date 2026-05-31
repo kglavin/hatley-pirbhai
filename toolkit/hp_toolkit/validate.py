@@ -24,7 +24,7 @@ from pathlib import Path
 
 from .model import (
     Project, Entity, EntityKind, Flow, PSpec, ADR, ADRStatus,
-    AuthRequired, Encryption,
+    AuthRequired, Encryption, Budget, TPM, TPMDirection,
 )
 
 
@@ -784,6 +784,87 @@ def modernization_validation(project: Project, project_dir: Path | None = None) 
         n_accepted = sum(1 for a in project.all_adrs() if a.status == ADRStatus.ACCEPTED)
         report.counts["adrs_total"] = len(project.adrs)
         report.counts["adrs_accepted"] = n_accepted
+
+    # ─── #21: Budget allocation hard rule + reference integrity ───
+    am_ids_set = set(project.architecture_modules.keys())
+    for b in project.all_budgets():
+        # Allocations reference real architecture modules
+        for mod_id in b.allocations.keys():
+            if mod_id not in am_ids_set:
+                report.issues.append(ValidationIssue(
+                    "error", "modernization", b.id,
+                    f"budget allocation references unknown module {mod_id!r}"))
+        # Hard rule: sum(allocations) + reserve ≤ system_target
+        allocated_total = sum(b.allocations.values())
+        if allocated_total + b.system_reserve > b.system_target + 1e-9:
+            report.issues.append(ValidationIssue(
+                "error", "modernization", b.id,
+                f"budget over-allocated: allocations ({allocated_total} {b.unit}) "
+                f"+ reserve ({b.system_reserve} {b.unit}) > "
+                f"system_target ({b.system_target} {b.unit}) "
+                f"(NASA SE Handbook §6.7)"))
+
+    if project.budgets:
+        # Coverage metric: how close to fully allocated (avg across budgets)
+        completeness_values = []
+        for b in project.all_budgets():
+            if b.system_target == 0:
+                continue
+            completeness_values.append(
+                100 * (sum(b.allocations.values()) + b.system_reserve) / b.system_target
+            )
+        if completeness_values:
+            report.metrics["budget_allocation_completeness_pct"] = round(
+                sum(completeness_values) / len(completeness_values), 1)
+        report.counts["budgets_total"] = len(project.budgets)
+
+    # ─── #22: TPM threshold rule + cross-references ───
+    # Threshold semantics depend on direction:
+    #   less_is_better — threshold is a ceiling; current + growth must stay ≤ threshold
+    #   more_is_better — threshold is a floor;   current - growth must stay ≥ threshold
+    def _tpm_within_threshold(t: TPM) -> bool:
+        if t.direction == TPMDirection.MORE_IS_BETTER:
+            return t.current_estimate >= t.threshold
+        return t.current_estimate <= t.threshold
+
+    def _tpm_growth_safe(t: TPM) -> bool:
+        if t.direction == TPMDirection.MORE_IS_BETTER:
+            return t.current_estimate - t.growth_allowance >= t.threshold
+        return t.current_estimate + t.growth_allowance <= t.threshold
+
+    budget_ids = set(project.budgets.keys())
+    for t in project.all_tpms():
+        if not _tpm_growth_safe(t):
+            direction_phrase = (
+                "current_estimate − growth_allowance dropped below threshold"
+                if t.direction == TPMDirection.MORE_IS_BETTER
+                else "current_estimate + growth_allowance exceeded threshold"
+            )
+            report.issues.append(ValidationIssue(
+                "error", "modernization", t.id,
+                f"TPM headroom exhausted ({t.direction.value}): {direction_phrase} — "
+                f"current={t.current_estimate} {t.unit}, growth={t.growth_allowance}, "
+                f"threshold={t.threshold}"))
+        if not _tpm_within_threshold(t):
+            direction_phrase = (
+                f"below floor of {t.threshold}"
+                if t.direction == TPMDirection.MORE_IS_BETTER
+                else f"above ceiling of {t.threshold}"
+            )
+            report.issues.append(ValidationIssue(
+                "warning", "modernization", t.id,
+                f"TPM current_estimate ({t.current_estimate} {t.unit}) is {direction_phrase}"))
+        if t.derived_from_budget is not None and t.derived_from_budget not in budget_ids:
+            report.issues.append(ValidationIssue(
+                "error", "modernization", t.id,
+                f"TPM derived_from_budget {t.derived_from_budget!r} not in dictionary"))
+
+    if project.tpms:
+        n_within = sum(1 for t in project.all_tpms() if _tpm_within_threshold(t))
+        n_safe   = sum(1 for t in project.all_tpms() if _tpm_growth_safe(t))
+        report.metrics["tpm_within_threshold_pct"] = round(100 * n_within / len(project.tpms), 1)
+        report.metrics["tpm_growth_safety_pct"]    = round(100 * n_safe   / len(project.tpms), 1)
+        report.counts["tpms_total"] = len(project.tpms)
 
     # ─── #25: V&V — verification block coverage + test_suite path check ───
     n_specs_total = len(project.pspecs) + len(project.architecture_module_specs)
