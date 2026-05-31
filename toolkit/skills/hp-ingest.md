@@ -26,6 +26,10 @@ Runs a 7-phase pipeline:
 | 0b | Documentation corpus | Pure Python (`docs_walker.py`) | `intermediate/docs-corpus.json` — typed doc-file inventory |
 | 0c | Glossary candidates (extract) | Pure Python (`glossary_extractor.py`) | `intermediate/glossary-candidates.json` — deterministic harvest |
 | 0c-curate | Glossary curation (optional LLM) | [`hp-ingest-glossary`](hp-ingest-glossary.md) | `intermediate/glossary.curated.json` — canonical 30–60-term glossary |
+| 0d | User-facing docs harvest (H.6) | Pure Python (`user_docs_gatherer.py`) | `intermediate/user-docs.json` — usage excerpts, actor + intent phrases, API specs |
+| 0e | Testbed detect + mine (H.7) | Pure Python (`testbed_miner.py`) | `intermediate/testbeds.json` — purpose-built testbeds + their scenarios |
+| 0f | Make/Justfile recipe parse | Pure Python (`recipe_parser.py`) | `intermediate/recipes.json` — deploy / up / build / test recipes |
+| 0.5 | External-context solicitation (H.8.a) | Orchestrator conversation — auto-detect with fallback ask | `external-context/<category>/*` (user-managed) |
 | 1 | Boundary candidate prep + LLM | Script + [`hp-ingest-boundary`](hp-ingest-boundary.md) | `intermediate/boundary.json` |
 | 2 | Process candidate prep + LLM | Script + [`hp-ingest-processes`](hp-ingest-processes.md) | `intermediate/processes.json` |
 | 3+4 | State-machine detect + parallel LLM per leaf | Script + N×[`hp-ingest-leaf`](hp-ingest-leaf.md) (3–5 concurrent) | `intermediate/leaf-<proc>.json` per process |
@@ -79,6 +83,49 @@ uv run python scripts/hp_ingest.py <codebase-path> --output <project-dir> --scan
 ```
 
 This writes `<project-dir>/intermediate/scan.json` with the per-file role hints. **Inspect it before proceeding** — if the significance filter dropped too much (or too little), tune `SignificanceConfig` and re-run. The cost of getting Phase 0 right is zero tokens.
+
+### Phase 0.5 — External-context solicitation (H.8.a; auto-detect with fallback ask)
+
+Per locked tuning Q6: if the user has already populated `<project-dir>/external-context/<category>/*` (qa-test-plans / adrs / requirements / design-docs / runbooks / glossary), proceed silently — those files are already going to be fed to the relevant stages. If the directory is empty (only the bootstrap README), pause and ask the user once.
+
+**Auto-detect logic:**
+
+```python
+# In Python terms; the orchestrator implements this via Bash + the
+# external_context helper or a direct file check.
+from hp_toolkit.ingest.external_context import has_any_content, summarize_presence
+present = summarize_presence(project_dir)
+if has_any_content(project_dir):
+    # Announce what we found, proceed without prompting
+    print(f"==> External context detected: {present}")
+else:
+    # Empty — ask once
+    prompt_for_external_context()
+```
+
+**Solicitation prompt** (when external-context/ is empty):
+
+> hp-ingest works best when it has access to the project's architectural context, not just its code. The repo scan picked up `README.md`, `docs/`, and any detected testbeds — but architectural decisions, QA test plans, and stakeholder requirements often live outside the repo (Confluence, Notion, shared drives). Are there additional context sources that would help?
+>
+> Common categories:
+> - **QA test plans / acceptance criteria** — strongest signal for boundary intent + PSPEC outcomes
+> - **Architecture decision records (ADRs)** in a wiki
+> - **Design docs / proposals** in shared drives
+> - **Stakeholder requirements** documents
+> - **Operational runbooks**
+> - **Domain glossary / vocabulary** documents
+> - **Postmortems** informing architecture
+>
+> **If yes:** paste content (or point at a local-filesystem path) below + tell me which category each piece falls in. I'll write them under `external-context/<category>/` and feed them to the relevant stages.
+>
+> **If nothing applies:** reply `continue` and I'll proceed with code-only context. You can also drop files into `external-context/` at any later point and re-run the relevant stage with `--resume`.
+
+When the user responds:
+- **With pasted content** → write each piece to `external-context/<category>/<short-name>.md` (one file per piece). Re-run `has_any_content()` to confirm content is present. Append a `EXT_CONTEXT_PROVIDED` event to progress.log: `Bash: echo "$(date -u +%Y-%m-%dT%H:%M:%SZ) EXT_CONTEXT_PROVIDED stage=0.5 agent=hp-ingest categories=<comma-list>" >> intermediate/progress.log`.
+- **With "continue" / "skip" / "nothing"** → proceed without external context. Append a `EXT_CONTEXT_SKIPPED` event.
+- **With a local path** → copy the files into `external-context/<category>/` (the orchestrator can use Bash `cp` for this).
+
+On subsequent runs the directory has content + the solicitation is skipped.
 
 ### Phase 1 — Boundary
 

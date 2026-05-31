@@ -102,7 +102,8 @@ When invoked, conversationally:
 2. **Read pre-stage file drops (architect guidance + external evidence).**
    - **Hints:** check `intermediate/hints/leaf-<process-id>.md` first (process-specific guidance); fall back to `intermediate/hints/leaf.md` (cross-leaf guidance). If present, treat as binding. Append a `HINT_LOADED` line: `Bash: echo "$(date -u +%Y-%m-%dT%H:%M:%SZ) HINT_LOADED stage=3-4 agent=hp-ingest-leaf process=<proc-id> path=<hint-path>" >> <intermediate-dir>/progress.log`.
    - **External context:** read `external-context/qa-test-plans/` — relevant plans describe expected behavior for the process (PSPEC outcome expectations / CSPEC state transitions). Record source paths in `provenance.external_context_used` on the IR nodes that drew on them.
-3. **Read the process input** (id, label, implemented_by, needs_cspec).
+3. **Read the process input** (id, label, implemented_by, needs_cspec). Also load — when present:
+   - `intermediate/testbeds.json` (H.7) — assertions in scenarios that target this process describe expected transformation behavior in the testbed's vocabulary. Use them to validate / enrich PSPEC bodies (Mode B) or to confirm CSPEC state transitions match the scenario step-by-step (Mode A). Cross-reference scenario file paths with this process's `implemented_by` to find relevant scenarios.
 4. **Read every file in `implemented_by[]`.** This is the only agent that reads raw source.
 5. **If `needs_cspec`:** consult `state-machine-candidates.json` for this process's files. Use Mode A above.
 6. **Else:** use Mode B (PSPEC).

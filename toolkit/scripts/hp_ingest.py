@@ -64,7 +64,10 @@ from hp_toolkit.ingest.hints import ensure_hints_dir, list_dropped_hints
 from hp_toolkit.ingest.process_candidates import ProcessCandidates
 from hp_toolkit.ingest.progress_log import log_done, log_skip, log_start
 from hp_toolkit.ingest.rationale_sources import RationaleSources, gather as gather_rationale, write_sources as write_rationale_sources
+from hp_toolkit.ingest.recipe_parser import RecipeHarvest, gather as gather_recipes, write_harvest as write_recipes
 from hp_toolkit.ingest.scan import scan_codebase, write_scan
+from hp_toolkit.ingest.testbed_miner import TestbedHarvest, detect_and_mine as detect_testbeds, write_harvest as write_testbeds
+from hp_toolkit.ingest.user_docs_gatherer import UserDocsHarvest, gather as gather_user_docs, write_harvest as write_user_docs
 from hp_toolkit.ingest.schema import IRGraph, ProjectScan
 from hp_toolkit.ingest.significance import SignificanceConfig
 from hp_toolkit.ingest.state_machine_detector import (
@@ -282,6 +285,84 @@ def main(argv: list[str] | None = None) -> int:
             print(f"    top: {top}")
         log_done(intermediate, stage="0-glossary", agent="glossary_extractor",
                  terms=len(gc.terms))
+    print()
+
+    # ─── Stage 0d: user-facing documentation harvest (H.6) ─────────
+    # Extracts Usage / Getting Started / Tutorial sections + actor +
+    # intent phrases + API specs. The boundary agent reads this to
+    # name terminators by role rather than protocol.
+    ud_path = intermediate / "user-docs.json"
+    existing_ud = _try_load(ud_path, UserDocsHarvest) if args.resume else None
+    if existing_ud is not None:
+        print(_color(f"[resume] skipping Stage 0d — {ud_path.name} present "
+                     f"({len(existing_ud.usage_excerpts)} excerpts)", "36"))
+        log_skip(intermediate, stage="0-user-docs", agent="user_docs_gatherer",
+                 reason="output_present", excerpts=len(existing_ud.usage_excerpts))
+    else:
+        log_start(intermediate, stage="0-user-docs", agent="user_docs_gatherer")
+        print(_color("==> Stage 0d — user-facing docs harvest", "1"))
+        ud = gather_user_docs(corpus, codebase)
+        write_user_docs(ud, ud_path)
+        print(_color(f"  wrote {ud_path.name} "
+                     f"({len(ud.usage_excerpts)} usage excerpts, "
+                     f"{len(ud.code_examples)} code examples, "
+                     f"{len(ud.api_specs)} API specs, "
+                     f"{len(ud.actor_phrases)} actor phrases)", "32"))
+        log_done(intermediate, stage="0-user-docs", agent="user_docs_gatherer",
+                 excerpts=len(ud.usage_excerpts),
+                 examples=len(ud.code_examples),
+                 api_specs=len(ud.api_specs))
+    print()
+
+    # ─── Stage 0e: testbed detection + mining (H.7) ────────────────
+    # Identifies purpose-built testbeds (agent-gym-style top-level dirs)
+    # + mines their scenarios + fixtures + spin-up topology. The
+    # boundary / processes / leaf / architect agents all read this as
+    # executable-spec evidence.
+    tb_path = intermediate / "testbeds.json"
+    existing_tb = _try_load(tb_path, TestbedHarvest) if args.resume else None
+    if existing_tb is not None:
+        print(_color(f"[resume] skipping Stage 0e — {tb_path.name} present "
+                     f"({len(existing_tb.testbeds)} testbeds)", "36"))
+        log_skip(intermediate, stage="0-testbeds", agent="testbed_miner",
+                 reason="output_present", testbeds=len(existing_tb.testbeds))
+    else:
+        log_start(intermediate, stage="0-testbeds", agent="testbed_miner")
+        print(_color("==> Stage 0e — testbed detection + mining", "1"))
+        tb = detect_testbeds(codebase)
+        write_testbeds(tb, tb_path)
+        scenarios = sum(len(t.scenarios) for t in tb.testbeds)
+        print(_color(f"  wrote {tb_path.name} "
+                     f"({len(tb.testbeds)} testbeds, {scenarios} scenarios)", "32"))
+        for t in tb.testbeds[:5]:
+            print(f"    {t.directory:30s} score={t.detection_score} scenarios={len(t.scenarios)}")
+        log_done(intermediate, stage="0-testbeds", agent="testbed_miner",
+                 testbeds=len(tb.testbeds), scenarios=scenarios)
+    print()
+
+    # ─── Stage 0f: Make/Justfile recipe parse ──────────────────────
+    # Recipes are deployment-recipe artifacts the architect agent
+    # reads alongside compose/k8s; run-targets feed the boundary
+    # agent's CLI-entry inference.
+    rp_path = intermediate / "recipes.json"
+    existing_rp = _try_load(rp_path, RecipeHarvest) if args.resume else None
+    if existing_rp is not None:
+        print(_color(f"[resume] skipping Stage 0f — {rp_path.name} present "
+                     f"({len(existing_rp.recipes)} recipes)", "36"))
+        log_skip(intermediate, stage="0-recipes", agent="recipe_parser",
+                 reason="output_present", recipes=len(existing_rp.recipes))
+    else:
+        log_start(intermediate, stage="0-recipes", agent="recipe_parser")
+        print(_color("==> Stage 0f — Make/Justfile recipe parse", "1"))
+        rp = gather_recipes(codebase)
+        write_recipes(rp, rp_path)
+        from collections import Counter
+        by_cat = Counter(r.category for r in rp.recipes)
+        cat_summary = ", ".join(f"{k}:{v}" for k, v in by_cat.most_common(5)) or "none"
+        print(_color(f"  wrote {rp_path.name} ({len(rp.recipes)} recipes; {cat_summary})", "32"))
+        log_done(intermediate, stage="0-recipes", agent="recipe_parser",
+                 recipes=len(rp.recipes),
+                 **{k: v for k, v in by_cat.items() if v})
     print()
 
     # The candidate-prep block runs by default. --no-architecture skips
