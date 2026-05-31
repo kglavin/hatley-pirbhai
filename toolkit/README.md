@@ -8,6 +8,24 @@ Modern AI-assisted development has a coherence problem: proposals get to 85% the
 
 It's for senior engineers and architects who've watched UML, Agile, and "just-enough docs" fail to scale, and want a rigorous method that doesn't require expensive enterprise tooling.
 
+---
+
+## What HP is, in 60 seconds
+
+Hatley-Pirbhai is a structured-analysis method developed in the late 1980s and refined in 2000 for specifying real-time systems. It separates **requirements** (what the system must do, observable from outside) from **architecture** (how the system is decomposed and implemented) with a small set of canonical work products:
+
+- **Context Diagram** — the system boundary; every external actor (terminator) and every flow crossing the boundary.
+- **Data Flow Diagram (DFD)** — internal processes that produce/consume the flows. Hierarchical: a DFD can decompose any process into its own level-N+1 DFD.
+- **Control Specification (CSPEC)** — for state-rich processes: a state machine specifying modes, transitions, events, actions.
+- **Process Specification (PSPEC)** — for leaf processes: input → output spec (pseudocode, formula, decision table).
+- **Requirements Dictionary** — the canonical naming registry. Every entity, flow, state, event, and action has exactly one entry.
+
+Plus an **Architecture Model** branch (added in the 2000 book) — AFD, AID, AMS, AIS — that maps the requirements model onto modules, hardware, and channels.
+
+Full method glossary with modern analogs: [`reference/HP_QUICK_REF.md`](reference/HP_QUICK_REF.md).
+
+---
+
 ## Install
 
 ```bash
@@ -22,42 +40,125 @@ User-space only (`~/.local/bin/`); no sudo; idempotent. Installs:
 
 After install: ensure `~/.local/bin` is on your `$PATH`.
 
-## Usage
+**Recommended IDE setup:** VS Code + [Markdown Preview Enhanced](https://marketplace.visualstudio.com/items?itemName=shd101wyy.markdown-preview-enhanced) (MPE). MPE renders embedded Mermaid/D2 in preview and lets you click `[ ]` → `[x]` checkboxes directly — the form-based proposal pattern (below) depends on this.
 
-The toolkit operates on a per-project **`dictionary.yaml`** — HP's Requirements Dictionary in YAML form, declaring every entity (system, terminator, process, data store, state), every flow, every edge, and every transition. From that one canonical source, the toolkit validates, renders, and (eventually) detects drift.
+---
 
-### Validate
+## The mental model
+
+Three ideas carry the rest of the toolkit:
+
+### 1. Dictionary as source of truth
+
+Every project has a single `dictionary.yaml` at its root — HP's Requirements Dictionary in YAML form. Every entity, flow, edge, and transition is declared there once. All rendered artifacts (`.mmd`, `.d2`, `.html`, `.svg`) are **derived**: regenerated from the dictionary on demand. Rename a flow in one place and every diagram updates on the next render. The dictionary is the only file you hand-edit; everything else is generated.
+
+### 2. The five HP stages
+
+Each project advances through stages, top to bottom. The toolkit's directory layout mirrors them 1:1 so a practitioner walking the filesystem is walking the HP model.
+
+| Stage | Produces | Lives in | Status |
+|---|---|---|---|
+| 1 — Context Diagram | system boundary; terminators; boundary flows | `00-context/` | ✅ supported |
+| 2 — Level-1 DFD | internal processes; data stores; internal flows; flow refinement | `01-level1/` | ✅ supported |
+| 3 — CSPEC | hierarchical state machine for each `needs_cspec: true` bubble | `01-level1/cspecs/<proc-id>/` | ✅ supported |
+| 4 — PSPEC | input/output spec for leaf processes | `01-level1/pspecs/` (planned) | ⬜ planned |
+| 5 — Architecture Model | AFD / AID / AMS / AIS | `architecture/` (planned) | ⬜ planned |
+
+`hp-status <project-dir>` reports which stage each project has reached, with validation summary + artifact freshness + open questions in one screen.
+
+### 3. Form-based proposal pattern
+
+Each stage is locked through a **form-based proposal** rather than chat. The skill (`hp-propose-context`, `hp-propose-decomp`, `hp-propose-cspec`) drafts a `proposal.md` containing:
+
+- A rendered draft diagram (Mermaid inline + sidecar SVG)
+- 7–8 numbered decisions; each with alternatives as `- [ ]` checkboxes; Claude's recommended default **pre-checked** with provenance ("extracted from your description"; "matches solar's pattern"; "AI inference")
+
+You open the proposal in MPE, click `[ ]` → `[x]` for any overrides, save **once**, and ping back. The skill parses the saved file in one pass and writes the `## ✅ Status: Locked YYYY-MM-DD` header + populates `dictionary.yaml` with the resulting entities.
+
+This replaces chat round-trips with a single-save batch review. The proposal becomes the locked audit record — every project has a permanent paper trail of what was decided, why (pre-checked defaults preserve Claude's reasoning), and what alternatives were considered.
+
+After lock, [`hp-confirm-naming`](skills/hp-confirm-naming.md) runs a second form-based pass on every working name (`accept / rename / alias`), so the naming review is explicit and reviewable.
+
+---
+
+## Workflow
+
+A full project lifecycle, end-to-end:
+
+```text
+hp-init <name>                 # scaffold directory + dictionary skeleton
+   ↓
+hp-propose-context             # Stage 1: terminators + boundary flows
+   ↓
+hp-confirm-naming              # review terminator + flow names
+   ↓
+hp-render                      # generate Context Diagram (Mermaid + D2 + HTML + SVG)
+   ↓
+hp-propose-decomp              # Stage 2: level-1 internal processes
+   ↓
+hp-confirm-naming              # review process + flow + data-store names
+   ↓
+hp-render                      # generate level-1 DFD
+   ↓
+hp-propose-cspec               # Stage 3: state machine for each needs_cspec bubble
+   ↓
+hp-confirm-naming              # review state + event + action names
+   ↓
+hp-render                      # generate CSPEC
+   ↓
+(hp-status anywhere to check progress)
+(hp-validate anywhere to check integrity)
+```
+
+Each `hp-render` produces three views — Mermaid, D2, Cytoscape HTML — plus SVGs. The Cytoscape HTML is the **graphical IDE view**: single-click an entity for side-panel detail, double-click a decomposable bubble to navigate to its level-N+1 DFD, `↑ Parent` link to walk back up. Every entity links to its `dictionary.yaml` entry and to its HP reference card.
+
+---
+
+## Skills
+
+Eight skills make up the methodology surface. Each is documented in [`skills/`](skills/) as a Claude Code skill file (markdown + YAML frontmatter). Five have backing Python; three are conversational.
+
+| Skill | Stage / purpose | Backing code |
+|---|---|:---:|
+| [`hp-init`](skills/hp-init.md) | Scaffold a new HP project | ✅ |
+| [`hp-propose-context`](skills/hp-propose-context.md) | Stage 1 form-based proposal | ⬜ |
+| [`hp-propose-decomp`](skills/hp-propose-decomp.md) | Stage 2 form-based proposal | ⬜ |
+| [`hp-propose-cspec`](skills/hp-propose-cspec.md) | Stage 3 form-based proposal | ⬜ |
+| [`hp-confirm-naming`](skills/hp-confirm-naming.md) | Form-based naming review after any move that introduces named entities | ⬜ |
+| [`hp-validate`](skills/hp-validate.md) | Reference integrity / hierarchy / coverage / orphan detection | ✅ |
+| [`hp-render`](skills/hp-render.md) | Regenerate diagrams + SVGs from `dictionary.yaml` | ✅ |
+| [`hp-status`](skills/hp-status.md) | Report stages reached, validation, artifact freshness, open questions | ✅ |
+
+The conversational skills (`hp-propose-*`, `hp-confirm-naming`) work by Claude reading the skill markdown and following the behavior spec. They don't need a Python implementation to invoke — the markdown *is* the executable specification.
+
+---
+
+## CLI
 
 ```bash
 cd toolkit
+
+# Scaffold a new project
+uv run python scripts/hp_init.py <project-name> --label "<Display>" --description "..."
+
+# Validate a dictionary
 uv run python -m hp_toolkit.validate <path/to/dictionary.yaml>
-```
 
-Runs four validators (reference integrity, hierarchy consistency, coverage metrics, orphan detection) and reports issues + percentages. Errors block; warnings document; info catches drift.
-
-### Render
-
-```bash
-cd toolkit
+# Render all artifacts for a project
 uv run python scripts/render_project.py <project-directory>
+
+# Report stage progress
+uv run python -m hp_toolkit.status <project-directory>
 ```
 
-Produces (for any project with a `dictionary.yaml`):
+All four commands also work programmatically — see *Programmatic API* below.
 
-| Artifact | Mermaid | D2 | Cytoscape HTML | Mermaid SVG | D2 SVG |
-|---|:---:|:---:|:---:|:---:|:---:|
-| Context Diagram (level 0) | ✅ | ✅ | ✅ | ✅ | ✅ |
-| Level-1 DFD | ✅ | ✅ | ✅ | ✅ | ✅ |
-| CSPEC (state machine) | ✅ | ✅ | ✅ | ✅ | ✅ |
+---
 
-All three Cytoscape HTML views support the hypertext navigation chain: double-click a decomposable bubble to drill in (`context.html` → `dfd.html` → `cspec.html`), `↑ Parent` link to walk back, dictionary + HP reference links per entity.
-
-Output files land as `*.generated.{mmd,d2,html,svg}` sidecars in each project's level directories.
-
-### Programmatic
+## Programmatic API
 
 ```python
-from hp_toolkit import load, validate
+from hp_toolkit import load, validate, status_report
 from hp_toolkit.render import mermaid, d2, cytoscape, svg
 
 project = load("examples/solar/dictionary.yaml")
@@ -66,64 +167,158 @@ report  = validate(project)
 if not report.ok:
     raise SystemExit(f"{len(report.errors)} validation errors")
 
-# Generate Mermaid source for any view
-mmd_source = mermaid.render_context_diagram(project)
-mmd_source = mermaid.render_dfd(project, parent_id="sys_root")
-mmd_source = mermaid.render_state_machine(project, machine_id="proc_compute_balance")
+# Generate source for any view
+mmd = mermaid.render_context_diagram(project)
+mmd = mermaid.render_dfd(project, parent_id="sys_root")
+mmd = mermaid.render_state_machine(project, machine_id="proc_compute_balance")
 
 # Same shape for D2 and Cytoscape (cytoscape additionally has wrap_*_html)
 html = cytoscape.wrap_context_html(project)
+
+# Render SVGs
+svg.render_mermaid_to_svg("input.mmd", "output.svg")
+svg.render_d2_to_svg("input.d2", "output.svg")
+
+# Stage progress
+print(status_report("examples/solar").format())
 ```
 
-## Layout
+---
 
+## Dictionary schema
+
+A `dictionary.yaml` has four top-level sections plus metadata. All keys are stable string IDs by convention (`proc_*`, `term_*`, `flow_*`, `store_*`, `event_*`, `cmd_*`, `data_*`, `state_*`, `tx_*`).
+
+```yaml
+project: "Solar Local Stack"
+version: "0.1"
+last_updated: 2026-05-22
+
+entities:
+  <id>:                       # e.g., proc_compute_balance, term_inverter, state_grid_tie
+    kind: process              # system | terminator | process | data_store | state | state_composite
+    label: "Energy Manager"
+    level: 1                   # 0 (context), 1 (level-1 DFD), 2 (CSPEC), …
+    description: |
+      One-paragraph description.
+    parent: sys_root           # parent entity id (defaults to sys_root for level-1)
+    parent_state: state_grid_tie  # for nested states only
+    parent_machine: proc_X     # for state entities — which CSPEC owns this state
+    needs_cspec: true          # processes only — flags state-rich bubbles for Stage 3
+    is_initial: true           # states only — exactly one per machine
+    optional: false            # for optional terminators/processes (dashed in renders)
+
+flows:
+  flow_f1_telemetry:
+    label: "F1: per-channel telemetry"
+    kind: data                 # data | control | data_and_control
+    source: term_inverter      # entity id
+    target: sys_root
+    medium: "Sub-1GHz radio + serial"   # informational
+    notes: "..."
+    refined_source: term_inverter            # level-N+1 endpoint refinement
+    refined_target: proc_acquire_telemetry
+
+edges:                         # physical (non-data) connections; e.g., power, mechanical
+  edge_power_to_sys:
+    kind: physical_ac_power    # physical_ac_power | physical_dc_power | physical_interaction
+    source: term_pge_grid
+    target: sys_root
+    notes: "240VAC service"
+
+transitions:                   # state machine transitions (Stage 3)
+  tx_init_to_grid:
+    label: "self-test passed; Victron mode settled"
+    parent_machine: proc_compute_balance
+    source_state: state_initializing
+    target_state: state_grid_tie
+    event: "Initializing complete; mode reported as GridTie"
+    action: "begin diversion loop"
 ```
-toolkit/
-├── README.md                      ← this file
-├── bootstrap.sh                   ← environment setup (idempotent)
-├── .puppeteer-config.json         ← mmdc sandbox config for Ubuntu 23.10+
-├── pyproject.toml                 ← uv-managed Python project
-├── uv.lock                        ← pinned dependencies
-│
-├── hp_toolkit/                    ← Python package
-│   ├── __init__.py
-│   ├── model.py                   ← Pydantic schemas (Project, Entity, Flow, Edge, Transition)
-│   ├── load.py                    ← dictionary.yaml → validated Project
-│   ├── validate.py                ← 4 validators + ValidationReport + CLI
-│   └── render/
-│       ├── mermaid.py             ← Context + DFD + state machine generators
-│       ├── d2.py                  ← same in D2
-│       ├── cytoscape.py           ← Cytoscape elements JSON + full HTML wrappers
-│       └── svg.py                 ← orchestrate d2 + mmdc binaries
-│
-├── scripts/
-│   ├── render_project.py          ← generic: render any project end-to-end
-│   ├── render_dogfood.py          ← solar-specific (legacy; use render_project.py instead)
-│   └── check_dictionary.py        ← summary + hierarchy view of a project
-│
-├── skills/                        ← Claude Code skill files
-│   ├── README.md                  ← skill catalog
-│   ├── hp-confirm-naming.md       ← form-based naming review (most-validated pattern)
-│   ├── hp-validate.md             ← runs hp_toolkit.validate
-│   ├── hp-render.md               ← regenerates diagram sources + SVGs from dictionary
-│   └── ...                        ← more planned (hp-init, hp-propose-*, hp-ingest)
-│
-└── reference/
-    └── HP_QUICK_REF.md            ← HP method vocabulary card (60+ terms with modern analogs)
-```
+
+Pydantic schemas in [`hp_toolkit/model.py`](hp_toolkit/model.py) are authoritative. Validation (`hp-validate`) catches dangling references, hierarchy inconsistencies, and coverage gaps; status (`hp-status`) reports stage progress against the same schema.
+
+---
 
 ## Examples
 
-Two example projects live in [`../examples/`](../examples/) and exercise the full pipeline:
+Two example projects in [`../examples/`](../examples/) exercise the full pipeline; a third is scaffolded but unadvanced.
 
-- [`examples/solar/`](../examples/solar/) — Solar Local Stack (Hoymiles microinverters + Victron + grid orchestration). The original dogfood; most mature. Stages 1-3 complete; CSPEC for Energy Manager (4-mode hierarchical state machine).
-- [`examples/fishing-rig/`](../examples/fishing-rig/) — AutoFishingRig. The transferability test — built from scratch on a completely different domain. Stages 1-3 complete; CSPEC for Bite Detector (9-state flat machine).
+- [`examples/solar/`](../examples/solar/) — Solar Local Stack (Hoymiles microinverters + Victron + grid orchestration). Stages 1–3 complete; CSPEC for Energy Manager (4-mode hierarchical state machine; 13 states + 16 transitions). Original dogfood — most mature.
+- [`examples/fishing-rig/`](../examples/fishing-rig/) — AutoFishingRig. The transferability test — built from scratch on a completely different domain. Stages 1–3 complete; CSPEC for Bite Detector (9 states + 18 transitions).
+- [`examples/doorbell/`](../examples/doorbell/) — Smart Doorbell. Scaffolded via `hp-init`; Stage 1 in progress. Used by [`TUTORIAL.md`](TUTORIAL.md) *(planned)*.
 
-Both projects render their full Context + DFD + CSPEC pipelines through `scripts/render_project.py` with no project-specific code.
+Both solar and fishing-rig render their full Context + DFD + CSPEC pipelines through `scripts/render_project.py` with no project-specific code.
+
+---
+
+## Tutorial
+
+A step-by-step worked example walking a project from `hp-init` through Stage 3 lock is at [`TUTORIAL.md`](TUTORIAL.md) *(planned — uses doorbell as the worked example)*.
+
+---
+
+## Repository layout
+
+```
+toolkit/
+├── README.md                  ← this file
+├── TUTORIAL.md                ← worked end-to-end example (planned)
+├── bootstrap.sh               ← environment setup (idempotent)
+├── .puppeteer-config.json     ← mmdc sandbox config for Ubuntu 23.10+
+├── pyproject.toml             ← uv-managed Python project
+├── uv.lock                    ← pinned dependencies
+│
+├── hp_toolkit/                ← Python package
+│   ├── __init__.py
+│   ├── model.py               ← Pydantic schemas
+│   ├── load.py                ← dictionary.yaml → validated Project
+│   ├── validate.py            ← 4 validators + CLI
+│   ├── status.py              ← stage-progress report + CLI
+│   └── render/
+│       ├── mermaid.py
+│       ├── d2.py
+│       ├── cytoscape.py       ← elements JSON + full HTML wrappers
+│       └── svg.py             ← orchestrate d2 + mmdc binaries
+│
+├── scripts/
+│   ├── hp_init.py             ← scaffold a new project
+│   ├── render_project.py      ← render any project end-to-end
+│   ├── render_dogfood.py      ← solar-specific (legacy; use render_project.py)
+│   └── check_dictionary.py    ← summary + hierarchy view
+│
+├── skills/                    ← Claude Code skill files (8 total)
+│   ├── README.md              ← skill catalog
+│   ├── hp-init.md
+│   ├── hp-propose-{context,decomp,cspec}.md
+│   ├── hp-confirm-naming.md
+│   ├── hp-validate.md
+│   ├── hp-render.md
+│   └── hp-status.md
+│
+└── reference/
+    └── HP_QUICK_REF.md        ← HP method vocabulary (60+ terms with modern analogs)
+```
+
+---
 
 ## Status
 
-End-to-end render pipeline live and validated across two domains. The toolkit reads a `dictionary.yaml`, validates it, and produces the complete artifact set in three notations with hypertext navigation. See [`../PLAN.md`](../PLAN.md) for design rationale, methodology tactics, and a chronological log of decisions.
+End-to-end render pipeline live and validated across two domains (solar, fishing-rig). Eight skills drafted (five with backing code). Toolkit currently dead-ends at Stage 3 — Stage 4 (PSPECs) and Stage 5 (Architecture Model) are unimplemented.
+
+See [`../PLAN.md`](../PLAN.md) for design rationale, methodology tactics, the AI moves catalog, and a chronological log of decisions.
+
+---
+
+## Further reading
+
+- [`reference/HP_QUICK_REF.md`](reference/HP_QUICK_REF.md) — HP terminology card
+- [`../PLAN.md`](../PLAN.md) — design rationale, decisions, open questions
+- [`skills/`](skills/) — methodology surface, one file per skill
+- Hatley & Pirbhai, *Strategies for Real-Time System Specification* (1988) — the original method.
+- Hatley, Hruschka & Pirbhai, *Process for System Architecture and Requirements Engineering* (2000) — adds the Architecture Model + Mechanisms.
+
+---
 
 ## License
 
