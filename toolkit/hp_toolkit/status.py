@@ -170,6 +170,38 @@ def _check_stage_2(project: Project, project_dir: Path) -> StageStatus:
         return StageStatus(2, "Level-1 DFD", "not_started", "")
 
 
+def _leaf_processes_needing_pspec(project: Project) -> list:
+    """A leaf process is `kind=PROCESS`, `needs_cspec=False`, with no child
+    processes. Each needs a PSPEC per 2000 §4.3.3.9."""
+    leaves = []
+    for e in project.all_entities():
+        if e.kind != EntityKind.PROCESS or e.needs_cspec:
+            continue
+        has_child_process = any(
+            o.parent == e.id and o.kind == EntityKind.PROCESS
+            for o in project.all_entities()
+        )
+        if not has_child_process:
+            leaves.append(e)
+    return leaves
+
+
+def _check_stage_4(project: Project, project_dir: Path) -> StageStatus:
+    leaves = _leaf_processes_needing_pspec(project)
+    if not leaves:
+        return StageStatus(4, "PSPECs", "n/a", "no leaf processes needing PSPECs (Stage 2 not yet locked?)")
+
+    have_pspec = [e for e in leaves if project.pspec_for_process(e.id) is not None]
+    if len(have_pspec) == len(leaves):
+        return StageStatus(4, "PSPECs", "locked",
+                           f"{len(have_pspec)}/{len(leaves)} leaf processes have PSPECs")
+    if have_pspec:
+        return StageStatus(4, "PSPECs", "in_progress",
+                           f"{len(have_pspec)}/{len(leaves)} leaf processes have PSPECs")
+    return StageStatus(4, "PSPECs", "not_started",
+                       f"{len(leaves)} leaf process(es) need PSPECs")
+
+
 def _check_stage_3(project: Project, project_dir: Path) -> StageStatus:
     procs = _cspec_processes(project)
     if not procs:
@@ -261,7 +293,7 @@ def status_report(project_dir: Path) -> StatusReport:
             _check_stage_1(project, project_dir),
             _check_stage_2(project, project_dir),
             _check_stage_3(project, project_dir),
-            StageStatus(4, "PSPECs", "n/a", "stage not yet implemented in toolkit"),
+            _check_stage_4(project, project_dir),
             StageStatus(5, "Architecture model", "n/a", "stage not yet implemented in toolkit"),
         ],
         validation=validate(project),

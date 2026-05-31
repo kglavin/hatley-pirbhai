@@ -28,6 +28,7 @@ from hp_toolkit.render import (
     d2 as render_d2,
     cytoscape as render_cytoscape,
     svg as render_svg,
+    pspec as render_pspec,
 )
 
 
@@ -119,8 +120,29 @@ def main(project_dir: Path) -> int:
     for proc in cspec_processes:
         render_cspec(project_dir, project, proc)
 
+    # ─── PSPECs (one per leaf process that has one declared) ───
+    if project.pspecs:
+        render_pspecs(project_dir, project)
+
     print(_color(f"Done.", "32"))
     return 0
+
+
+def render_pspecs(project_dir: Path, project) -> None:
+    """Render each declared PSPEC into its own markdown sidecar.
+
+    Output: ``01-level1/pspecs/<process-id-short>.md``.
+    """
+    pspec_dir = project_dir / "01-level1" / "pspecs"
+    pspec_dir.mkdir(parents=True, exist_ok=True)
+
+    print(_color(f"==> PSPECs ({len(project.pspecs)})", "1"))
+    for ps in project.all_pspecs():
+        md = render_pspec.render_pspec_markdown(project, ps)
+        out = pspec_dir / f"{render_pspec.pspec_subdir_name(ps.parent_process)}.md"
+        out.write_text(md)
+        print(f"  wrote {out.name} ({len(md)} bytes)")
+    print()
 
 
 def render_level1_dfd(project_dir: Path, project) -> None:

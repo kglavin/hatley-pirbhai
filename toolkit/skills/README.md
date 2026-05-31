@@ -40,7 +40,7 @@ description: One-line summary used to decide relevance.
 | [`hp-propose-context`](hp-propose-context.md) | ✅ drafted | Stage 1: form-based context-diagram proposal for a new project |
 | [`hp-propose-decomp`](hp-propose-decomp.md) | ✅ drafted | Stage 2: form-based level-N+1 DFD decomposition proposal |
 | [`hp-propose-cspec`](hp-propose-cspec.md) | ✅ drafted | Stage 3: form-based CSPEC state-machine proposal |
-| `hp-propose-pspec` | planned | Stage 4: form-based PSPEC proposal for leaf bubbles |
+| [`hp-propose-pspec`](hp-propose-pspec.md) | ✅ drafted | Stage 4: form-based PSPEC proposal for leaf bubbles |
 | `hp-ingest` | planned (phase 5) | Brownfield ingest — read existing proposals + code, propose an HP model |
 
 ## Provenance

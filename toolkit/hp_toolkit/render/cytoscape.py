@@ -459,6 +459,9 @@ _CONTEXT_HTML_TEMPLATE = """<!DOCTYPE html>
       if (d.decomposes_to) {{
         html += '<p><span class="label">▼ Drills into:</span> <a href="' + d.decomposes_to + '">' + (d.decomposes_label || 'next level') + '</a> <em style="font-size:11px;color:#888;">(or double-click bubble)</em></p>';
       }}
+      if (d.pspec_link) {{
+        html += '<p><span class="label">► PSPEC:</span> <a href="' + d.pspec_link + '">' + (d.pspec_label || 'process specification') + '</a></p>';
+      }}
       var ref = hpRefMap[d.kind];
       if (ref) {{
         html += '<p style="font-size:11px;color:#888;margin-top:10px;"><a href="' + hpRefBase + ref + '">[?] What is a ' + d.kind.replace('-optional','').replace('-grid','') + '?</a> &middot; <a href="../dictionary.yaml">dictionary entry</a></p>';
@@ -591,6 +594,11 @@ def render_dfd_elements(
             data["decomposable"] = True
             data["decomposes_to"] = f"cspecs/{cspec_subdir}/cspec.html"
             data["decomposes_label"] = f"{p.label} CSPEC"
+        elif project.pspec_for_process(p.id) is not None:
+            # Leaf process with a PSPEC — link to its rendered markdown.
+            pspec_subdir = p.id.replace("proc_", "").replace("_", "-")
+            data["pspec_link"] = f"pspecs/{pspec_subdir}.md"
+            data["pspec_label"] = f"{p.label} PSPEC"
         elements.append({"data": data})
 
     for s in stores:
