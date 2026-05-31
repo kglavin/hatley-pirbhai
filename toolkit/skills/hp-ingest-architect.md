@@ -1,0 +1,97 @@
+---
+name: hp-ingest-architect
+description: Stage 5 of brownfield ingest — given the architecture-candidate list (Dockerfiles, docker-compose services, k8s pods, terraform resources, package manifests) and the merged IR graph, name Stage-5 modules + interconnects, classify their kind (hardware/software/organizational), and allocate every leaf process / CSPEC / data store to a module. Emits IR nodes for architecture_modules + architecture_interconnects + edges for allocates_to.
+---
+
+# hp-ingest-architect
+
+## When to use
+
+Stage 5 of the `/hp-ingest` orchestration. Runs after Stages 1–4 have produced the merged `intermediate/hp-graph.json` (with terminators, processes, data stores, states, and pspecs). Consumes that graph + `intermediate/architecture-candidates.json` (deployment-unit candidates from infra files). Emits `intermediate/architecture.json`.
+
+The LLM's value-add: deciding which deployment candidates become real Stage-5 modules, naming them, drawing the interconnect graph, and **allocating every leaf process / CSPEC / data store** to exactly the right module.
+
+## What it does
+
+Given:
+- `intermediate/hp-graph.json` (merged IR with all Stage 1–4 nodes)
+- `intermediate/architecture-candidates.json` (per-Dockerfile / per-k8s-Deployment / etc. candidates with `kind_hint` + `name_hint` + evidence)
+
+Produce:
+
+1. **`architecture_module` nodes** — one per deployable unit. Names follow HP convention (`am_<short>`, label is 1–3 words like "Controller Host" / "API Gateway"). Set `kind`: most are `software`; physical devices / single-board computers are `hardware`; team-owned services are `organizational`.
+2. **`architecture_interconnect` nodes** — one per physical/logical channel between modules. `ai_<short>` id, label like "Local LAN" / "BLE Link" / "Internal RPC bus".
+3. **`allocates_to` edges** — for every process / CSPEC / data store node in `hp-graph.json`, decide which module owns its runtime. Convention: edge source = module id, target = entity id.
+4. **`carries` edges** — for each interconnect, identify which Stage-1/2 flows ride on it (the LLM checks each flow's source/target → module mapping; if both endpoints are on the same interconnect, that flow is carried).
+5. **Set provenance + confidence** on every emitted node/edge.
+
+Output JSON shape:
+
+```json
+{
+  "nodes": [
+    { "id": "am_api_gateway", "kind": "architecture_module", "label": "API Gateway",
+      "stage": 5, "confidence": 0.85,
+      "implemented_by": ["Dockerfile.api", "k8s/api-deployment.yaml"],
+      "summary": "Edge HTTP/gRPC layer; auth + rate-limit + routing.",
+      "module_kind": "software",
+      "trust_zone": null,                            // deferred to hp-propose-architecture per Q3
+      "provenance": { "agent": "hp-ingest-architect",
+                      "rationale": "k8s Deployment 'api' + Dockerfile.api; serves /v1/* endpoints." } },
+    { "id": "ai_internal_rpc", "kind": "architecture_interconnect",
+      "label": "Internal RPC", "stage": 5, "confidence": 0.8,
+      "endpoints": ["am_api_gateway", "am_order_service"],
+      "carries": ["flow_order_event"],
+      "summary": "gRPC over the cluster network." }
+  ],
+  "edges": [
+    { "source": "am_api_gateway", "target": "proc_route_request",
+      "kind": "allocates_to", "stage": 5, "confidence": 0.85 },
+    { "source": "am_order_service", "target": "proc_validate_order",
+      "kind": "allocates_to", "stage": 5, "confidence": 0.85 }
+  ]
+}
+```
+
+## Behavior
+
+When invoked, conversationally:
+
+1. **Read inputs.** Load `hp-graph.json` (nodes/edges from Stages 1–4) + `architecture-candidates.json` (deployment-unit candidates).
+2. **Build the module set.** For each candidate, decide if it's a real Stage-5 module:
+   - **Promote** Dockerfiles, k8s Deployments/StatefulSets, single-purpose npm/cargo packages.
+   - **Collapse** multiple candidates for the same module (a Dockerfile + a k8s Deployment for the same service → one module; both files go into `implemented_by`).
+   - **Skip** candidates that are infrastructure-of-infrastructure (e.g., a Dockerfile for a build image that nothing in the runtime uses).
+3. **Pick `module_kind` per module.** Default `software`. Use `hardware` for SBCs / embedded controllers / physical sensors-and-actuators (rare in cloud projects; common in fishing-rig-style HW projects). Use `organizational` for modules owned by a team-as-a-service (rare for ingest — usually appears in retrofit cases).
+4. **Draw the interconnect graph.** From compose networks + k8s Services + cross-module imports in the codebase, identify which modules talk. Each unique channel = one interconnect. Be conservative — most modules talk over a single shared interconnect (e.g., "Cluster RPC") plus 1–2 external ones (e.g., "Internet ingress").
+5. **Allocate every Stage 1–4 entity** that has a runtime presence:
+   - Every leaf `process` → exactly one `architecture_module`.
+   - Every state-rich process (`needs_cspec: true`) → as `allocated_cspecs` (HP convention, see 2000 §4.2.5.4).
+   - Every `data_store` → the module that owns its persistence (DB pod / cache pod / message queue pod).
+   - Terminators DO NOT get allocated — they're external.
+6. **`carries` per interconnect.** For each flow node in `hp-graph.json`, look up its source + target modules. If both endpoints are on the same interconnect's endpoint list, add the flow id to `carries`.
+7. **Confidence calibration.** A clear k8s Deployment + Dockerfile + 1 obvious responsibility → 0.85+. A package manifest at the repo root with no clear runtime → 0.5. Allocations: 0.8+ when one process is clearly inside one container; lower when the same process is implemented across multiple files spanning containers (the architect must adjudicate).
+8. **Set provenance + confidence** on every emitted node/edge.
+9. **Write `intermediate/architecture.json`.**
+
+## Discipline
+
+- **Allocation is total.** Every leaf process / CSPEC / data store from Stages 1–4 must land in exactly one module's `allocated_*` list. Anything unallocated is a validator failure downstream (2000 §4.2.5.4). If you can't pick a module, emit `allocates_to` with `confidence: 0.3` + a `provenance.rationale` flagging the ambiguity so the reviewer surfaces it.
+- **One module per deployment unit, not per file.** A microservice running in one container is one module — even if it's implemented by 20 files. The `implemented_by[]` array on the module enumerates those files.
+- **Interconnects are sparse.** Most projects have 1–3 interconnects (e.g., "Cluster RPC" + "Public Internet" + "Internal Storage"). A dozen interconnects is a sign you're modeling individual network policies rather than HP physical channels.
+- **Trust zone is deferred.** Per the locked Q3 in INGEST_DESIGN.md, do **not** infer `trust_zone` here. The follow-up `hp-propose-architecture` skill (Decision 9) handles it form-based after ingest completes.
+- **`module_kind` matches HP convention** (hardware/software/organizational from 2000 §4.2.2.1 Fig 4.3). Don't invent new kinds.
+- **AMS/AIS are scaffolded by the emitter** (`emit_dictionary.py`); you don't need to write them — only the structural `description` + `design_rationale` get placeholder text, the architect fills in via `hp-propose-architecture` post-ingest.
+
+## Implementation status
+
+**Skill description: ✅ drafted.** Backing scripts: ✅ `hp_toolkit/ingest/architecture_candidates.py` (Commit 3). Orchestrator dispatch via `/hp-ingest` skill (Commit 3).
+
+## See also
+
+- Design doc: [`toolkit/INGEST_DESIGN.md`](../INGEST_DESIGN.md).
+- Predecessors: [`hp-ingest-scan`](hp-ingest-scan.md), [`hp-ingest-boundary`](hp-ingest-boundary.md), [`hp-ingest-processes`](hp-ingest-processes.md), [`hp-ingest-leaf`](hp-ingest-leaf.md).
+- Follower: [`hp-ingest-review`](hp-ingest-review.md) — final merge + emit.
+- IR schema: [`hp_toolkit/ingest/schema.py`](../hp_toolkit/ingest/schema.py).
+- HP Stage 5 reference: [`toolkit/ARCH_DESIGN.md`](../ARCH_DESIGN.md), [`examples/solar/architecture/`](../../examples/solar/architecture/), [`examples/fishing-rig/architecture/`](../../examples/fishing-rig/architecture/).
+- Companion (post-ingest): [`hp-propose-architecture`](hp-propose-architecture.md) — adds trust zones, deployment strategy, design rationale, ADRs.
