@@ -38,6 +38,26 @@ _BOUNDARY_KIND_PATTERNS: list[tuple[str, re.Pattern[str]]] = [
     ("nats_consumer",      re.compile(r"\b(nats|NATS)\.subscribe\b")),
     ("cron_scheduler",     re.compile(r"\b(cron|schedule|APScheduler)\.|@cron|@scheduled\b")),
     ("file_watcher",       re.compile(r"\b(inotify\.|fs\.watch|fsnotify\.NewWatcher)\b")),
+    # ── Embedded / firmware kinds (per EMBEDDED_FIRMWARE_TUNING_DESIGN.md finding B) ──
+    # Ordered most-specific first so the right kind wins per file.
+    ("hw_peripheral_pwm",      re.compile(r"\bHAL_TIM_PWM_(Start|Init)(_IT|_DMA)?\b")),
+    ("hw_peripheral_gpio",     re.compile(r"\bHAL_GPIO_(EXTI_Callback|EXTI_IRQHandler|WritePin|ReadPin)\b")),
+    ("hw_peripheral_timer",    re.compile(r"\bHAL_TIM_(Base_Init|Base_Start|IRQHandler|OC_Start)(_IT|_DMA)?\b")),
+    ("hw_peripheral_uart",     re.compile(r"\bHAL_(UART|USART)_(Init|Receive_IT|Transmit_IT|Receive_DMA|Transmit_DMA)\b")),
+    ("hw_peripheral_i2c",      re.compile(r"\bHAL_I2C_(Init|Master_Receive|Master_Transmit|Mem_Read|Mem_Write)(_IT|_DMA)?\b")),
+    ("hw_peripheral_spi",      re.compile(r"\bHAL_SPI_(Init|TransmitReceive|Receive|Transmit)(_IT|_DMA)?\b")),
+    ("hw_peripheral_can",      re.compile(r"\bHAL_CAN_(Start|AddTxMessage|GetRxMessage|Init)\b")),
+    ("hw_peripheral_adc",      re.compile(r"\bHAL_ADC_(Init|Start|GetValue|Start_IT|Start_DMA)\b")),
+    ("hw_peripheral_zephyr",   re.compile(r"\b(device_get_binding\s*\(|DEVICE_DT_GET\s*\()")),
+    ("hw_peripheral_nuttx",    re.compile(r"\b(px4_arch_[a-z_]+|board_app_initialize)\b")),
+    ("mavlink_endpoint",       re.compile(r"\bmavlink_msg_[a-z0-9_]+_(pack|encode|decode)\b")),
+    ("dds_endpoint",           re.compile(r"\bdds_create_(writer|reader|topic|participant)\b")),
+    ("ros2_publisher",         re.compile(r"\b(rclcpp::create_publisher|rcl_publisher_init\w*|rclc_publisher_init\w*)\b")),
+    ("ros2_subscriber",        re.compile(r"\b(rclcpp::create_subscription|rcl_subscription_init\w*|rclc_subscription_init\w*)\b")),
+    ("ros2_service",           re.compile(r"\b(rclcpp::create_service|rclcpp::create_client|rcl_service_init\w*|rclc_service_init\w*|rcl_client_init\w*)\b")),
+    ("uorb_publisher",         re.compile(r"\borb_advertise\b")),
+    ("uorb_subscriber",        re.compile(r"\borb_subscribe\b")),
+    ("nsh_command",            re.compile(r"\b(NSH_DECLARE_BUILTIN|nsh_builtin)\b")),
 ]
 
 
@@ -62,6 +82,21 @@ _TOPIC_PATTERNS = [
     re.compile(r"\.subscribe\(['\"]([^'\"]+)['\"]"),
     re.compile(r"topic\s*=\s*['\"]([^'\"]+)['\"]"),
     re.compile(r"QueueName\s*=\s*['\"]([^'\"]+)['\"]"),
+    # ── Embedded topic / endpoint extractors (per EMBEDDED_FIRMWARE_TUNING_DESIGN.md B) ──
+    # ROS 2: `create_publisher<Type>("/topic_name", ...)`
+    re.compile(r"\.create_(?:publisher|subscription)\s*<[^>]+>\s*\(\s*['\"]([^'\"]+)['\"]"),
+    # Micro-ROS: `rclc_publisher_init_default(&pub, &node, type_support, "topic_name")`
+    # The args wrap across newlines + the type-support arg uses macros
+    # that contain their own commas (ROSIDL_GET_MSG_TYPE_SUPPORT(...)).
+    # Capture by lazy-matching up to the first quoted string after the
+    # `(` — the topic-name literal is typically the only string in the call.
+    re.compile(r"\brcl[c]?_(?:publisher|subscription)_init\w*\s*\([^\"]*?['\"]([^'\"]+)['\"]", re.DOTALL),
+    # uORB: `orb_advertise(ORB_ID(<topic>), ...)` — topic is an ORB_ID(...) macro
+    re.compile(r"\b(?:orb_advertise|orb_subscribe)\s*\(\s*ORB_ID\s*\(\s*(\w+)\s*\)"),
+    # MAVLink: `mavlink_msg_<MSGNAME>_pack(...)` — the message name IS the surface
+    re.compile(r"\bmavlink_msg_([a-z0-9_]+)_(?:pack|encode|decode)\b"),
+    # DDS: `dds_create_topic(participant, &TYPE_desc, "topic_name", ...)`
+    re.compile(r"\bdds_create_topic\s*\([^,]+,[^,]+,\s*['\"]([^'\"]+)['\"]"),
 ]
 
 
@@ -92,19 +127,47 @@ class BoundaryCandidates(BaseModel):
 
 def extract_candidates(scan: ProjectScan, codebase_root: Path) -> BoundaryCandidates:
     """Walk the scan output, build per-boundary-file candidates with kind
-    hints, routes / topics, and one-line evidence."""
+    hints, routes / topics, and one-line evidence.
+
+    Per EMBEDDED_FIRMWARE_TUNING_DESIGN.md finding B: firmware files often
+    mix concerns — a single `app.cpp` may contain the state machine AND
+    the Micro-ROS pub/sub surface. The role classifier returns ONE hint
+    per file (state-machine wins over boundary), so a strict
+    boundary-only loop would miss the comm surface. We also scan
+    state-machine + pure-logic files for embedded boundary patterns +
+    surface them as candidates when a match fires."""
     out: list[BoundaryCandidate] = []
+    seen_paths: set[str] = set()
     for f in scan.files:
-        if not f.is_significant or f.hp_role_hint != HpRoleHint.BOUNDARY:
+        if not f.is_significant:
+            continue
+        if f.hp_role_hint == HpRoleHint.BOUNDARY:
+            scan_for_embedded = False
+        elif f.hp_role_hint in (HpRoleHint.STATE_MACHINE, HpRoleHint.PURE_LOGIC):
+            # Embedded-mixed-concern path: only surface if the file
+            # contains an embedded boundary kind we recognize.
+            scan_for_embedded = True
+        else:
             continue
         abs_path = codebase_root / f.path
         content = _read_head(abs_path)
+        if scan_for_embedded:
+            if content is None:
+                continue
+            embedded_kind = _detect_kind(content)
+            if embedded_kind is None or not embedded_kind.startswith(("hw_peripheral_", "ros2_", "uorb_", "mavlink_", "dds_", "nsh_")):
+                # No embedded boundary signal in this state-machine /
+                # pure-logic file — leave it for Stage 2 to handle.
+                continue
         cand = BoundaryCandidate(path=f.path)
         if content:
             cand.kind_hint = _detect_kind(content)
             cand.routes = _extract_routes(content)
             cand.topics = _extract_topics(content)
             cand.evidence = _gather_evidence(content)
+        if f.path in seen_paths:
+            continue
+        seen_paths.add(f.path)
         out.append(cand)
     return BoundaryCandidates(boundary_files=out)
 

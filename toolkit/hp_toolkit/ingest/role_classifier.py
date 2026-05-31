@@ -106,7 +106,7 @@ _BOUNDARY_PATTERNS = [
     re.compile(r"\binotify\.|fs\.watch|fsnotify\.NewWatcher"),
     # WebSocket servers
     re.compile(r"\bWebSocketServer|ws\.Server|tokio_tungstenite::accept_async"),
-    # ── Embedded / firmware boundaries (per EMBEDDED_FIRMWARE_TUNING_DESIGN.md finding E) ──
+    # ── Embedded / firmware boundaries (per EMBEDDED_FIRMWARE_TUNING_DESIGN.md finding E + B) ──
     # ROS 2 + Micro-ROS topic surfaces (pub/sub = external comm boundary)
     re.compile(r"\b(rclcpp::create_(publisher|subscription|service|client)|rcl_(publisher|subscription|service|client)_init|rclc_(publisher|subscription|service|client)_init)\b"),
     # uORB (PX4 internal pub/sub treated as boundary because it's the
@@ -118,6 +118,13 @@ _BOUNDARY_PATTERNS = [
     re.compile(r"\bdds_create_(writer|reader|topic|participant)\b"),
     # NSH / command-line shell registration on NuttX
     re.compile(r"\b(NSH_DECLARE_BUILTIN|nsh_builtin)\b"),
+    # Hardware peripheral inits — STM32 HAL family (Tx PWM out, GPIO interrupts in, etc.)
+    re.compile(r"\bHAL_(TIM_PWM|TIM_OC|GPIO_EXTI|UART|USART|I2C|SPI|CAN|ADC|DAC|DMA)_(Start|Init|Receive_IT|Transmit_IT|Receive_DMA|Transmit_DMA|MspInit|GetValue|Start_IT|Start_DMA|IRQHandler)\b"),
+    re.compile(r"\bHAL_GPIO_EXTI_Callback\b"),
+    # Zephyr / device-tree-style hardware acquisition
+    re.compile(r"\bdevice_get_binding\s*\(|DEVICE_DT_GET\s*\("),
+    # NuttX / PX4 board-arch entry points
+    re.compile(r"\b(px4_arch_[a-z_]+|board_app_initialize)\b"),
 ]
 
 _STATE_MACHINE_PATTERNS = [

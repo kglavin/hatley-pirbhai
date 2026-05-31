@@ -72,6 +72,13 @@ When invoked, conversationally:
 - **Terminator parent + level convention (G.1).** Every terminator IR node MUST have `parent: sys_root` and `level: 0`. The renderer + validator both depend on this — terminators sit at level 0 in the Context Diagram, child of `sys_root`. Boundary flows have `source=term_X, target=sys_root` (inbound) or `source=sys_root, target=term_X` (outbound) — never terminator-to-terminator (that would be an *external* relationship, outside the system boundary).
 - **Naming follows HP convention.** `term_<short>` ids; labels are 1–3 words; descriptions one sentence; flow labels use the `F<N>: <noun-phrase>` form. Look at `examples/fishing-rig/dictionary.yaml` or `examples/solar/dictionary.yaml` for the style.
 - **Confidence is honest.** Don't inflate. A guessed terminator gets 0.5; a clear-evidence one gets 0.9. The architect uses this to know what to spot-check.
+- **Embedded-firmware confidence tiering (per EMBEDDED_FIRMWARE_TUNING_DESIGN.md Q4).** When the boundary candidate's `kind_hint` is embedded-shaped, use these confidence defaults:
+  - `hw_peripheral_*` (PWM / GPIO / UART / I2C / SPI / CAN / ADC / Zephyr / NuttX) → **0.9**. A peripheral init IS a hardware boundary; high certainty.
+  - `mavlink_endpoint` → **0.8**. MAVLink is off-vehicle by definition; clear external surface.
+  - `dds_endpoint` → **0.7**. DDS is often intra-cluster (between in-vehicle services), so the "external" framing is sometimes wrong.
+  - `ros2_publisher` / `ros2_subscriber` / `ros2_service` → **0.6**. ROS pub/sub may be internal coordination, not a true external boundary; architect should spot-check.
+  - `uorb_publisher` / `uorb_subscriber` → **0.6**. PX4 internal middleware — usually represents flow between modules, not always an external boundary. The architect adjudicates.
+  - `nsh_command` → **0.7**. NSH builtins are CLI surfaces (operator-side), comparable to standard CLI entry.
 - **Boundary inference is upstream of decomposition.** Don't conflate a terminator with an internal process. If candidate evidence says "this is where the system processes incoming user events" — that's a *process*, not a terminator. The terminator is the user.
 
 ## Implementation status
