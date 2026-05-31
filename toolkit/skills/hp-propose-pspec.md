@@ -32,6 +32,8 @@ Standard decision set (5–7 decisions; project-shape varies):
 | 5 | Computational constraints — timing | None / max latency — optional |
 | 6 | Transient outputs | Any output that should use the `issue` keyword (1988 §13.3); typically none |
 | 7 | Anything else | Free-form escape hatch |
+| 8 | **Observability surface** *(modernization #1)* | What metrics does this leaf process emit? List by name + kind (counter/gauge/histogram/summary) + unit. What log categories at what levels? What alerts fire when the spec is violated, and what runbook responds? At least one alert per safety-critical PSPEC. |
+| 9 | **V&V plan** *(modernization #25)* | How is this PSPEC verified? Select methods from `test` / `analysis` / `inspection` / `demonstration` / `formal_proof` / `simulation`. If `test`, provide `test_suite:` path + `coverage_target:` percentage. List 2–4 validation scenarios. |
 
 Each decision lists alternatives with Claude's recommended default **pre-checked** and provenance noted ("matches sibling PSPECs in this project"; "inferred from the flow's `medium` field"; "no constraints needed for this bubble"). The user toggles overrides in MPE, saves once, pings back.
 
@@ -62,6 +64,8 @@ These come straight from the books. Each cites its source.
 - **No Process Activation Tables in PSPECs** (1988 §13.2). PATs are CSPEC-only. The validator catches this as an error.
 - **Decision tables and state transition matrices are fine** in PSPECs if their function is local, not global (1988 §13.2). Mixed-style PSPECs (textual + decision table) are valid.
 - **Default outputs are time-continuous**; transient outputs use the keyword `issue` in the body (1988 §13.3). When you write `issue X = ...`, you're declaring X is momentary.
+- **Observability is part of the spec, not bolted on** *(modernization #1 + tactic "Observability-first design")*. Ask "what does it emit?" alongside "what does it compute?" If the spec body manipulates a value, the emitted metric counts something — they're two views of the same behavior. Metric names follow Prometheus conventions: lowercase + underscores, `_total` for counters, `_seconds` for durations, `_ratio` for ratios. One alert ≈ one runbook.
+- **V&V plan is also part of the spec, not bolted on** *(modernization #25)*. Every PSPEC declares how it will be verified. `methods: [test]` with no `test_suite:` path is a smell. `validation_scenarios:` are the specific behaviors that demonstrate the spec is met — not just unit-test coverage. Aim for 2–4 scenarios per PSPEC; more is fine.
 
 ## Lived examples
 

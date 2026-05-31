@@ -33,6 +33,7 @@ Standard decision set (7–8 decisions; project-shape varies):
 | 6 | Transition guards | Trust an external authority vs debounce locally — project-specific |
 | 7 | Process-controls preview | What events fire, what actions emit (Mealy/Moore boundary) |
 | 8 | Anything else | Free-form escape hatch |
+| 9 | **Per-mode observability** *(modernization #1)* | Should mode transitions emit traces? Should each top-level mode emit a `time_in_mode_seconds` gauge? Default: emit a `<process>_mode_transitioned_total{from, to}` counter + a `<process>_mode` gauge. Detailed metrics per leaf process come from `hp-propose-pspec`'s observability section. |
 
 Each decision lists alternatives with Claude's recommended default **pre-checked** and provenance noted ("matches solar's pattern"; "minimum modes consistent with parent flows"; "AI inference from your domain language"). The user toggles overrides in MPE, saves once, pings back.
 
@@ -58,6 +59,7 @@ When invoked, conversationally:
 - **Guards reference external authorities by name.** "Trust Victron's mode" / "Wait for sensor settle" — name the authority. Don't write generic `when ready` guards.
 - **Don't smuggle behavior into actions.** Actions emit a flow or set a value; they don't run multi-step procedures. If an "action" is doing real work, it's a sub-state.
 - **Working names are still throwaway.** As at Stages 1 and 2, names get reviewed in the follow-up `hp-confirm-naming` pass. State names especially benefit — they're the most-referenced identifiers in the project.
+- **State machines must be observable** *(modernization #1)*. The CSPEC's state is *the* most valuable runtime signal — without observability on transitions and time-in-mode, you can't tell whether the state machine is doing what the spec says. Default observability is `mode_transitioned_total` counter + `mode` gauge — opting out should be deliberate, not accidental.
 
 ## Lived examples
 
