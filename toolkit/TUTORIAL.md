@@ -18,7 +18,9 @@ It lives at [`../examples/fishing-rig/`](../examples/fishing-rig/). Run all comm
 
 ## Stage 0 — Scaffolding (already done; here's how)
 
-Every new HP project starts with `hp-init`:
+Every new HP project starts with one of two entry points:
+
+**(A) Greenfield: `hp-init`** — empty scaffold; you then walk Stages 1–5 with the form-based propose skills:
 
 ```bash
 cd toolkit
@@ -27,7 +29,16 @@ uv run python scripts/hp_init.py fishing-rig \
     --description "Motorized rig that auto-detects bites and reels in fish."
 ```
 
-This creates the directory layout + an empty `dictionary.yaml` with only `sys_root`, plus a Stage 1 proposal stub. fishing-rig already has this from when it was created — you can see what a fresh scaffold looks like at [`../examples/doorbell/`](../examples/doorbell/) instead (a smart-doorbell project produced by `hp-init` but not yet advanced).
+**(B) Brownfield: `hp-ingest`** — takes an existing codebase and produces a draft `dictionary.yaml` to start from:
+
+```bash
+uv run python scripts/hp_ingest.py /path/to/your/codebase --output /path/to/new/hp/project
+# Then in a Claude Code session: /hp-ingest <codebase-path>
+```
+
+`hp-ingest` runs a 6-agent pipeline (scanner → boundary → processes → leaf×N → architect → reviewer) that produces the same structure Stages 1–5 of this tutorial walk through. See [`INGEST_DESIGN.md`](INGEST_DESIGN.md) for the full pipeline.
+
+This tutorial uses the greenfield path (fishing-rig was created with `hp-init`). Either entry point lands at the same place: a populated `dictionary.yaml` ready for `hp-validate` + `hp-render` + the modernization-layer skills. A fresh greenfield scaffold lives at [`../examples/doorbell/`](../examples/doorbell/) for reference.
 
 Check fishing-rig's current state:
 
