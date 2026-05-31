@@ -30,6 +30,7 @@ from hp_toolkit.render import (
     svg as render_svg,
     pspec as render_pspec,
     architecture as render_arch,
+    adr as render_adr,
 )
 
 
@@ -129,8 +130,25 @@ def main(project_dir: Path) -> int:
     if project.architecture_modules:
         render_architecture(project_dir, project)
 
+    # ─── ADRs (Modernization #10) ───
+    if project.adrs:
+        render_adrs(project_dir, project)
+
     print(_color(f"Done.", "32"))
     return 0
+
+
+def render_adrs(project_dir: Path, project) -> None:
+    """Render each ADR into a sidecar markdown file at adrs/."""
+    adr_dir = project_dir / "adrs"
+    adr_dir.mkdir(parents=True, exist_ok=True)
+    print(_color(f"==> ADRs ({len(project.adrs)})", "1"))
+    for adr in project.all_adrs():
+        md = render_adr.render_adr_markdown(project, adr)
+        out = adr_dir / render_adr.adr_filename(adr.id)
+        out.write_text(md)
+        print(f"  wrote adrs/{out.name} ({len(md)} bytes)")
+    print()
 
 
 def render_architecture(project_dir: Path, project) -> None:

@@ -120,6 +120,23 @@ def render_ams_markdown(project: Project, ams: ArchModuleSpec) -> str:
         lines.append(ams.interfaces.rstrip())
         lines.append("")
 
+    # VERIFICATION (optional — modernization #25)
+    v = ams.verification
+    if v is not None:
+        lines.append("## VERIFICATION")
+        lines.append("")
+        methods = ", ".join(m.value for m in v.methods)
+        lines.append(f"- **Methods:** {methods}")
+        if v.test_suite:
+            lines.append(f"- **Test suite:** [`{v.test_suite}`](../../../{v.test_suite})")
+        if v.coverage_target is not None:
+            lines.append(f"- **Coverage target:** {v.coverage_target}%")
+        if v.validation_scenarios:
+            lines.append("- **Validation scenarios:**")
+            for s in v.validation_scenarios:
+                lines.append(f"  - {s}")
+        lines.append("")
+
     lines.append("---")
     lines.append("")
     lines.append(

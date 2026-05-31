@@ -650,6 +650,14 @@ pspecs:
       Sole writer into the telemetry portion of the store. Vendor adapter
       details and reconnection policy live in the architecture model,
       not here (PSPECs specify what, not how — 1988 §13.1).
+    # ─── Modernization #25 — V&V ───
+    verification:
+      methods: [test, analysis]
+      coverage_target: 90.0
+      validation_scenarios:
+        - "Sustained 1 Hz aggregate ingest across all three sources for 24 hours"
+        - "DTU reconnect within 30 s of a transient network drop"
+        - "Modbus RTU CRC failure causes only that sample to be discarded, not session drop"
 
   pspec_dispatch_commands:
     parent_process: proc_dispatch_commands
@@ -749,6 +757,7 @@ architecture_modules:
       - proc_compute_balance
     allocated_stores:
       - store_system_state
+    trust_zone: privileged             # modernization #8.1 — owns inverter/battery commands
 
   am_dashboard_app:
     name: "Dashboard Web App"
@@ -762,6 +771,7 @@ architecture_modules:
     allocated_processes:
       - proc_serve_ui
       - proc_handle_user_input
+    trust_zone: internal_lan           # modernization #8.1 — owner's browser on LAN
 
 architecture_flows:
 
@@ -776,6 +786,8 @@ architecture_flows:
     allocated_flows:
       - flow_state_to_ui
       - flow_event_alert
+    synchronicity: streaming           # modernization #2 — continuous WebSocket stream
+    delivery: at_least_once
 
   af_input_to_controller:
     name: "config + override"
@@ -788,6 +800,8 @@ architecture_flows:
     allocated_flows:
       - flow_event_config
       - flow_event_override
+    synchronicity: sync_request_response   # modernization #2 — HTTP POST + ack
+    delivery: at_least_once
 
 architecture_interconnects:
 
@@ -799,6 +813,8 @@ architecture_interconnects:
       Wired or wireless LAN connecting the owner's browser to the
       controller host. WebSocket + HTTP over TCP/IP. No public
       Internet exposure required.
+    auth_required: shared_secret       # modernization #8.1 — local LAN, single owner
+    encryption: tls                    # HTTPS + WSS on LAN
 
 architecture_module_specs:
 
@@ -874,3 +890,71 @@ architecture_interconnect_specs:
       reliability: "Survives router reboots without manual reconnect
         on the dashboard side."
       timing: "State-update latency < 1 s end-to-end."
+
+
+# ─── Modernization #10 — Architecture Decision Records ───
+
+adrs:
+
+  adr_001_outage_inside_cspec:
+    title: "Outage handling lives inside the Energy Manager CSPEC"
+    status: accepted
+    date: 2026-05-22
+    author: "solar dogfood"
+    context: |
+      The system needs to handle grid outages (utility goes down → battery
+      takes over → utility returns) without dropping into a fault state. Two
+      approaches were on the table during Stage 2: (a) make outage handling
+      a separate process bubble that gates the diversion loop; (b) make
+      outage handling a mode of the Energy Manager's CSPEC alongside
+      GridTie and Fault.
+    decision: |
+      Outage handling is an `Island` mode of the Energy Manager CSPEC,
+      peer to GridTie and Fault. The diversion-loop sub-states live
+      under GridTie; the Island mode has its own setpoint-passthrough
+      behavior; transitions are driven by Victron's reported mode.
+    consequences: |
+      - The CSPEC is the single source of truth for "what mode is the
+        system in" — no separate outage-state bubble to keep in sync.
+      - Victron is trusted as the authoritative mode source; we don't
+        debounce its mode reports (the AC transfer is < 20 ms, fast
+        enough that our 1 Hz tick has nothing meaningful to add).
+      - Future "manual override" behavior is a modifier *within* a
+        mode (Decision 5), not a separate Manual mode.
+    alternatives:
+      - "Separate outage-handler process bubble — rejected: forces every level-1 reader to gate on two states."
+      - "Manual mode as a peer to GridTie/Island/Fault — rejected: doubles state count and pairs poorly with diversion sub-states."
+    affects:
+      modules: [am_controller_host]
+      processes: [proc_compute_balance]
+      states: [state_grid_tie, state_island, state_fault]
+
+  adr_002_local_only_dashboard:
+    title: "Dashboard is local-LAN only by default"
+    status: accepted
+    date: 2026-05-22
+    author: "solar dogfood"
+    context: |
+      The owner needs a dashboard to view solar production, battery state,
+      and recent events; and to push config + manual overrides. Public
+      remote access is a tempting feature but adds significant attack
+      surface (any control-plane mistake becomes internet-exposed) and
+      compliance considerations (CCPA disclosure for usage telemetry).
+    decision: |
+      Dashboard runs as a browser-side SPA served by the controller host
+      over the owner's local LAN. No public-internet exposure by default.
+      Owner-led reverse-proxy setup is documented for remote access as
+      an opt-in, but it is out of scope for the supported configuration.
+    consequences: |
+      - Reduced attack surface: dashboard authentication can use a shared
+        secret on LAN rather than full OAuth/OIDC.
+      - Owners who want remote access must run their own reverse proxy
+        and assume responsibility for its security posture.
+      - Cloud Forward (the optional S-Miles bridge) is unaffected — it's
+        a separate optional outbound path with its own threat model.
+    alternatives:
+      - "Public cloud-hosted dashboard with per-user OAuth — rejected for now (compliance + scope)."
+      - "VPN-only access — rejected: too high friction for typical owners."
+    affects:
+      modules: [am_dashboard_app, am_controller_host]
+      interconnects: [ai_local_lan]

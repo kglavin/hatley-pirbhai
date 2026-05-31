@@ -40,6 +40,15 @@ and write it to store_system_state.
 - **Frequency:** ≥ 1 Hz aggregate ingest rate; ≥ 0.5 Hz per source
 - **Timing:** End-to-end ingest → store_system_state write latency < 1 s
 
+## VERIFICATION
+
+- **Methods:** test, analysis
+- **Coverage target:** 90.0%
+- **Validation scenarios:**
+  - Sustained 1 Hz aggregate ingest across all three sources for 24 hours
+  - DTU reconnect within 30 s of a transient network drop
+  - Modbus RTU CRC failure causes only that sample to be discarded, not session drop
+
 ## COMMENTS
 
 Sole writer into the telemetry portion of the store. Vendor adapter
