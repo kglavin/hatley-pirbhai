@@ -191,6 +191,8 @@ For `depends_on_library`:
 
 **Priority:** high.
 
+**Update 2026-05-25 (dbt-core dogfood):** Add `hosts` × 3 to the same alias-or-promote treatment. Architect agent emitted `hosts` for "this module hosts this artifact" — same family as `deploys`. Reviewer aliased to `physical_edge` manually. Same E.1 fix applies (`hosts → physical_edge` or `→ refines` depending on locked semantics). Now seen on two cloud-native targets (cloudctlplane + dbt-core); the case for E.2 (first-class promotion) strengthens with each instance. See also **H.15** — `hosts` is the same systematic pattern as terminator subkinds and module kinds.
+
 ---
 
 ## F. Run resilience — `--resume` + progress log
@@ -863,7 +865,178 @@ A new pipeline stage — **Stage 0a: domain reconnaissance** — would run befor
 - **H.4 (glossary):** the glossary extractor's vocabulary is itself partly domain-shaped. A generic glossary extractor + domain-profile vocabulary list is the cleaner factoring.
 - **H.5 (deployment artifacts):** compose/k8s/dockerfile parsers are cloud-domain-specific. The firmware analog (CMake / `.ioc` / `.px4board`) is in `embedded_arch_extractor.py`. Same pattern: deployment-artifact parser is generic, the *which artifacts to parse* is in the domain profile.
 
-### H.10 *(placeholder — add as you find more)*
+### H.10 Leaf-agent prompt ambiguity — `DONE` literal appended to JSON output
+
+**Finding raised:** 2026-05-25 — dbt-core dogfood. 4 of 23 leaf-stage JSON outputs (`leaf-proc_emit_events.json`, `leaf-proc_emit_run_results.json`, `leaf-proc_graph_runner.json`, `leaf-proc_write_artifacts.json`) had a stray `DONE` token appended after the closing JSON brace, breaking `json.load()` for the merger.
+
+**Root cause:** The orchestrator's instruction to leaf subagents — *"append DONE to progress.log when complete"* — was interpreted by 4 leaf agents as *"append a literal DONE token to your output file."* The ambiguity sits in the prompt phrasing: `progress.log` and the leaf JSON are *both* outputs the agent writes, and "append DONE" without explicit target qualification routes through the wrong file roughly 17% of the time.
+
+**Cost:** Detected mid-pipeline by the deterministic merger (`json.load()` raised `JSONDecodeError: Extra data`). Manual recovery is fast (strip the trailing token, re-run merge) but breaks unattended runs and pollutes any leaf re-use downstream.
+
+**Proposed fix:**
+
+- [`hp-ingest.md`](skills/hp-ingest.md) (orchestrator) and [`hp-ingest-leaf.md`](skills/hp-ingest-leaf.md): make the progress-log instruction explicitly target-qualified. Replace any "append DONE" phrasing with:
+
+  > After writing your `leaf-<process-id>.json` artifact, append a single `DONE` line to `intermediate/progress.log` (NOT to the JSON file).
+
+- Same audit should walk every subagent skill (`hp-ingest-boundary`, `hp-ingest-processes`, `hp-ingest-architect`, `hp-ingest-review`) to confirm the same ambiguity isn't latent there.
+- Defensive: the merger could *also* strip well-known stray-token patterns before `json.load()` — but the right fix is upstream in the prompt.
+
+**Priority:** Medium — bug bites every 5–10 leaves on average for a dbt-core-sized project, requires manual intervention. Bigger projects (PX4 / Airflow / cloudctlplane-scale) would see proportionally more failures. Fix is small (one-paragraph prompt edit + cross-skill audit).
+
+**Composes with:** none — pure prompt-clarity bug. **But** the same cross-skill audit should pick up other prompt-discipline issues in the same family. Specifically:
+
+- **Missing `provenance` on data store nodes** *(dbt-core dogfood, 2026-05-25)*. Two data store nodes were emitted without the `provenance` field, which is required by the `IRNode` schema. The reviewer agent had to patch with placeholder provenance to satisfy the validator. While doing the DONE-token prompt sweep, add to every node-producing subagent's discipline section: *"Every node MUST include a `provenance` field with at minimum `agent`, `confidence`, and one source-citation reference. The schema is not optional."* Same family as the DONE-token bug — both are subagent prompt-clarity issues that bite recurringly.
+
+### H.11 Schema-vs-LLM disagreement on terminator subtypes
+
+**Finding raised:** 2026-05-25 — dbt-core dogfood (Stage-1 boundary stage). The boundary LLM emitted `kind: library_boundary` / `file_input` / `file_output` / `cli_entry` for 4 of 5 terminators. The IR schema's `IRNodeKind` enum only accepts `terminator` for the `kind` field, so the deterministic merger flagged all 4 as `unrecoverable`.
+
+**Workaround in the dogfood:** Manual patch set `kind: terminator` and preserved the subtype in `terminator_kind` (allowed through schema's `extra="allow"`). Merger re-ran clean (96 nodes / 105 edges).
+
+**Why this matters beyond the immediate fix:** The 4 subtypes the LLM invented are *meaningful Stage-1 distinctions HP doesn't currently model*:
+- **`library_boundary`** — external library / SDK / service (e.g., the warehouse adapter; a vendor cloud)
+- **`file_input`** — read-only filesystem input (e.g., dbt-project files, config dirs)
+- **`file_output`** — write-target filesystem output (e.g., `target/`, manifest.json, logs)
+- **`cli_entry`** — command-line invocation surface
+- (and the existing `terminator` covers human actors)
+
+These map to real renderer differentiations a thoughtful HP modeler would want — color terminators differently in the context diagram by subtype; in Stage 5, library_boundary terminators are candidates for architecture-module dependencies that file-system terminators aren't. This is the same shape as Branch 4's `hw_peripheral_*` / `mavlink_endpoint_*` / `ros_topic_*` subtype work — recognize that an *enum value* is too coarse and split with a typed sub-field.
+
+**Three options for the proper fix:**
+
+- [ ] **Constrain the LLM** to emit only `kind: terminator`. Cleanest schema; loses the subtype information the LLM is willing to provide for free. Wastes signal.
+- [ ] **Add typed `terminator_kind: <enum>`** to the schema (default `human_actor`; values: `human_actor` / `library_boundary` / `file_input` / `file_output` / `cli_entry`). Most expressive; renderer can color/group differently; Stage 5 architect can use the distinction.
+- [ ] **Hybrid (formalize the current workaround)**: keep `kind: terminator` mandatory in `IRNodeKind`, add `terminator_kind` as a typed enum field on `IRNode`. Backward-compatible with existing dictionaries (terminator_kind defaults to `human_actor` or `unspecified`); matches Branch 4's `hw_peripheral_*` precedent.
+
+**Proposed handling:** **Hybrid (option 3)** — minimal disruption, backward-compatible, preserves the LLM's signal. Implementation = small schema addition + boundary-agent prompt update to use the typed field correctly + optional renderer color-by-subtype as a follow-up. Could land in a small "schema vocabulary expansion" branch alongside E.1 / E.2 work, or fold into the H.9 domain-profile design (the typed enum belongs in the HP-category layer, *not* the per-domain layer — terminator subtypes are methodology vocabulary).
+
+**Priority:** Medium-high. The boundary LLM is doing this *unprompted* — every fresh ingest produces these `unrecoverable` entries the reviewer agent has to patch. Formalizing the schema removes a recurring manual-repair step and unlocks downstream renderer + Stage-5 wins.
+
+**Composes with:** **H.9** (the typed terminator-subtype enum is methodology-level, separate from per-domain patterns); **E.1/E.2** (schema vocabulary expansions deferred from Branch 2 — this is more of the same).
+
+### H.12 Merger doesn't flatten recursion subdirs
+
+**Finding raised:** 2026-05-25 — dbt-core dogfood. Branch 3's hierarchical recursion writes per-subsystem sub-decompositions to `intermediate/proc_<id>/` (e.g., `intermediate/proc_parse_project/processes.json`, `proc_execute_tasks/processes.json`). The deterministic merger [`merge_graph.merge_intermediates()`](hp_toolkit/ingest/merge_graph.py) only walks `intermediate/*.json` at the top level — it does **not** read the recursion subdirs.
+
+**Net result:** every hierarchical-mode ingest currently loses its sub-decomposition output unless the operator manually flattens it. On dbt-core, **14 level-2 sub-processes + 3 internal stores would have been silently dropped** from the final dictionary if the orchestrator hadn't hand-rolled a Python flatten step (visible as "merged 17 sub-nodes + 32 sub-edges" in the run log). This is the difference between a 11-process model and a 11 + 14 = 25-process model — Branch 3's headline capability fails to flow through to emit by default.
+
+**Cost:** ad-hoc Python at the orchestrator level. Fragile in practice — the dbt-core run hit `FileNotFoundError` retries, cancelled tool calls, and visibly mangled heredocs during the recovery sequence before the manual flatten succeeded. The fragility comes from the operator hand-writing JSON merge code mid-pipeline.
+
+**Proposed fix:** extend `merge_graph.merge_intermediates(intermediate_dir)` to walk recursion subdirs after processing the top level:
+
+```python
+# After top-level boundary.json / processes.json / architecture.json / leaf-*.json
+for sub_dir in sorted(intermediate_dir.glob("proc_*")):
+    if not sub_dir.is_dir():
+        continue
+    # Recursively process — same candidate-files logic as top level.
+    # Sub-version nodes/edges merge by id (existing dedup handles collisions).
+    ...
+```
+
+Add `--no-recurse-subdirs` flag for diagnostic / testing scenarios. The fix is ~30 LOC.
+
+**Ancillary — operator-CWD friction:** during the dogfood recovery, `uv run python -m hp_toolkit.ingest.merge_graph` failed with `ModuleNotFoundError: No module named 'hp_toolkit'` when run from `examples/dbt-core/`. `uv run` resolves modules relative to whichever directory has `pyproject.toml` — only `toolkit/` does. Recovery required `cd toolkit && uv run ...`. Worth either documenting the `cd toolkit` invariant in the toolkit README *or* making the merger a self-invoking script that doesn't depend on caller CWD. Small fix; bundle with the H.12 work.
+
+**Priority:** **HIGH.** Branch 3's headline capability (multi-level decomposition) is currently dependent on operator intervention to actually flow into the final dictionary. This is a real bug, not a tuning question.
+
+**Composes with:** **H.13** (sister fix in the same operational area — same shape-tolerance discipline applies); **H.9** (the H.9 design doc would inherit a merger that already does subdir-walking, simplifying the eventual data-driven scanner).
+
+### H.13 `recursion.py` schema-shape impedance — full IRGraph expected, fragments emitted
+
+**Finding raised:** 2026-05-25 — dbt-core dogfood. The [`recursion.py`](hp_toolkit/ingest/recursion.py) driver loads per-subsystem `processes.json` files and validates them as full `IRGraph` shapes (with top-level `project`, `nodes`, `edges`, optional `scan` fields). But the `hp-ingest-processes` subagents emit IR **fragments** — just `nodes` + `edges` without the project header. The driver crashed when trying to validate the fragment as IRGraph.
+
+**Operator workaround:** hand-rolled `processes-graph.json` injection — wrap each fragment in a synthetic IRGraph shell (cloning the top-level project field) before feeding it to recursion. Another ad-hoc Python step in the recovery sequence.
+
+**Diagnosis:** the toolkit is inconsistent about whether subagent outputs are fragments or full graphs. The merger tolerates fragments (it concatenates `.nodes` + `.edges` from every per-stage file and only validates the assembled whole). Recursion doesn't. This asymmetry costs every hierarchical ingest a manual reshape step.
+
+**Proposed fix:** two options:
+
+- **(a) Teach `recursion.py` to accept fragments** *(preferred)*. Wrap the fragment in an IRGraph shell internally; the project field can be inherited from the parent context. Smaller change; matches merger's existing fragment-tolerance.
+- **(b) Teach the subagent prompts to emit full IRGraph shapes**. Every per-stage subagent prompt updated to template in the project field. Heavier; touches every subagent skill file; introduces a templating dependency in the agent prompts.
+
+The first is what the orchestrator effectively did manually. Codifying it in `recursion.py` deletes the recovery work.
+
+**Composes with:** **H.12** (same operational area — both fixes establish "subagent outputs are fragments; consumers handle the wrapping" as a toolkit-wide discipline).
+
+**Priority:** **MEDIUM-HIGH.** Branch 3 hierarchical mode is the canonical tool for monorepo-scale targets; the lack of fragment-tolerance is a maintenance liability for any future recursion-style work.
+
+### H.14 `should_recurse()` ignores LLM `needs_recursion` judgment
+
+**Finding raised:** 2026-05-25 — dbt-core dogfood. Branch 3's [`recursion.should_recurse()`](hp_toolkit/ingest/recursion.py) gate is **purely threshold-based**: recurses iff `files ≥ N AND lines ≥ M` (defaults 30 / 3000). It does **not** honor a `needs_recursion: true` flag that the LLM may set on a process node based on its own architectural judgment.
+
+**Example from the dogfood:** `proc_execute_tasks` — 26 files / 6,780 lines. Under the 30-file gate but FSM-heavy and architecturally complex (it's the runner — orchestrates task dispatch + node lifecycle + retry logic). The Stage 2 LLM correctly identified this as decomposition-worthy. The threshold gate blocked. Workaround: `--threshold-files 20` to lower the gate globally — wrong tool; lowers the gate for *every* process, not just the one the LLM judged complex.
+
+**Diagnosis:** the recursion gate as currently designed is mechanical-only. The LLM has architectural information the mechanics can't recover — FSM complexity, semantic coupling, sub-component identity, the difference between "26 files of similar adapter shims" (don't recurse) and "26 files implementing a complex state machine" (recurse). The right shape is: **mechanical gate is the *floor*; LLM judgment is the *override*.**
+
+**Proposed fix:**
+
+- `should_recurse(node, files, lines)` returns true if EITHER `(files ≥ N AND lines ≥ M)` OR `node.needs_recursion is True`.
+- [`hp-ingest-processes`](skills/hp-ingest-processes.md) prompt updated to populate `needs_recursion: true` on a process node when the agent sees architectural complexity that file/line counts can't recover. The discipline section gets explicit examples ("FSM-heavy", "complex orchestrator", "multi-stage pipeline that internally decomposes into named sub-stages").
+- Hard-floor backstop: the threshold still catches mechanical giants the LLM may overlook.
+- Soft-ceiling: `--max-recursion-depth` (already exists) caps even LLM-triggered recursion.
+
+**Composes with:** **H.15** — this is another instance of "the LLM has more architectural judgment than the schema/threshold lets it express; let it speak." Same systematic pattern.
+
+**Priority:** **MEDIUM-HIGH.** Branch 3 recursion is the canonical tool for monorepo-scale targets. The threshold-only gate misses exactly the qualitative cases (semantic complexity at sub-threshold size) that the LLM is supposed to help with.
+
+### H.15 Schema undermodeling pattern — LLMs propose useful sub-distinctions the schema doesn't accept
+
+**Finding raised:** 2026-05-25 — dbt-core dogfood, but **observed as a recurring pattern across multiple dogfood targets** (cloudctlplane, embedded firmware via Branch 4, dbt-core).
+
+**The pattern:** Given good context (code + docs + glossary), LLM agents emit architecturally sensible sub-distinctions that exceed the schema's enum vocabulary. The reviewer agent canonicalizes the LLM's value into the schema's coarser enum + stashes the lost detail in `description:` or an `extras` field. The information *survives* but loses its first-class status. Every fresh ingest re-runs this canonicalization. The signal is: **the schemas are undermodeled relative to what the LLMs can reliably produce.**
+
+**Three instances confirmed in the dbt-core dogfood:**
+
+| Site | LLM emitted | Schema accepts | Reviewer's fix |
+|---|---|---|---|
+| **Terminator subkind** (H.11) | `library_boundary`, `file_input`, `file_output`, `cli_entry` | only `terminator` | Set `kind: terminator`; preserve subkind in extras |
+| **Module kind** | `external_service`, `data_store` | only `hardware`, `software`, `organizational` | Canonicalize to `software`; preserve intent as `[architect-intent: ...]` description prefix |
+| **AMS `required_constraints`** | Free-text prose | Structured `{design, reliability, maintainability, safety, physical, ...}` shape | Fold the prose under `design:` to satisfy the schema; lose the constraint-type distinction |
+
+**Plus the running E section's edge-kind aliases (`deploys`, `hosts`, `depends_on_library`)** — same pattern at the edge layer.
+
+**Three response options:**
+
+- **(a) Constrain the LLMs** in their prompts to use only canonical enum values. Cleanest from a schema-discipline standpoint. Wastes the signal the LLM is willing to provide for free. Renderer + Stage-5 lose distinctions worth preserving.
+- **(b) Expand the schemas with typed sub-fields.** Add `terminator_kind` next to `kind: terminator`. Add `module_subkind` next to `module_kind`. Restructure `AMS required_constraints` into the typed shape. Most expressive; matches Branch 4's `hw_peripheral_*` precedent.
+- **(c) Hybrid (formalize the current workaround)**: keep canonical enum mandatory at the top level + add optional typed `subkind:` (or specific name per element) field. Backward-compatible with existing dictionaries. Renderer can color/group by subkind when present; default behavior when absent.
+
+**Proposed handling:** **Spawn `SCHEMA_V2_DESIGN.md`** (matches the form-based-proposal pattern of prior arcs — `HIERARCHICAL_INGEST_DESIGN.md`, `EMBEDDED_FIRMWARE_TUNING_DESIGN.md`, `BOUNDED_CONTEXTS_DESIGN.md`). Lock the Q1/Q2/Q3/...Qn decisions for each undermodeling site (terminator / module / AMS / edge-kind / and audit others). Implementation as a small branch — pure schema additions with backward-compat defaults; renderer + validator updated to honor the new fields when present.
+
+**Composes with:** **H.11** (specific instance — terminator subkinds, already captured); **H.9** (the typed sub-enums are *methodology-layer* vocabulary, distinct from the per-domain profile data H.9 proposes); **E.1/E.2** (deferred schema-vocabulary work from Branch 2 — `SCHEMA_V2_DESIGN.md` is the umbrella under which they finally land); **H.14** (parallel principle — let the LLM express richer judgment, formalize the schema to receive it).
+
+**Priority:** **MEDIUM-HIGH.** The reviewer-patching cost is real every-ingest. Schema improvements unlock real renderer wins (color terminators by subkind, group modules by subkind, structured AMS constraints become validatable). And: the pattern is now triangulated across three dogfood targets — additional dogfoods will likely surface more sites; the design doc should be spawned proactively rather than reactively.
+
+### H.16 Token-cost calibration — leaf source-citation grounding is the cost driver
+
+**Finding raised:** 2026-05-25 — dbt-core dogfood. Ingest token cost: **~2.1M tokens** for a 654-Python-file project. Prior estimate in [`INGEST_DESIGN.md`](INGEST_DESIGN.md) token-economics section: ~300–400k tokens for similar scale. Actual is **~5–7× higher** than documented.
+
+**Root cause:** leaf agents (Stages 3+4) ground every PSPEC TRANSFORMATION + every CSPEC state/transition in actual source-code reads with line citations. That rigor is a *feature* — it's what distinguishes hp-ingest PSPECs from hand-wavy LLM summaries and it's the mechanism by which downstream agents catch upstream mislabels (the F8 / `migrate_rewrites` correction during the dbt-core dogfood is a direct example). But the leaf agents dominate the token budget.
+
+**Approximate breakdown** (per dbt-core ingest, ~654 Python files, 23 total leaves including recursion):
+
+| Stage | Tokens (approx) | Notes |
+|---|---|---|
+| 0 + 0c (scan + glossary) | ~50k | Mostly deterministic |
+| 1 (boundary) | ~80–120k | Heavy on docs corpus |
+| 2 (top-level processes) | ~150–200k | |
+| 2-recurse (per subsystem × 2) | ~150k each → ~300k | |
+| **3+4 (leaf × 23)** | **~50–90k each → ~1.2–1.5M** | **dominant cost** |
+| 5 (architect) | ~100–150k | |
+| Review + emit | ~60k | |
+
+**Two responses (both):**
+
+- **(a) Update [`INGEST_DESIGN.md`](INGEST_DESIGN.md) token-economics section** with the empirical calibration data. Document per-leaf cost (~50–90k) and total scaling (~3k tokens per Python file as a rough order-of-magnitude). Add a per-domain calibration table as more dogfoods accumulate.
+- **(b) Add an opt-in `--shallow-leaves` flag** that skips source-citation grounding for PSPECs. Reduces token cost by ~50–70%, at the cost of less-rigorous PSPECs (no line citations; PSPEC TRANSFORMATION becomes prose summary). Useful for first-pass / exploratory ingests where the user wants a quick map of the territory before committing to a full-rigor run. Matches the `--min-pure-logic` tuning lever pattern Branch 1 introduced.
+
+**Composes with:** **H.9** — this finding converges on the same direction H.9 lean argued: the LLM stages are doing meaningful work and the cost is appropriate; the deterministic prep doesn't need to be domain-rich because the LLM stages compensate via docs + code reads. Together they paint a clearer picture: *thin deterministic prep + rich LLM context + full-rigor leaf grounding* is the toolkit's actual cost shape and architectural value.
+
+**Priority:** **MEDIUM.** Not blocking but the docs are wrong by 5× and that's user-experience-affecting. Bigger targets (PX4-scale ~5k files, cloudctlplane-scale monorepos) would balloon proportionally — anyone budgeting an ingest based on the current docs gets a surprise.
+
+### H.17 *(placeholder — add as you find more)*
 
 *(... etc — add as many as needed)*
 

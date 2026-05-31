@@ -19,4 +19,6 @@ examples/**/*.generated-*.*
 examples/cloudctlplane/
 examples/bru/
 examples/solar-expansion/
+examples/airflow/
+examples/dbt-core/
 reference-docs/Enterprise Systems Engineering_ Advances in the Theory and -- Rebovich, Jr_, George (editor);White, Brian E_ (editor) -- 1, 2016 apr 19.pdf
