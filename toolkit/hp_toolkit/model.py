@@ -80,18 +80,31 @@ class Entity(BaseModel):
 
 
 class Flow(BaseModel):
-    """A data or control flow between entities."""
+    """A data or control flow between entities.
+
+    Level-0 boundary flows additionally carry refinement endpoints —
+    `refined_source` and/or `refined_target` — which name the internal
+    entity at level N+1 that the flow connects to once the parent is
+    decomposed. This lets one boundary flow be rendered at multiple
+    levels of decomposition without duplicating the entry.
+    """
     model_config = ConfigDict(extra="allow")
 
     id: str
     label: str
-    source: str   # entity id
-    target: str   # entity id
+    source: str   # entity id at this flow's level
+    target: str   # entity id at this flow's level
     kind: FlowKind
     level: LevelType
     medium: Optional[str] = None    # how the flow is carried (RF, Modbus, MQTT, etc.)
     notes: Optional[str] = None
     optional: bool = False
+
+    # ─── Refinement (for boundary flows at level N) ───
+    # When rendering at level N+1, replace `source` (if it equals the
+    # parent being decomposed) with `refined_source`; same for target.
+    refined_source: Optional[str] = None
+    refined_target: Optional[str] = None
 
 
 class Edge(BaseModel):

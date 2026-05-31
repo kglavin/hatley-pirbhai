@@ -111,6 +111,65 @@ def main() -> int:
             print("  (diff truncated)")
     print()
 
+    # ─── Mermaid (level-1 DFD) ───
+    l1_dir = repo_root / "examples" / "solar" / "01-level1"
+    print(_color("==> Rendering level-1 DFD — Mermaid", "1"))
+    gen_l1_mermaid = render_mermaid.render_dfd(project, parent_id="sys_root")
+
+    out_l1_mermaid = l1_dir / "dfd.generated.mmd"
+    out_l1_mermaid.write_text(gen_l1_mermaid)
+    print(f"  wrote {out_l1_mermaid.relative_to(repo_root)} ({len(gen_l1_mermaid)} bytes)")
+
+    hand_l1_md = (l1_dir / "dfd.md").read_text()
+    hand_l1_mermaid = _extract_mermaid_block(hand_l1_md)
+    if hand_l1_mermaid:
+        if hand_l1_mermaid.strip() == gen_l1_mermaid.strip():
+            print(_color("  ✓ matches hand-written dfd.md mermaid block", "32"))
+        else:
+            print(_color("  ≠ differs from hand-written (see diff below)", "33"))
+            d = _diff(hand_l1_mermaid, gen_l1_mermaid,
+                      "hand-written (dfd.md block)", "generated")
+            for line in d.splitlines()[:80]:
+                if line.startswith("+"):
+                    print(_color(line, "32"))
+                elif line.startswith("-"):
+                    print(_color(line, "31"))
+                else:
+                    print(line)
+    print()
+
+    # ─── D2 (level-1 DFD) ───
+    print(_color("==> Rendering level-1 DFD — D2", "1"))
+    gen_l1_d2 = render_d2.render_dfd(project, parent_id="sys_root")
+
+    out_l1_d2 = l1_dir / "dfd.generated.d2"
+    out_l1_d2.write_text(gen_l1_d2)
+    print(f"  wrote {out_l1_d2.relative_to(repo_root)} ({len(gen_l1_d2)} bytes)")
+
+    hand_l1_d2 = (l1_dir / "dfd.d2").read_text()
+    if hand_l1_d2.strip() == gen_l1_d2.strip():
+        print(_color("  ✓ matches hand-written dfd.d2", "32"))
+    else:
+        def _normalize(s: str) -> str:
+            keep = [ln for ln in s.splitlines()
+                    if ln.strip() and not ln.strip().startswith("#")]
+            return "\n".join(keep)
+        if _normalize(hand_l1_d2) == _normalize(gen_l1_d2):
+            print(_color("  ✓ matches hand-written dfd.d2 (ignoring comments/blanks)", "32"))
+        else:
+            print(_color("  ≠ differs from hand-written (see diff below)", "33"))
+            d = _diff(hand_l1_d2, gen_l1_d2,
+                      "hand-written dfd.d2", "generated")
+            for line in d.splitlines()[:80]:
+                if line.startswith("+"):
+                    print(_color(line, "32"))
+                elif line.startswith("-"):
+                    print(_color(line, "31"))
+                else:
+                    print(line)
+            print("  (diff truncated)")
+    print()
+
     print(_color("Done. See *.generated.* files for the renderer output.", "32"))
     return 0
 

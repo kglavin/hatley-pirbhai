@@ -123,3 +123,127 @@ def render_context_diagram(project: Project) -> str:
         lines.append(f"    class {','.join(optional_terms)} optional;")
 
     return "\n".join(lines) + "\n"
+
+
+def render_dfd(project: Project, parent_id: str = "sys_root") -> str:
+    """Render a level-N+1 DFD (decomposition of `parent_id`) as Mermaid.
+
+    Shows:
+      - Internal entities (children of parent_id at level 1+): processes
+        and data stores
+      - Terminators that the boundary flows reach
+      - Boundary flows (level-0) refined to internal endpoints via
+        `refined_source` / `refined_target`
+      - Internal flows (level 1) between internal entities
+      - Physical edges at level 0
+
+    Internal processes get kind-based classDef styling:
+      - brain   (process with needs_cspec=True)
+      - optional (process with optional=True)
+      - proc    (default)
+    """
+    parent = project.entities.get(parent_id)
+    if parent is None:
+        raise ValueError(f"Parent {parent_id!r} not in project")
+
+    # Internal entities — direct children of parent at level 1
+    internal = [e for e in project.all_entities()
+                if e.parent == parent_id and e.level == 1]
+    processes = [e for e in internal if e.kind == EntityKind.PROCESS]
+    stores    = [e for e in internal if e.kind == EntityKind.DATA_STORE]
+
+    # Boundary flows (level 0) touching this parent
+    boundary_flows = [f for f in project.flows_at_level(0)
+                      if f.source == parent_id or f.target == parent_id]
+
+    # Terminators that participate in boundary flows
+    term_ids: set[str] = set()
+    for f in boundary_flows:
+        if f.source != parent_id:
+            term_ids.add(f.source)
+        if f.target != parent_id:
+            term_ids.add(f.target)
+    # Also any terminator that the parent edges to (e.g., physical AC)
+    edges_level0 = [ed for ed in project.all_edges() if ed.level == 0]
+    for ed in edges_level0:
+        if project.entities.get(ed.source, None) and project.entities[ed.source].kind == EntityKind.TERMINATOR:
+            term_ids.add(ed.source)
+        if project.entities.get(ed.target, None) and project.entities[ed.target].kind == EntityKind.TERMINATOR:
+            term_ids.add(ed.target)
+    terminators = [project.entity(tid) for tid in term_ids
+                   if project.entity(tid).kind == EntityKind.TERMINATOR]
+
+    # Internal flows at level 1
+    internal_flows = [f for f in project.flows_at_level(1)]
+
+    # ─── Emit ───
+    lines: list[str] = ["graph LR"]
+
+    # Terminators
+    lines.append("    %% Terminators")
+    for t in terminators:
+        lines.append(_node_decl(t))
+    lines.append("")
+
+    # Internal processes
+    lines.append("    %% Internal processes")
+    for p in processes:
+        lines.append(_node_decl(p))
+    lines.append("")
+
+    # Data stores
+    if stores:
+        lines.append("    %% Data store")
+        for s in stores:
+            lines.append(_node_decl(s))
+        lines.append("")
+
+    # Boundary flows refined to internal endpoints
+    lines.append("    %% Boundary flows (refined)")
+    for f in boundary_flows:
+        src = f.refined_source if f.source == parent_id and f.refined_source else f.source
+        tgt = f.refined_target if f.target == parent_id and f.refined_target else f.target
+        label = _esc(f.label)
+        arrow = '-. "{}" .->' if f.optional else '-- "{}" -->'
+        lines.append(f"    {src} {arrow.format(label)} {tgt}")
+    lines.append("")
+
+    # Physical edges
+    if edges_level0:
+        lines.append("    %% Physical AC")
+        for ed in edges_level0:
+            lines.append(_edge_decl(ed))
+        lines.append("")
+
+    # Internal flows
+    lines.append("    %% Internal flows")
+    for f in internal_flows:
+        lines.append(_flow_edge(f))
+
+    # Styling
+    lines.append("")
+    lines.append("    classDef proc fill:#cfe5ff,stroke:#2a70c2,color:#000;")
+    lines.append("    classDef brain fill:#7fbff5,stroke:#1f5a99,color:#000,font-weight:bold;")
+    lines.append("    classDef optional fill:#e6f0ff,stroke:#888,stroke-dasharray:3 3;")
+    lines.append("    classDef terminator fill:#fafafa,stroke:#444;")
+    lines.append("    classDef store fill:#fff5cc,stroke:#b89800;")
+    lines.append("    classDef grid fill:#fef0ef,stroke:#e74c3c;")
+    lines.append("    classDef termopt fill:#fafafa,stroke:#888,stroke-dasharray:5 5,color:#666;")
+
+    procs_normal   = [p.id for p in processes if not p.needs_cspec and not p.optional]
+    procs_brain    = [p.id for p in processes if p.needs_cspec]
+    procs_optional = [p.id for p in processes if p.optional]
+    store_ids      = [s.id for s in stores]
+    terms_normal   = [t.id for t in terminators if not t.optional and "grid" not in t.id]
+    terms_grid     = [t.id for t in terminators if "grid" in t.id]
+    terms_optional = [t.id for t in terminators if t.optional]
+
+    if procs_normal:   lines.append(f"    class {','.join(procs_normal)} proc;")
+    if procs_brain:    lines.append(f"    class {','.join(procs_brain)} brain;")
+    if procs_optional: lines.append(f"    class {','.join(procs_optional)} optional;")
+    if store_ids:      lines.append(f"    class {','.join(store_ids)} store;")
+    if terms_normal:   lines.append(f"    class {','.join(terms_normal)} terminator;")
+    if terms_grid:     lines.append(f"    class {','.join(terms_grid)} grid;")
+    if terms_optional: lines.append(f"    class {','.join(terms_optional)} termopt;")
+
+    return "\n".join(lines) + "\n"

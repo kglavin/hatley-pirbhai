@@ -302,6 +302,7 @@ flows:
     label: "F1: per-channel telemetry"
     source: term_inverters
     target: sys_root
+    refined_target: proc_acquire_telemetry   # internal endpoint at level 1
     kind: data
     medium: "Sub-1G RF → DTU-Pro-S or OpenDTU"
     level: 0
@@ -311,6 +312,7 @@ flows:
     label: "F2: power-limit setpoints"
     source: sys_root
     target: term_inverters
+    refined_source: proc_dispatch_commands   # internal endpoint at level 1
     kind: control
     medium: "OpenDTU only (not via official DTU)"
     level: 0
@@ -320,6 +322,7 @@ flows:
     label: "F3: net grid power, V/I/PF"
     source: term_meter
     target: sys_root
+    refined_target: proc_acquire_telemetry
     kind: data
     medium: "RS485 Modbus RTU"
     level: 0
@@ -329,6 +332,7 @@ flows:
     label: "F4: SoC, mode, AC-in"
     source: term_battery_system
     target: sys_root
+    refined_target: proc_acquire_telemetry
     kind: data
     medium: "MQTT / Modbus TCP"
     level: 0
@@ -338,6 +342,7 @@ flows:
     label: "F5: max-charge, grid setpoint"
     source: sys_root
     target: term_battery_system
+    refined_source: proc_dispatch_commands
     kind: control
     medium: "MQTT publish"
     level: 0
@@ -347,6 +352,7 @@ flows:
     label: "F6: config, override"
     source: term_user
     target: sys_root
+    refined_target: proc_handle_user_input
     kind: "data+control"
     medium: "UI"
     level: 0
@@ -356,6 +362,7 @@ flows:
     label: "F7: dashboards, alerts"
     source: sys_root
     target: term_user
+    refined_source: proc_serve_ui
     kind: data
     medium: "UI"
     level: 0
@@ -364,6 +371,7 @@ flows:
     label: "F8: optional telemetry forward"
     source: sys_root
     target: term_smiles_cloud
+    refined_source: proc_cloud_forward
     kind: data
     medium: "HTTPS"
     level: 0
