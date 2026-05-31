@@ -2,7 +2,7 @@
 
 Concise refresh on HP vocabulary. Each entry: one-line definition · modern analog where helpful · tiny example · cross-links to related terms.
 
-Anchor links work from chat: e.g. `[DFD](reference-docs/HP_QUICK_REF.md#dfd--data-flow-diagram)`. Headings use kebab-case anchors automatically.
+Anchor links work from chat: e.g. `[DFD](toolkit/reference/HP_QUICK_REF.md#dfd--data-flow-diagram)`. Headings use kebab-case anchors automatically.
 
 **Sourced from** the 1988 book (*Strategies for Real-Time System Specification*, Hatley & Pirbhai) and the 2000 book (*Process for System Architecture and Requirements Engineering*, Hatley, Hruschka & Pirbhai). Some entries note where they were introduced.
 
@@ -251,6 +251,6 @@ HP didn't appear in a vacuum — it builds on (and credits) several prior method
 
 ---
 
-*This is a quick-reference card, not a tutorial. For the deep dive, see the source PDFs: `Strategies for Real-Time System Specification ... 1988.pdf` and `Process for System Architecture and Requirements Engineering ... 2000.pdf` at the repo root.*
+*This is a quick-reference card, not a tutorial. For the deep dive, see the source books: Hatley & Pirbhai (1988), *Strategies for Real-Time System Specification*; and Hatley, Hruschka & Pirbhai (2000), *Process for System Architecture and Requirements Engineering*.*
 
 *Last updated: 2026-05-22.*

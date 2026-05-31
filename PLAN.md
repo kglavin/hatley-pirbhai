@@ -63,6 +63,8 @@ How we work, not what we build.
 Chronological, most recent first.
 
 **2026-05-22**
+- *Workshop / toolkit split.* Repo restructured to separate the **workshop** (where we develop the toolkit — PLAN.md, examples, graphify analysis, source PDFs) from the **toolkit** (the deliverable that ships to practitioners — under `toolkit/`). Files moved: `bootstrap.sh` → `toolkit/bootstrap.sh`; `reference-docs/HP_QUICK_REF.md` → `toolkit/reference/HP_QUICK_REF.md`. PDFs moved to `reference-docs/` (gitignored). Future Python package, skills, and pyproject.toml live under `toolkit/`.
+- *Toolkit coding begun.* First code artifact: `toolkit/bootstrap.sh` — sets up uv (Python env manager) + d2 + mmdc (the renderers the methodology needs). User-space install, no sudo, idempotent. **This marks the transition from design conversation to actually building the toolkit.** Future `toolkit/pyproject.toml` and `toolkit/hp_toolkit/` Python package land on this foundation.
 - *Document of record established.* This file (`PLAN.md`) is canonical for project decisions, in-progress vocabulary, and open questions.
 
 **2026-05-21**
@@ -207,13 +209,27 @@ Where things live in this repo.
 
 | Path | What it is | Status |
 |---|---|---|
+**Workshop (repo root) — where we develop the toolkit:**
+
+| Path | What it is | Status |
+|---|---|---|
 | `PLAN.md` | This file — plan / document of record | Active |
-| `graphify-out/` | Knowledge graph of both HP books (187 nodes / 234 edges / 20 communities) | One-time reference; see `graphify-out/GRAPH_REPORT.md` |
-| `Strategies for Real-Time System Specification ... 1988.pdf` | Source: 1988 HP book | Reference |
-| `Process for System Architecture and Requirements Engineering ... 2000.pdf` | Source: 2000 HHP book | Reference |
-| `reference-docs/HP_QUICK_REF.md` | HP method vocabulary card (60+ terms with modern analogs, cross-links). The deep-link target Claude uses when introducing HP terminology in chat. | Active |
-| *(planned)* `examples/solar/` | Dogfood project artifacts — Context Diagram, DFDs, CSPECs, PSPECs as they emerge | Not yet created |
-| *(planned)* `views/` or `examples/solar/views/` | Candidate presentation experiments (HTML5, Mermaid, D2, etc.) | Not yet created |
+| `examples/solar/` | Dogfood project artifacts — Context Diagram, DFDs, CSPECs, PSPECs as they emerge | Active |
+| `examples/solar/views/` | Candidate presentation experiments for Context Diagram v0 (Mermaid `.md`, HTML5 Cytoscape `.html`, D2 `.d2`) | Active — under review |
+| `graphify-out/` | Knowledge graph of both HP books (187 nodes / 234 edges / 20 communities) | One-time workshop reference; see `graphify-out/GRAPH_REPORT.md` |
+| `reference-docs/` | Workshop reading aids — source PDFs (1988 and 2000 HP books). `.gitignore`'d. | Local-only |
+| `proposals/` | (empty, placeholder) | Reserved |
+
+**Toolkit (`toolkit/`) — the deliverable that ships to practitioners:**
+
+| Path | What it is | Status |
+|---|---|---|
+| `toolkit/README.md` | Practitioner-facing entry point | Active |
+| `toolkit/bootstrap.sh` | Environment setup script — installs uv, d2, mmdc to user space. Idempotent. | Active |
+| `toolkit/reference/HP_QUICK_REF.md` | HP method vocabulary card (60+ terms with modern analogs, cross-links). The deep-link target Claude uses when introducing HP terminology in chat. | Active |
+| `toolkit/pyproject.toml` | (planned) Python project | Not yet created |
+| `toolkit/hp_toolkit/` | (planned) Python package — model core, validators, renderers | Not yet created |
+| `toolkit/skills/` | (planned) Claude Code skill files (one per workflow stage) | Not yet created |
 
 ---
 
@@ -274,7 +290,7 @@ Pattern-level observations from a one-time inspection of Kevin's in-flight guard
 
 ## Glossary
 
-For the **full HP method vocabulary** (60+ entries, with modern analogs and cross-links), see [`reference-docs/HP_QUICK_REF.md`](reference-docs/HP_QUICK_REF.md). That's the deep-link target Claude uses when introducing terms in chat.
+For the **full HP method vocabulary** (60+ entries, with modern analogs and cross-links), see [`toolkit/reference/HP_QUICK_REF.md`](toolkit/reference/HP_QUICK_REF.md). That's the deep-link target Claude uses when introducing terms in chat.
 
 This section is just the **project-specific** vocabulary (dogfood domain + project shorthand):
 
