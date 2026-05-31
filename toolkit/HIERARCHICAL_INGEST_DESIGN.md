@@ -13,7 +13,7 @@ All five open questions resolved:
 
 ## Goal
 
-Make `hp-ingest` produce a **multi-level decomposition** for monorepo-scale targets (cloudctlplane, hydra, etc.). Today the pipeline emits a flat 2-level model (Stage-1 boundary at `level: 0`, Stage-2 internals at `level: 1`). On a monorepo containing 8+ independently-deployable subsystems, that compresses each subsystem into a single level-1 bubble — the structure is right, but every entity is one level too coarse.
+Make `hp-ingest` produce a **multi-level decomposition** for monorepo-scale targets (acme-cp and similar large monorepos). Today the pipeline emits a flat 2-level model (Stage-1 boundary at `level: 0`, Stage-2 internals at `level: 1`). On a monorepo containing 8+ independently-deployable subsystems, that compresses each subsystem into a single level-1 bubble — the structure is right, but every entity is one level too coarse.
 
 HP methodology natively supports recursive decomposition: a process with sufficient internal complexity gets its own level-2 DFD; that DFD's processes can each have their own level-3 DFD; etc. The renderer + validator are *almost* there — they already chain `parent` for state nodes inside CSPECs (level 2). What's missing is the *process-level* hierarchy: process nodes that have other process nodes as children.
 
@@ -28,7 +28,7 @@ The H.3 finding in [INGEST_TUNING_DESIGN.md](INGEST_TUNING_DESIGN.md) names two 
 
 Per locked Q1 (this doc): **build X first**. Reasoning:
 
-- **Monorepo target.** cloudctlplane has 8+ subsystems but one team owns the architecture. A single `dictionary.yaml` matches the team's mental model: one review surface, one provenance trail, one glossary, one set of bounded contexts.
+- **Monorepo target.** acme-cp has 8+ subsystems but one team owns the architecture. A single `dictionary.yaml` matches the team's mental model: one review surface, one provenance trail, one glossary, one set of bounded contexts.
 - **HP-native.** Recursive `parent`-linked decomposition is exactly what HP §4.2 (levelled DFDs) describes. We're filling out the methodology's existing shape, not adding a new one.
 - **Renderer is closer than it looks.** The level-1 DFD code generalizes — same Mermaid + D2 + cytoscape pattern, just keyed on parent-process-id instead of `sys_root`.
 - **Y becomes a sibling later** if a multi-repo / multi-team target appears (no toolkit changes prevent it). Composable, not exclusive.
@@ -67,7 +67,7 @@ A process `P` recurses if **all** of:
 - `sum(line-count of P.implemented_by) ≥ --recurse-threshold-lines` (default: 3000)
 - Current depth `< --max-recursion-depth` (default: 3)
 
-The thresholds are tunable per-target via CLI flags; the defaults aim for cloudctlplane-scale (where ~3–8 of the 8 level-1 processes deserve a level-2 decomposition).
+The thresholds are tunable per-target via CLI flags; the defaults aim for acme-cp-scale (where ~3–8 of the 8 level-1 processes deserve a level-2 decomposition).
 
 **Per-subsystem context window:**
 
@@ -107,7 +107,7 @@ intermediate/
 ├── boundary.json
 ├── processes.json                  ← level-1 processes
 ├── proc_prism/
-│   ├── scan.json                   ← scoped to prism's implemented_by[]
+│   ├── scan.json                   ← scoped to svc-query's implemented_by[]
 │   ├── process-candidates.json     ← scoped
 │   ├── processes.json              ← level-2 sub-processes (parent: proc_prism)
 │   ├── proc_prism_resolvers/
@@ -189,7 +189,7 @@ Four commits on `kg/hp-ingest-hierarchical`. Verifiable in isolation.
 - `--recurse-threshold-files` / `--recurse-threshold-lines` / `--max-recursion-depth` / `--no-recurse` flags.
 - `progress.log` gets `RECURSE_INTO <P-id> depth=<D>` events.
 
-**Verification:** dry-run on cloudctlplane (no LLM yet — Stage 2 prep only); confirm the right ~3–5 processes pass the threshold.
+**Verification:** dry-run on acme-cp (no LLM yet — Stage 2 prep only); confirm the right ~3–5 processes pass the threshold.
 
 ### Commit T13 — Skill markdown recursion behavior + renderer level-N DFDs
 - `hp-ingest-processes.md`: recursion-aware step (emit `parent: <P-id>`; load scoped inputs).
@@ -197,7 +197,7 @@ Four commits on `kg/hp-ingest-hierarchical`. Verifiable in isolation.
 - `hp-ingest-architect.md`: allocate leaves only.
 - `render_project.py` + `hp_toolkit/render/`: generalize level-1 DFD to level-N; sidebar nesting; PDF tree order.
 
-**Verification:** re-ingest cloudctlplane with LLM agents — emit 2-level dictionary; renderer produces per-level DFD pages.
+**Verification:** re-ingest acme-cp with LLM agents — emit 2-level dictionary; renderer produces per-level DFD pages.
 
 ### Commit T14 — Doc catch-up
 - Update `INGEST_DESIGN.md` to reference this doc + hierarchical mode.
@@ -224,7 +224,7 @@ I lean **X first**. Y composes later — no toolkit changes prevent it.
 - [ ] Architect picks via hints
 - [ ] Hybrid (auto-detect + `--no-recurse=<P-id>` / `--force-recurse=<P-id>` overrides)
 
-I lean **auto-threshold**. Hybrid is a natural follow-up once the default thresholds prove their behavior on cloudctlplane.
+I lean **auto-threshold**. Hybrid is a natural follow-up once the default thresholds prove their behavior on acme-cp.
 
 ### Q3. Stage-5 architect timing
 
@@ -237,7 +237,7 @@ I lean **once at top**. Architecture modules allocate *leaf* processes (the bott
 
 What thresholds should the auto-recurse defaults target?
 
-- [x] **Files ≥ 30 AND lines ≥ 3000** *(recommended for cloudctlplane-scale)*
+- [x] **Files ≥ 30 AND lines ≥ 3000** *(recommended for acme-cp-scale)*
 - [ ] Files ≥ 50 AND lines ≥ 5000 (more conservative)
 - [ ] Lines ≥ 5000 only (single-metric, simpler)
 

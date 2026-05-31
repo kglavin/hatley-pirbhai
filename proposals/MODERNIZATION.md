@@ -782,13 +782,13 @@ The union covers a meaningfully complete picture of what 35 years of SE + 35 yea
 
 ## 8.5 Prioritization lens — patterns from a real modern project
 
-To stress-test the modernization list against a realistic 21st-century target, we did an IP-firewalled, read-only inspection of a real in-flight project (Kevin's `cloudctlplane` — kept anonymous; no IP-specific names, components, or architecture details land in this doc). The aim is *pattern-level signal*: which modernization items would have most helped a project of *this shape*?
+To stress-test the modernization list against a realistic 21st-century target, we did an IP-firewalled, read-only inspection of a real in-flight project (Kevin's `acme-cp` — kept anonymous; no IP-specific names, components, or architecture details land in this doc). The aim is *pattern-level signal*: which modernization items would have most helped a project of *this shape*?
 
 ### What we observed at the pattern level
 
 - **Scale.** ~1,600 files; ~16,400 entities; ~32,000 edges; ~615 communities (per knowledge-graph extraction). 15–17 top-level subprojects mixing services, libraries, tools, and agent components.
 - **Polyglot stack.** Rust + Python + TypeScript + Go — separate CI templates per language; each language tends to map to a different bounded context.
-- **Observability infrastructure already deployed.** Prometheus + Grafana + VictoriaMetrics in the runtime config; observability is solved at the *infrastructure* layer but not at the *architectural model* layer.
+- **Observability infrastructure already deployed.** a metrics + dashboard + TSDB stack in the runtime config; observability is solved at the *infrastructure* layer but not at the *architectural model* layer.
 - **Deployment infrastructure present.** Both Terraform and Kubernetes manifests; multi-target IaC patterns.
 - **CI/CD discipline.** Per-language pipeline templates; a dedicated security CI template; gitleaks for secrets scanning.
 - **Auth boundary visible.** A discrete auth-service community shows up in the graph — trust-zone crossings are real, but no `THREAT_MODEL.md` or formal STRIDE pass appears in the file structure.
@@ -806,7 +806,7 @@ Mapping each modernization item to its likelihood of payoff on a project of this
 
 | # | Item | Why it would have helped |
 |---|---|---|
-| 1 | Observability as first-class | Infrastructure is there (Prom/Graf/VM) but the architecture model has nowhere to declare which metrics each module emits — leading to dashboards and metrics drifting from the design |
+| 1 | Observability as first-class | Infrastructure is there (metrics + dashboards + TSDB) but the architecture model has nowhere to declare which metrics each module emits — leading to dashboards and metrics drifting from the design |
 | 2 | Async / sync / streaming / event semantics | Events + pipeline communities visible; flows are clearly mixed sync/async; current methodology can't distinguish |
 | 5 | DDD Bounded Contexts | At 615 communities and a polyglot 4-language stack, a single global Requirements Dictionary is the wrong shape — each subproject already operates as its own bounded context |
 | 8 | Trust boundaries + interconnect security | Auth-service exists as a distinct module → real trust zones; no formal STRIDE pass visible → the structural opportunity is wide open |
@@ -826,7 +826,7 @@ Mapping each modernization item to its likelihood of payoff on a project of this
 | 4 | Deployment topology as separate view | Overlaps with #31; pick one |
 | 7 | Backpressure on flows | Event/pipeline patterns suggest this is real; less visible without reading IP |
 | 9 | Machine-readable contracts from AIS | Polyglot stack benefits from formal contracts at language boundaries |
-| 11 | Storage tiering | Prometheus/Grafana/VictoriaMetrics + likely Dgraph/ClickHouse imply real tier choices being made |
+| 11 | Storage tiering | A metrics/dashboard/TSDB stack + likely a graph store + columnar store imply real tier choices being made |
 | 12 | Module kind extensions (agent / ml_model) | Multi-agent code visible → `agent` as a kind would be a real addition |
 | 23 | Trade studies | Useful at this scale but the team is already proposal-heavy; lower marginal value |
 | 24 | Risk register | Useful but ADRs (#10) probably go first |
@@ -870,7 +870,7 @@ A second IP-firewalled, read-only inspection on a sibling project at a *differen
 - **Dominant languages:** C/kernel + Rust (performance-critical userspace services) + Python (analytical models) + Java + PHP (language bindings). Polyglot but skewed toward systems languages.
 - **Kernel-userspace boundary is a first-class architectural concern.** A kernel-sensor module bridges kernel-side observation to userspace daemons. This is a tier boundary with very different concurrency, latency, and reliability semantics than cloud-service-to-cloud-service.
 - **Hardware-description files (device tree, DTS/DTSI) present.** HP's classical strength — embedded systems, hardware abstraction layers — is genuinely relevant here. A modernized HP that drifts too far toward cloud-native loses applicability to this kind of stack.
-- **Observability instrumentation already wired** via OpenTelemetry references (different stack from the control plane's Prometheus/Grafana/VictoriaMetrics — but same *concern*).
+- **Observability instrumentation already wired** via OpenTelemetry references (different stack from the control plane's metrics stack — but same *concern*).
 - **Per-area team ownership made explicit** via CODEOWNERS at the repo root. Multi-team project; team boundaries align with subsystem boundaries.
 - **Tiny formal-doc footprint** (~90 .md files for a project of substantial scope) — even less formal-documentation discipline than the control plane sample.
 - **Explicit testing infrastructure.** A dedicated testing subproject plus a sensor_tests directory inside the sensor framework. Testing is treated as a first-class concern at the project structure level.

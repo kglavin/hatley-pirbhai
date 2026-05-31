@@ -67,7 +67,7 @@ One file per stage you want to influence. Conventions:
 While watching `../progress.log` (tail -f). If Stage 2 emits 30 process
 candidates and you wanted 8, drop `processes.md` with guidance like:
 
-    Cluster at hydra/services/<svc> rather than per-file; collapse
+    Cluster at services/<svc> rather than per-file; collapse
     api/handlers/* into the owning service's process. Aim for ≤10
     Stage-2 processes total.
 

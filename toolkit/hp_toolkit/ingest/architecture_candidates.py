@@ -45,7 +45,7 @@ class ModuleCandidate(BaseModel):
     format-specific parsers (compose_parser, dockerfile_parser, k8s_parser)
     so the architect agent can read deployment relationships rather than
     inferring them. `deployment_config` groups candidates by source
-    configuration (bluerockccpd / agate-test / aws-basic on cloudctlplane);
+    configuration (deploy-prod / deploy-test / deploy-cloud on acme-cp);
     the same logical service can appear in multiple deployments."""
 
     candidate_id: str                            # synthetic short id
@@ -90,13 +90,13 @@ class InterconnectCandidate(BaseModel):
 class DeploymentConfig(BaseModel):
     """One deployment configuration — a compose file or k8s namespace.
 
-    Per H.5.b: when multiple compose / k8s configs exist (cloudctlplane has
-    bluerockccpd / agate-test-deployment / aws-basic), each is one
+    Per H.5.b: when multiple compose / k8s configs exist (acme-cp has
+    deploy-prod / deploy-test / deploy-cloud), each is one
     DeploymentConfig. Modules appear in N of them; interconnect topologies
     are per-config; the architect produces a union module set + per-config
     interconnects."""
 
-    name: str                                    # short id ("bluerockccpd")
+    name: str                                    # short id ("deploy-prod")
     source_file: str                             # the compose / k8s manifest file
     kind: str                                    # "compose" | "k8s"
     candidate_ids: list[str] = Field(default_factory=list)

@@ -21,7 +21,7 @@ inputs and uses it to write a substantive `design_rationale` /
 
 Bounded cost: only top-of-file (first ~30 lines) per implementation
 file, plus the full content of any nearby README and infra comments.
-On cloudctlplane-scale repos this is a few hundred KB of rationale
+On acme-cp-scale repos this is a few hundred KB of rationale
 prose — small relative to the architect agent's total token budget.
 """
 

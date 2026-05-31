@@ -5,7 +5,7 @@ Walks the codebase, classifies each file with an HP role hint (see
 detects languages + frameworks, and emits `intermediate/scan.json`.
 
 This is the input to every downstream agent. The cost is O(files) + a few
-content reads per file — fast enough to run on cloudctlplane-scale repos
+content reads per file — fast enough to run on acme-cp-scale repos
 in seconds.
 """
 

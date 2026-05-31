@@ -284,7 +284,7 @@ This commit (modernization Commit 5) breaks into ~6 chunks:
 4. **Renderer (existing diagrams):** per-context coloring on Cytoscape AFD/AID/Context/DFD views
 5. **Renderer (new):** Context Map diagram type (Mermaid + D2 + Cytoscape + SVG)
 6. **Status reporting + skill:** Stage 5b / context-map sub-stage in `hp-status`; new `hp-propose-bounded-contexts` skill
-7. **Lived example:** retrofit solar (2 contexts) + fishing-rig (probably 1 context — too small) + cloudctlplane-style demo (5+ contexts in a sample dictionary used for testing)
+7. **Lived example:** retrofit solar (2 contexts) + fishing-rig (probably 1 context — too small) + acme-cp-style demo (5+ contexts in a sample dictionary used for testing)
 
 ---
 

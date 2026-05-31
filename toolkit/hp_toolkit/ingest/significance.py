@@ -5,7 +5,7 @@ The filter operates on `FileEntry` rows from the Stage-0 scan. Anything it
 filters out gets `is_significant=False` (still recorded in scan.json for
 completeness, so the architect can audit the filter).
 
-Tunable thresholds (defaults configured for cloudctlplane-scale projects:
+Tunable thresholds (defaults configured for acme-cp-scale projects:
 target ~50–100 entities in the final dictionary).
 """
 
@@ -92,7 +92,7 @@ _GENERATED_CONTENT_MARKERS = [
 class SignificanceConfig:
     """Tunable thresholds for the filter.
 
-    Defaults aim for ~50–100 architectural entities on a cloudctlplane-scale
+    Defaults aim for ~50–100 architectural entities on a acme-cp-scale
     project. Tighten the `min_pure_logic_lines` to shrink the dictionary;
     loosen it to capture more leaf processes."""
 

@@ -173,8 +173,8 @@ def _deployment_name(rel_path: str) -> str:
     file defines.
 
     Conventions: prefer the immediate parent directory name when it's
-    informative (e.g., `hydra/deployments/agate-test/compose.yml` →
-    `agate-test`); fall back to the file's stem at the repo root (e.g.,
+    informative (e.g., `deployments/deploy-test/compose.yml` →
+    `deploy-test`); fall back to the file's stem at the repo root (e.g.,
     `compose.yml` → `compose`)."""
     p = Path(rel_path)
     parent = p.parent.name

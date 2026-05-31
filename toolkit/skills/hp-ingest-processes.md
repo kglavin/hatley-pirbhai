@@ -76,12 +76,12 @@ When invoked, conversationally:
 4. **Cluster-by-cluster decision:** for each candidate, decide promote / merge with sibling / drop.
 5. **Look at the import edges between clusters** to inform the flow graph. If cluster A's files frequently import from cluster B, A consumes data from B → draw a flow B → A.
 6. **Cross-reference with boundary terminators.** Each terminator has a boundary flow; identify which Stage-2 process handles it. Add the refinement (`refined_target` for inbound flows, `refined_source` for outbound).
-7. **Cap process count.** Aim for 5–10 internal processes at Stage 2 for a cloudctlplane-scale project. More is fine but means decomposition is happening at too low a level. Use process subdirectories to surface fewer top-level processes.
+7. **Cap process count.** Aim for 5–10 internal processes at Stage 2 for a acme-cp-scale project. More is fine but means decomposition is happening at too low a level. Use process subdirectories to surface fewer top-level processes.
 8. **Skip clusters that are infrastructure-only** (e.g., a `src/utils/` cluster with only helpers). Note in a `notes` field for architect audit.
 9. **Set confidence + provenance** on every emitted node/edge.
 10. **Write `intermediate/processes.json`.**
 
-### Required checklist before emit (per cloudctlplane H.1)
+### Required checklist before emit (per acme-cp H.1)
 
 Before writing `intermediate/processes.json`, verify every item:
 

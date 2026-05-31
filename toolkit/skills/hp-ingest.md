@@ -43,7 +43,7 @@ Runs a 7-phase pipeline:
 
 Token cost (per [INGEST_DESIGN.md](../INGEST_DESIGN.md) > *Token economics*):
 - ~50–100k tokens for fishing-rig-scale projects (~$0.50)
-- ~300–800k tokens for cloudctlplane-scale (~$1–5)
+- ~300–800k tokens for acme-cp-scale (~$1–5)
 - Leaf analyzer dominates because it reads raw source code. Significance filter is the highest-leverage cost lever.
 
 ## Behavior
@@ -158,7 +158,7 @@ Dispatch `hp-ingest-processes` subagent. Pass:
 
 ### Phase 2-recurse — Hierarchical decomposition (HIERARCHICAL_INGEST_DESIGN.md)
 
-Per locked H.3 + Branch 3: after Stage 2 emits `processes.json`, decide which processes deserve a **recursive Stage-2 dispatch** to produce their internal level-2 sub-processes. Cloudctlplane-scale monorepos contain 8+ subsystems compressed into single level-1 bubbles; this phase fills out the decomposition.
+Per locked H.3 + Branch 3: after Stage 2 emits `processes.json`, decide which processes deserve a **recursive Stage-2 dispatch** to produce their internal level-2 sub-processes. Acme-cp-scale monorepos contain 8+ subsystems compressed into single level-1 bubbles; this phase fills out the decomposition.
 
 ```bash
 uv run python -m hp_toolkit.ingest.recursion \
@@ -290,7 +290,7 @@ Run `hp-status` to show the final state of the ingested project.
 
 ## Discipline
 
-- **Honor the IP firewall** when ingesting IP-sensitive codebases (e.g., cloudctlplane, bru). Per the brownfield-ingest-patterns memory: pattern-level observations only; never quote IP-laden node descriptions, file contents, or summaries into toolkit artifacts (only into the project's own `dictionary.yaml`, which stays in the project tree).
+- **Honor the IP firewall** when ingesting IP-sensitive codebases (e.g., acme-cp, acme-sensor). Per the brownfield-ingest-patterns memory: pattern-level observations only; never quote IP-laden node descriptions, file contents, or summaries into toolkit artifacts (only into the project's own `dictionary.yaml`, which stays in the project tree).
 - **Never run two LLM agents on overlapping inputs in parallel** except by design (the leaf-analyzer-per-process pattern). The agents are designed to be order-aware; running boundary + processes in parallel breaks the flow-refinement chain.
 - **Conservative incremental.** On `--incremental`, the default is to write `ingest-conflicts.md` and halt before overwriting `dictionary.yaml`. The user reviews + re-runs with `--auto-accept` to commit. Modernization-layer fields (ADRs, SLOs, budgets, TPMs, observability, V&V, STRIDE, bounded contexts, catalog refs, etc.) are **never** touched by re-ingest.
 - **One commit per ingest.** Recommended: after a successful ingest, commit the new `dictionary.yaml` (and `intermediate/` if you want the IR + reports tracked, though it's gitignored by default). The git commit hash gets recorded in `project.git_commit_hash` — the next `--incremental` keys off it.
@@ -301,7 +301,7 @@ Run `hp-status` to show the final state of the ingested project.
 Per [INGEST_DESIGN.md > Token economics](../INGEST_DESIGN.md):
 
 - Fishing-rig scale (~30 files, 4 leaf processes): ~50–100k tokens (~$0.50).
-- cloudctlplane scale (~1600 files, ~30–50 leaf processes after filter): ~300–800k tokens ($1–5).
+- acme-cp scale (~1600 files, ~30–50 leaf processes after filter): ~300–800k tokens ($1–5).
 - Incremental (3–10 files changed): ~5–30k tokens.
 
 `hp-ingest-leaf` dominates because it reads raw source. Tightening `SignificanceConfig.min_pure_logic_lines` from 50 → 200 cuts the cost 2–3× on noisy codebases.

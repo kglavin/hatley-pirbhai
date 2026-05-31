@@ -171,7 +171,7 @@ def main(argv: list[str] | None = None) -> int:
                         help="Minimum line count for a pure-logic file to be considered "
                              "significant. Default 50 — works for small projects (<200 "
                              "files). Tighten to 100–125 for medium projects (200–1000 "
-                             "files), 150–250 for cloudctlplane-scale monorepos (>1000 "
+                             "files), 150–250 for acme-cp-scale monorepos (>1000 "
                              "files). Highest-leverage cost lever per INGEST_DESIGN.md > "
                              "Tuning guide.")
     parser.add_argument("--resume", action="store_true",
@@ -315,7 +315,7 @@ def main(argv: list[str] | None = None) -> int:
     print()
 
     # ─── Stage 0e: testbed detection + mining (H.7) ────────────────
-    # Identifies purpose-built testbeds (agent-gym-style top-level dirs)
+    # Identifies purpose-built testbeds (testbed-style top-level dirs)
     # + mines their scenarios + fixtures + spin-up topology. The
     # boundary / processes / leaf / architect agents all read this as
     # executable-spec evidence.

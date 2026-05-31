@@ -1,7 +1,7 @@
 """Purpose-built testbed detector + miner (H.7).
 
 Per locked tuning H.7: production systems often ship with purpose-built
-testbeds — top-level directories like `agent-gym/` on cloudctlplane that
+testbeds — top-level directories like `testbed/` on acme-cp that
 exercise the system end-to-end with scenarios, fixtures, system spin-up
 scripts, and assertions. These are **executable specifications** the
 ingest currently treats as either noise (unit-test filter doesn't catch
@@ -160,7 +160,7 @@ def detect_and_mine(codebase_root: Path) -> TestbedHarvest:
     files = _enumerate_files(root)
 
     # Group files by their top-level directory under the repo root.
-    # Testbeds are top-level (`agent-gym/`) or second-level
+    # Testbeds are top-level (`testbed/`) or second-level
     # (`tests/integration/`) — we score every directory up to depth 2.
     by_dir: dict[str, list[Path]] = {}
     for f in files:
@@ -319,7 +319,7 @@ def _mine_one(
     # Use the full path-as-slug when nested so two testbeds at
     # `<repo>/X/test` and `<repo>/Y/test` don't collide on the slug
     # "test"; standalone top-level testbeds keep their single-segment
-    # name (agent-gym, not just gym).
+    # name (testbed, not just gym).
     name = _slug(dir_path.replace("/", "-"))
     file_rels = [str(f.relative_to(root)) for f in files]
 

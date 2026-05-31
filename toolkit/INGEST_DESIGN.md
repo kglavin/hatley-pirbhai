@@ -3,7 +3,7 @@
 ## ✅ Status: Locked 2026-05-23
 
 All 5 open questions resolved with recommended defaults:
-- **Q1.** First demo target after hatley-pirbhai self-ingest: **cloudctlplane**.
+- **Q1.** First demo target after hatley-pirbhai self-ingest: **acme-cp**.
 - **Q2.** PSPEC granularity: **per-process-cluster**.
 - **Q3.** hp-ingest proposes trust zones: **no, defer entirely** to `hp-propose-architecture`.
 - **Q4.** Brownfield-with-existing-dictionary support in v1: **greenfield-only**; `--incremental` covers code-change reconciliation.
@@ -28,7 +28,7 @@ Three insights from the [Understand-Anything](https://github.com/Lum1104/Underst
 
 1. **80/20 scripted/LLM.** UA's own graph uses 4 deterministic edge types (`contains` / `imports` / `exports` / `calls`) for 173 of 183 edges. Only 9 edges (5%) come from LLM judgment (`related` / `similar_to` / `validates`). The bulk of the graph is mechanically extracted — LLMs add a thin semantic layer. **Implication for HP:** tree-sitter / import-resolver does the heavy lifting; LLMs classify what's a Stage-1 terminator vs Stage-2 process vs Stage-5 module. That's the value-add.
 
-2. **Aggressive significance filter.** UA's monorepo has many hundreds of TS symbols; the graph has 97 nodes. **Implication for HP:** the dictionary captures what an architect would draw on a whiteboard, not every function. For cloudctlplane-scale projects, target ~50–100 entities, not thousands.
+2. **Aggressive significance filter.** UA's monorepo has many hundreds of TS symbols; the graph has 97 nodes. **Implication for HP:** the dictionary captures what an architect would draw on a whiteboard, not every function. For acme-cp-scale projects, target ~50–100 entities, not thousands.
 
 3. **Every LLM agent gets a deterministic script in front of it.** UA's project-scanner is 95% scripted (git ls-files + extension map + import resolution); LLM only writes the description. File-analyzer: tree-sitter extracts symbols deterministically; LLM only chooses tags + complexity. **Implication for HP:** every agent in our pipeline pairs with a bundled `.py` script that emits a structured input. LLMs never write the validation/parsing scripts.
 
@@ -87,7 +87,7 @@ A single growing JSON file, accreted across phases. Each agent reads + writes. T
 {
   "version": "0.1",
   "project": {
-    "name": "cloudctlplane",
+    "name": "acme-cp",
     "description": "<one-paragraph LLM output from hp-scanner>",
     "languages": ["rust", "python", "typescript", "go"],
     "frameworks": ["axum", "fastapi", "react", "..."],
@@ -163,7 +163,7 @@ What gets into the dictionary vs what stays out:
 - **In:** files / clusters classified `boundary`, `state-machine`, `data-store`, `infra` (always). `pure-logic` clusters that exceed a threshold of lines-of-code or that have ≥1 inbound flow (= someone calls them).
 - **Out:** tests (`*_test.*`, `tests/`, `spec/`). Build outputs (`dist/`, `build/`, `node_modules/`, `target/`). Generated code (heuristic: file says `// AUTO-GENERATED` or `# DO NOT EDIT`). Documentation (`*.md`, `docs/`). Trivial config that doesn't influence architecture.
 
-The filter is in `scripts/hp_significance.py`. Configurable thresholds (e.g., min-LOC for `pure-logic` cluster). Defaults tuned to produce ~50–100 entities on a cloudctlplane-scale project.
+The filter is in `scripts/hp_significance.py`. Configurable thresholds (e.g., min-LOC for `pure-logic` cluster). Defaults tuned to produce ~50–100 entities on a acme-cp-scale project.
 
 ## What we ship
 
@@ -285,7 +285,7 @@ The progress log at `<output-dir>/progress.log` is the source of truth for which
 
 ### Putting it together on a large monorepo
 
-The cloudctlplane shape (a polyglot Python+TS service mesh, ~4000 files) is the canonical "large" target. Recommended first-run flags:
+The acme-cp shape (a polyglot Python+TS service mesh, ~4000 files) is the canonical "large" target. Recommended first-run flags:
 
 ```bash
 uv run python scripts/hp_ingest.py ~/path/to/repo \
@@ -342,7 +342,7 @@ Per-agent budget:
 **Total per full ingest:**
 
 - Fishing-rig scale (~30 files, 4 leaf processes): **~50–100k tokens**, sub-dollar at Claude API rates.
-- cloudctlplane scale (~1600 files, ~30–50 leaf processes after the significance filter): **~300–800k tokens**, $1–5 per full ingest.
+- acme-cp scale (~1600 files, ~30–50 leaf processes after the significance filter): **~300–800k tokens**, $1–5 per full ingest.
 
 `hp-leaf-analyzer` dominates because it's the only agent reading raw source code. Everything else operates on aggregated structured summaries. **The significance filter is therefore the highest-leverage cost lever** — tightening it from "every pure-logic cluster over 50 LOC" to "over 200 LOC" can cut total tokens 2–3×.
 
@@ -417,7 +417,7 @@ The exception: **`trust_zone` per architecture module** *might* be inferrable fr
 This design is informed by:
 
 - **[Understand-Anything](https://github.com/Lum1104/Understand-Anything)** — multi-agent codebase analyzer. Reviewed in detail (conversation log). Borrowed: agent-with-script-in-front pattern, intermediate JSON IR, type-alias tables for LLM enum drift, incremental updates via gitCommitHash, aggressive significance filter, tour/traceability narrative. Skipped: file-keyed IDs (HP entities are conceptual), 21-type vocabulary (HP needs 8), domain-analyzer (HP Stage 2 IS the domain), pedagogical tour (HP needs traceability tour).
-- **Earlier brownfield review** (firewalled inspection of cloudctlplane + bru) — pattern-level observations that informed [project_brownfield_ingest_patterns memory](../../memory/project_brownfield_ingest_patterns.md). The 6-category role hint taxonomy comes from this review.
+- **Earlier brownfield review** (firewalled inspection of acme-cp + acme-sensor) — pattern-level observations that informed [project_brownfield_ingest_patterns memory](../../memory/project_brownfield_ingest_patterns.md). The 6-category role hint taxonomy comes from this review.
 - **The full HP toolkit context** — every choice here aims to produce a `dictionary.yaml` consumable by the existing validate / render / status / portal / PDF / modernization pipeline. No new vocabulary; just an automated way to populate the existing one.
 
 ## Open questions
@@ -426,12 +426,12 @@ Mark up below — I'll lock the doc + start Commit 1 once these are resolved. Sa
 
 ### Q1. First demo target after hatley-pirbhai self-ingest?
 
-- [x] **cloudctlplane** — real polyglot brownfield mess Kevin knows inside-out. Highest signal; output is IP-laden so reviews stay pattern-level (same firewall as the earlier brownfield study).
-- [ ] **bru** — kernel sensor + userspace; smaller than cloudctlplane but kernel-version-targeted is unusual. Also IP-firewalled.
+- [x] **acme-cp** — real polyglot brownfield mess Kevin knows inside-out. Highest signal; output is IP-laden so reviews stay pattern-level (same firewall as the earlier brownfield study).
+- [ ] **acme-sensor** — kernel sensor + userspace; smaller than acme-cp but kernel-version-targeted is unusual. Also IP-firewalled.
 - [ ] **A small open-source project** (e.g., a moderately-sized Python or Rust project on GitHub) — open everything; no firewall, lower stakes for first dogfood.
 - [ ] **Solar / fishing-rig (synthetic)** — we already have hand-written dictionaries. hp-ingest output diffable against ground truth.
 
-I lean **cloudctlplane** for the real-world signal once Commit 1 + 2 are stable on hatley-pirbhai self-ingest. Solar / fishing-rig are useful as **regression tests** (does hp-ingest's output match the hand-authored dictionary?). Open-source as a **public demo** target later.
+I lean **acme-cp** for the real-world signal once Commit 1 + 2 are stable on hatley-pirbhai self-ingest. Solar / fishing-rig are useful as **regression tests** (does hp-ingest's output match the hand-authored dictionary?). Open-source as a **public demo** target later.
 
 ### Q2. PSPEC granularity — per-function or per-process-cluster?
 

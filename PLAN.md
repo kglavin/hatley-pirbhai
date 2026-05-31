@@ -53,7 +53,7 @@ How we work, not what we build.
 
 2. **Jokes are illustrations, not directives.** Colloquial examples (e.g., "the stereotypical vending machine `<smile>`") signal a *category*, not a specific exemplar to build for. Ask before committing to the literal reading. *(Lived: corrected when Claude built a four-step textbook ladder from a throwaway joke.)*
 
-3. **IP firewall — guardrail project ↔ this toolkit.** Kevin's in-flight guardrail control plane project lives at `~/bluerock/cloudctlplane/`. Claude may inspect it read-only for *pattern-level* observations (proposal structure, directory shape, git history patterns) but **must not** write specifics (filenames, feature names, novel approaches, IP-bearing details) into the toolkit's code, docs, or memory. Two modes: *inspection* (read on guardrail repo) vs *toolkit* (design/build here). The firewall lives at the write boundary.
+3. **IP firewall — guardrail project ↔ this toolkit.** Kevin's in-flight guardrail control plane project lives at `~/projects/acme-cp/`. Claude may inspect it read-only for *pattern-level* observations (proposal structure, directory shape, git history patterns) but **must not** write specifics (filenames, feature names, novel approaches, IP-bearing details) into the toolkit's code, docs, or memory. Two modes: *inspection* (read on guardrail repo) vs *toolkit* (design/build here). The firewall lives at the write boundary.
 
 4. **Memory is for Claude; this file is for both.** Memory under `~/.claude/projects/-home-kevin-hatley-pirbhai/memory/` is Claude's continuity layer; the canonical durable record is this file.
 

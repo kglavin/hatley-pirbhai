@@ -216,7 +216,7 @@ Sketched as Branch 4 / `kg/hp-ingest-embedded-firmware`. Four commits, verifiabl
 - **T17** — Embedded arch extractor (C). New `embedded_arch_extractor.py` with CMakeLists + .ioc + .ld + .px4board parsers. Re-run: PX4 produces ~25 firmware-target architecture candidates (one per `px4_add_module`); leocore produces 1 (the MCU).
 - **T18** — Process clustering (F) + architect skill (H) + doc catch-up. Re-run with LLM agents → produces a real Stage-5 architecture for both targets.
 
-After T18 lands: dispatch the full LLM pipeline against leocore + PX4 and capture the dictionary.yaml outputs as a second-tier validation (similar to how cloudctlplane was the canonical test for Branches 1+2).
+After T18 lands: dispatch the full LLM pipeline against leocore + PX4 and capture the dictionary.yaml outputs as a second-tier validation (similar to how acme-cp was the canonical test for Branches 1+2).
 
 ---
 

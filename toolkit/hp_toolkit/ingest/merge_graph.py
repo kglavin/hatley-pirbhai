@@ -108,7 +108,7 @@ _EDGE_KIND_ALIASES: dict[str, IREdgeKind] = {
     "refines": IREdgeKind.REFINES,
     "refine": IREdgeKind.REFINES,
     "decomposes_into": IREdgeKind.REFINES,
-    # `deploys` — invented by the Stage-5 architect agent on the cloudctlplane
+    # `deploys` — invented by the Stage-5 architect agent on the acme-cp
     # dogfood (modeled "this deployment unit composes these constituent
     # modules"). Maps to `refines` per locked tuning Q1 (alias-only; promote
     # to first-class IREdgeKind only if it recurs across multiple dogfood
@@ -128,7 +128,7 @@ _EDGE_KIND_ALIASES: dict[str, IREdgeKind] = {
 # locked tuning Q1 + E.3.
 #
 # `depends_on_library` was invented by the Stage-5 architect agent on the
-# cloudctlplane dogfood to express "this module uses this shared library/
+# acme-cp dogfood to express "this module uses this shared library/
 # SDK." That's implementation detail, not HP architecture — library use is
 # captured (if anywhere) via `implemented_by`, not as a top-level edge.
 _EDGE_KINDS_TO_DROP: set[str] = {

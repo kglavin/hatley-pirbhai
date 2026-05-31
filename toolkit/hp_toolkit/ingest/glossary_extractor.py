@@ -1,6 +1,6 @@
 """Domain-glossary extraction from documentation (H.4.a).
 
-Per locked tuning H.4: every project of cloudctlplane's scale has a
+Per locked tuning H.4: every project of acme-cp's scale has a
 ubiquitous language already formed in its docs — README headings,
 "Definitions" sections, recurring capitalized terms, glossary tables,
 the project's own naming for the things it does. The current
@@ -16,7 +16,7 @@ downstream naming agents (boundary / processes / leaf / architect)
 load before producing names.
 
 Bounded cost: pure Python over markdown + RST text. ~1s on a
-cloudctlplane-scale doc corpus (~600 doc files).
+acme-cp-scale doc corpus (~600 doc files).
 """
 
 from __future__ import annotations
@@ -44,7 +44,7 @@ _MIN_FREQUENCY_GENERIC = 3
 _DEFINITION_MIN_FREQUENCY = 1
 
 # Common English words that pass capitalization checks but are noise.
-# Filtering this kills 90% of "Pulse" / "Archi" / "Prism" mixing with
+# Filtering this kills 90% of "Heartbeat" / "ProjectModel" / "RuleTable" mixing with
 # "The" / "Note" / "Example".
 _STOPWORDS = {
     "the", "a", "an", "and", "or", "but", "is", "are", "was", "were",
@@ -90,7 +90,7 @@ class GlossaryCandidates(BaseModel):
 # Extraction patterns
 # ─────────────────────────────────────────────────────────────────────
 
-# **Pulse** or *Archi* — markdown bold/italic capitalized. Single-word
+# **Heartbeat** or *ProjectModel* — markdown bold/italic capitalized. Single-word
 # variant; multi-word also matched separately.
 _BOLD_TERM = re.compile(r"\*\*([A-Z][\w-]*(?:\s+[A-Z][\w-]*){0,3})\*\*")
 _ITAL_TERM = re.compile(r"(?<![\*\w])\*([A-Z][\w-]*(?:\s+[A-Z][\w-]*){0,3})\*(?!\*)")
@@ -116,7 +116,7 @@ _GLOSSARY_HEADING = re.compile(
 )
 _HEADING_LINE = re.compile(r"^#{1,6}\s+(.+)$", re.MULTILINE)
 
-# CamelCase tokens — multi-word recognition: `PulseStream`, `OrderManagement`.
+# CamelCase tokens — multi-word recognition: `HeartbeatStream`, `OrderManagement`.
 # Avoids ALL-CAPS abbreviations (those tend to be acronyms, kept separately).
 _CAMEL_CASE_TOKEN = re.compile(
     r"\b([A-Z][a-z][a-z\d]*(?:[A-Z][a-z\d]+)+)\b"

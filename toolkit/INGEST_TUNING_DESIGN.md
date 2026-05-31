@@ -14,7 +14,7 @@ Q1–Q6 all resolved with recommended defaults:
 
 **Status:** locked.
 **Branch:** `kg/hp-ingest-dogfood-tuning`.
-**Spawning context:** the first real-world dogfood run of `hp-ingest` against `/home/kevin/bluerock/cloudctlplane` (commit `9dedb93dad1a`, 2026-05-23 → 2026-05-24). Pipeline completed end-to-end despite a mid-run power outage; review agent recovered cleanly from on-disk state and emitted a 39.6 KB `dictionary.yaml` with 0 validation errors + 34 warnings. The dogfood surfaced concrete classifier / filter / vocabulary / orchestration gaps which this branch addresses.
+**Spawning context:** the first real-world dogfood run of `hp-ingest` against `~/projects/acme-cp` (commit `9dedb93dad1a`, 2026-05-23 → 2026-05-24). Pipeline completed end-to-end despite a mid-run power outage; review agent recovered cleanly from on-disk state and emitted a 39.6 KB `dictionary.yaml` with 0 validation errors + 34 warnings. The dogfood surfaced concrete classifier / filter / vocabulary / orchestration gaps which this branch addresses.
 
 ## How to use this doc
 
@@ -52,10 +52,10 @@ The branch is intentionally bounded: **no schema-paradigm changes, no new ingest
 
 ## Provenance
 
-The cloudctlplane dogfood run produced (in chronological order):
+The acme-cp dogfood run produced (in chronological order):
 
 ```
-~/hatley-pirbhai/examples/cloudctlplane/intermediate/
+~/hatley-pirbhai/examples/acme-cp/intermediate/
 ├── scan.full.json                       (1003K — initial full scan, all 4012 files)
 ├── scan.json                            (352K  — pruned to 1551 significant)
 ├── boundary-candidates.json             (7.1K)
@@ -69,7 +69,7 @@ The cloudctlplane dogfood run produced (in chronological order):
 ├── hp-graph.json                        (493K — merged IR, 56 nodes + 87 edges post-repair)
 ├── merge-report.txt                     (7.8K — 25 unrecoverable edges pre-repair)
 └── (output)
-    examples/cloudctlplane/
+    examples/acme-cp/
     ├── dictionary.yaml                  (39.6K — emitted; hp-validate clean)
     └── ingest-report.md                 (34 warnings + 1 info)
 ```
@@ -80,7 +80,7 @@ Final IR composition: 5 terminators · 8 processes · 17 architecture modules ·
 
 ## A. Classifier false positives — `data-store` over-eager
 
-**Evidence:** Stage 0 scan classified `.gitignore`, `multi_agent.py` (2585 lines, an LLM-agent orchestrator), `shipping_agent.py`, and several other files as `data-store` because of bare-token matches on `dgraph`, `clickhouse`, `redis` etc. in comments, docstrings, system-prompt strings, and `.gitignore` path entries.
+**Evidence:** Stage 0 scan classified `.gitignore`, a ~2600-line LLM-agent orchestrator module, and several other non-storage files as `data-store` because of bare-token matches on `dgraph`, `clickhouse`, `redis` etc. in comments, docstrings, system-prompt strings, and `.gitignore` path entries.
 
 **Root cause:** `role_classifier._DATA_STORE_PATTERNS` matches any occurrence of DB/cache/queue keywords. No import-context requirement.
 
@@ -96,7 +96,7 @@ Plus a separate "ORM model declaration" path-pattern for files with `#[derive(sq
 **Touch list:**
 - `hp_toolkit/ingest/role_classifier.py` — rewrite `_DATA_STORE_PATTERNS`.
 
-**Impact:** Significantly fewer false-positive data-store classifications on the next cloudctlplane run; same tightening applies to any monorepo with internal references to data-store tech in non-data-store files.
+**Impact:** Significantly fewer false-positive data-store classifications on the next acme-cp run; same tightening applies to any monorepo with internal references to data-store tech in non-data-store files.
 
 **Priority:** high.
 
@@ -121,7 +121,7 @@ Plus a separate "ORM model declaration" path-pattern for files with `#[derive(sq
 
 ## C. `min_pure_logic_lines` default for monorepos
 
-**Evidence:** cloudctlplane scan: 638 `pure-logic` significant files, of which 348 (55%) are under 200 lines. Default `SignificanceConfig.min_pure_logic_lines = 50` was calibrated against fishing-rig + solar (<100-file projects). For a 4000-file monorepo, the resulting candidate pool inflates token cost on the leaf-analyzer pass.
+**Evidence:** acme-cp scan: 638 `pure-logic` significant files, of which 348 (55%) are under 200 lines. Default `SignificanceConfig.min_pure_logic_lines = 50` was calibrated against fishing-rig + solar (<100-file projects). For a 4000-file monorepo, the resulting candidate pool inflates token cost on the leaf-analyzer pass.
 
 **Root cause:** Single global default doesn't scale.
 
@@ -144,7 +144,7 @@ Plus a separate "ORM model declaration" path-pattern for files with `#[derive(sq
 
 ## D. Cluster heuristic — `--max-depth` for monorepos
 
-**Evidence:** Kevin already implemented this during the dogfood (kept on disk in `process_candidates.py`). Default clustering by *immediate parent directory* over-fragmented cloudctlplane (4012 → 1551 significant → many leaf clusters). Capping at `--max-depth 3` (`<repo>/<category>/<service>`) consolidates into manageable per-service clusters.
+**Evidence:** Kevin already implemented this during the dogfood (kept on disk in `process_candidates.py`). Default clustering by *immediate parent directory* over-fragmented acme-cp (4012 → 1551 significant → many leaf clusters). Capping at `--max-depth 3` (`<repo>/<category>/<service>`) consolidates into manageable per-service clusters.
 
 **Root cause:** Single-strategy clustering doesn't scale across project sizes / structures.
 
@@ -164,8 +164,8 @@ Plus a separate "ORM model declaration" path-pattern for files with `#[derive(sq
 ## E. Schema vocabulary gap — `deploys` (and `depends_on_library`)
 
 **Evidence:** Stage 5 architect agent invented two edge kinds that aren't in `IREdgeKind`:
-- `deploys` × 18 — used to express "this deployment module composes / contains these constituent modules" (e.g., `am_deploy_aws_basic` → `am_hramp` / `am_pulse` / `am_prism` / ...).
-- `depends_on_library` × 7 — used to express "this module uses this shared library/SDK" (e.g., `am_hramp` → `am_shared_clients`).
+- `deploys` × 18 — used to express "this deployment module composes / contains these constituent modules" (e.g., `am_deploy_aws_basic` → `am_svc_a` / `am_svc_c` / `am_svc_query` / ...).
+- `depends_on_library` × 7 — used to express "this module uses this shared library/SDK" (e.g., `am_svc_a` → `am_shared_clients`).
 
 The review agent remapped `deploys` → `refines` (correct: deployment-composes-modules is a refinement relationship) and dropped `depends_on_library` (correct: library use is implementation detail, not HP architecture).
 
@@ -191,13 +191,13 @@ For `depends_on_library`:
 
 **Priority:** high.
 
-**Update 2026-05-25 (dbt-core dogfood):** Add `hosts` × 3 to the same alias-or-promote treatment. Architect agent emitted `hosts` for "this module hosts this artifact" — same family as `deploys`. Reviewer aliased to `physical_edge` manually. Same E.1 fix applies (`hosts → physical_edge` or `→ refines` depending on locked semantics). Now seen on two cloud-native targets (cloudctlplane + dbt-core); the case for E.2 (first-class promotion) strengthens with each instance. See also **H.15** — `hosts` is the same systematic pattern as terminator subkinds and module kinds.
+**Update 2026-05-25 (dbt-core dogfood):** Add `hosts` × 3 to the same alias-or-promote treatment. Architect agent emitted `hosts` for "this module hosts this artifact" — same family as `deploys`. Reviewer aliased to `physical_edge` manually. Same E.1 fix applies (`hosts → physical_edge` or `→ refines` depending on locked semantics). Now seen on two cloud-native targets (acme-cp + dbt-core); the case for E.2 (first-class promotion) strengthens with each instance. See also **H.15** — `hosts` is the same systematic pattern as terminator subkinds and module kinds.
 
 ---
 
 ## F. Run resilience — `--resume` + progress log
 
-**Evidence:** Mid-run power outage killed the cloudctlplane run after Stages 1–5 + first merge completed (after ~3 hours of LLM work). Recovery required Kevin to manually inspect on-disk state, identify what was missing (review pass), and prompt the new Claude session to dispatch the single missing agent. Doable but fragile — requires understanding of the pipeline internals.
+**Evidence:** Mid-run power outage killed the acme-cp run after Stages 1–5 + first merge completed (after ~3 hours of LLM work). Recovery required Kevin to manually inspect on-disk state, identify what was missing (review pass), and prompt the new Claude session to dispatch the single missing agent. Doable but fragile — requires understanding of the pipeline internals.
 
 **Root cause:** Two gaps:
 1. **`--resume` is in the CLI flag list but not implemented.** No automatic detection of completed stages from on-disk artifacts.
@@ -253,7 +253,7 @@ The orchestrator skill (`hp-ingest.md`) gains a new phase-0 step: "If progress.l
 
 The full vision: an observer watching `progress.log` can see when the pipeline is going off-course — e.g., Stage 2 emitted 30 over-fragmented processes when 8 was right; the architect agent named a module poorly; CSPEC inference looks wrong — and **interrupt with guidance that subsequent stages read**.
 
-Cloudctlplane example: if a tail of progress.log had shown `Stage 2: emitted 30 process candidates` at 19:45 (before leaf-analyzer dispatch), Kevin could have intervened with "too granular; cluster at hydra/services/<svc> rather than per-file-cluster" — Stage 2 re-runs cheap, Stage 3+4 proceed with the corrected base. Current pipeline doesn't support this; observer can only watch helplessly until completion and repair via review or re-run.
+Acme-cp example: if a tail of progress.log had shown `Stage 2: emitted 30 process candidates` at 19:45 (before leaf-analyzer dispatch), Kevin could have intervened with "too granular; cluster at services/<svc> rather than per-file-cluster" — Stage 2 re-runs cheap, Stage 3+4 proceed with the corrected base. Current pipeline doesn't support this; observer can only watch helplessly until completion and repair via review or re-run.
 
 **Three sub-mechanisms, design-wise:**
 
@@ -263,7 +263,7 @@ Cloudctlplane example: if a tail of progress.log had shown `Stage 2: emitted 30 
 
 - **F.3.c — Confidence-driven auto-pause.** When the architect agent or leaf-analyzer self-rates confidence below a threshold on a substantial fraction of outputs, the orchestrator auto-pauses and asks the observer to weigh in *before* the bad confidence propagates downstream. E.g., "Stage 2 produced 8 processes; 5 are confidence < 0.6. Pausing for architect review of `intermediate/processes.json` before dispatching leaf-analyzer."
 
-**Why this matters:** the current pipeline assumes the architect reviews *after* the pipeline completes (via `ingest-report.md` + `dictionary.yaml`). That's expensive on cloudctlplane-scale targets where Stages 1–5 burn 300–800k tokens. Course-correcting after a 3-hour run is wasteful; course-correcting at the Stage-1 boundary or Stage-2 cluster step can save 80% of the token spend and produce a better dictionary on the first try.
+**Why this matters:** the current pipeline assumes the architect reviews *after* the pipeline completes (via `ingest-report.md` + `dictionary.yaml`). That's expensive on acme-cp-scale targets where Stages 1–5 burn 300–800k tokens. Course-correcting after a 3-hour run is wasteful; course-correcting at the Stage-1 boundary or Stage-2 cluster step can save 80% of the token spend and produce a better dictionary on the first try.
 
 **Touch list:**
 - `hp_toolkit/ingest/hints.py` — new helper: load + validate `intermediate/hints/<stage>.md` files for an agent on dispatch.
@@ -324,7 +324,7 @@ Cloudctlplane example: if a tail of progress.log had shown `Stage 2: emitted 30 
 ### H.1 Level-1 DFD renders empty (no boundary-flow refinement)
 
 **Evidence:**
-- `examples/cloudctlplane/01-level1/dfd.generated.{mmd,svg,html}` show terminators + processes as floating nodes, with boundary-flow arrows pointing at the (undeclared) `sys_root` node — Mermaid silently renders these as dangling arrows; Cytoscape view shows no level-1 graph at all.
+- `examples/acme-cp/01-level1/dfd.generated.{mmd,svg,html}` show terminators + processes as floating nodes, with boundary-flow arrows pointing at the (undeclared) `sys_root` node — Mermaid silently renders these as dangling arrows; Cytoscape view shows no level-1 graph at all.
 - `intermediate/hp-graph.json`: 10 Stage-1 boundary edges, **0 with `refined_source` / `refined_target` set**.
 
 **Observed:** Stage-2 LLM agent emitted Stage-2 processes (8) + internal flows (10), but did *not* go back and refine the boundary flows from Stage 1. So the level-1 DFD has correct internal-flow shape but broken boundary endpoints.
@@ -342,14 +342,14 @@ Cloudctlplane example: if a tail of progress.log had shown `Stage 2: emitted 30 
 - `hp_toolkit/ingest/merge_graph.py` — boundary-flow-refinement check + warning log.
 - `skills/hp-ingest-review.md` — add to repair-checklist examples.
 
-**Priority:** **high.** Renders the level-1 DFD unusable on cloudctlplane; would do the same on any project where Stage 2 forgets the refinement step.
+**Priority:** **high.** Renders the level-1 DFD unusable on acme-cp; would do the same on any project where Stage 2 forgets the refinement step.
 
 ### H.2 Sidecars feel lifeless — the "why" available in source isn't folded in
 
 **Evidence:**
-- `examples/cloudctlplane/architecture/specs/prism.md`: DESCRIPTION has 4–5 facts (tech stack, endpoints, nginx placement), but DESIGN RATIONALE is the placeholder `(ingest-authored; architect review pending)`.
-- Inspecting the IR for `am_prism`: `provenance.rationale` field contains a partial "why" line *("TS package + Dockerfile + compose service across deployments. Single node:22-alpine runtime. Owns proc_explore_graphql including the WS subscription lifecycle CSPEC.")* — but the emitter discards it.
-- The codebase clearly has rationale-rich material the architect agent didn't see: service-level README files (`hydra/services/<name>/README.md`), top-of-module docstrings, deployment notes in compose comments, ADRs that may live in `docs/`.
+- `examples/acme-cp/architecture/specs/svc-query.md`: DESCRIPTION has 4–5 facts (tech stack, endpoints, nginx placement), but DESIGN RATIONALE is the placeholder `(ingest-authored; architect review pending)`.
+- Inspecting the IR for `am_svc_query`: `provenance.rationale` field contains a partial "why" line *("TS package + Dockerfile + compose service across deployments. Single node:22-alpine runtime. Owns proc_explore_graphql including the WS subscription lifecycle CSPEC.")* — but the emitter discards it.
+- The codebase clearly has rationale-rich material the architect agent didn't see: service-level README files (`services/<name>/README.md`), top-of-module docstrings, deployment notes in compose comments, ADRs that may live in `docs/`.
 
 **Observed:** AMS / AIS / PSPEC sidecars present as terse structural extractions. Architect reading them can't see *why* the module exists, *why* it was structured this way, *why* a particular technology was chosen, or what constraints drove the design. They read like generated reference docs, not the engineering record an architect actually wants.
 
@@ -381,14 +381,14 @@ Cloudctlplane example: if a tail of progress.log had shown `Stage 2: emitted 30 
 
 **Notes / scope:**
 - This is *not* a modernization-layer expansion. ADRs / SLOs / budgets / TPMs / observability / V&V / STRIDE remain out of scope for hp-ingest per the locked Q3 — those are decisions, not extractable facts. The rationale prose here is the standard 2000 §4.2.5.4 AMS content, which has *always* been part of the HP toolkit's vocabulary; hp-ingest just wasn't populating it.
-- Token cost on H.2.b + H.2.c rises modestly (architect agent reads more files; writes longer prose). Net is probably +50–100k tokens on a cloudctlplane-scale run. The improved review-quality / architect-time payoff is large.
+- Token cost on H.2.b + H.2.c rises modestly (architect agent reads more files; writes longer prose). Net is probably +50–100k tokens on a acme-cp-scale run. The improved review-quality / architect-time payoff is large.
 
 ### H.3 System-of-systems: recursive decomposition for monorepos ✅ *(landed in Branch 3 / `kg/hp-ingest-hierarchical`)*
 
 **Status:** ✅ shipped. See [HIERARCHICAL_INGEST_DESIGN.md](HIERARCHICAL_INGEST_DESIGN.md) for the full design + locked Q1–Q5 decisions. Implementation T11–T14. Option X (Hierarchical single-dictionary) landed; Option Y (SoS multi-project) deferred as a sibling design doc if a multi-repo target appears.
 
 **Evidence:**
-- cloudctlplane is a monorepo containing 8+ independently-deployable subsystems (hramp, prism, aurora, pulse, sentinel, gfl_toolchain, dgraph, clickhouse, …). Each is a substantial software system with its own internal boundaries, state machines, and architecture.
+- acme-cp is a monorepo containing 8+ independently-deployable subsystems (svc-a, svc-query, svc-b, svc-c, svc-d, svc-toolchain, graph-db, columnar-db, …). Each is a substantial software system with its own internal boundaries, state machines, and architecture.
 - Current hp-ingest emitted 8 level-1 processes for the entire 4012-file repo. Each level-1 process is really a subsystem. Reading `dictionary.yaml`: the structure is correct, but every entity is one level too coarse — the latent richness of each subsystem (its internal decomposition, state machines, per-service architecture) is folded into a single bubble.
 - Kevin's read: "it gets the structure but misses the intent because its too broad and does not go deep enough to capture the essence."
 
@@ -398,9 +398,9 @@ Cloudctlplane example: if a tail of progress.log had shown `Stage 2: emitted 30 
 
 **Two design choices, both HP-valid:**
 
-**Option X — Hierarchical single-dictionary** *(recommended for monorepos like cloudctlplane):* recursively re-run Stage 2+ on each level-1 process whose `implemented_by[]` cluster exceeds a threshold (say >100 files or >5k lines). Produces one `dictionary.yaml` with multi-level decomposition. `proc_prism` (level 1) gets its own level-2 DFD: `proc_prism_resolvers`, `proc_prism_cache`, `proc_prism_ws_lifecycle` (each with `parent: proc_prism`). CSPECs and PSPECs live at the deepest level. Stage 5 architecture allocates leaves of the tree.
+**Option X — Hierarchical single-dictionary** *(recommended for monorepos like acme-cp):* recursively re-run Stage 2+ on each level-1 process whose `implemented_by[]` cluster exceeds a threshold (say >100 files or >5k lines). Produces one `dictionary.yaml` with multi-level decomposition. `proc_prism` (level 1) gets its own level-2 DFD: `proc_prism_resolvers`, `proc_prism_cache`, `proc_prism_ws_lifecycle` (each with `parent: proc_prism`). CSPECs and PSPECs live at the deepest level. Stage 5 architecture allocates leaves of the tree.
 
-**Option Y — System-of-systems multi-project** *(for multi-repo / multi-team cases):* each subsystem becomes its own HP project. cloudctlplane decomposes into `examples/cloudctlplane/dictionary.yaml` (integration view: subsystems as level-1 processes, cross-subsystem interconnects as flows) + `examples/cloudctlplane/prism/dictionary.yaml` (Prism's own full HP analysis) + one per subsystem. Each independently rendered, validated, reviewable; the top-level is sparse, just the integration story.
+**Option Y — System-of-systems multi-project** *(for multi-repo / multi-team cases):* each subsystem becomes its own HP project. acme-cp decomposes into `examples/acme-cp/dictionary.yaml` (integration view: subsystems as level-1 processes, cross-subsystem interconnects as flows) + `examples/acme-cp/svc-query/dictionary.yaml` (svc-query's own full HP analysis) + one per subsystem. Each independently rendered, validated, reviewable; the top-level is sparse, just the integration story.
 
 For a monorepo with unified architecture work, **X**. For multi-repo team-owned-services, **Y**. They're not mutually exclusive — could even co-exist via a `--mode hierarchical|sos` flag.
 
@@ -425,19 +425,19 @@ For a monorepo with unified architecture work, **X**. For multi-repo team-owned-
 - `scripts/hp_ingest.py` — make `--max-depth` (Kevin's existing change) prominent in CLI help + tuning guide. *Note this is a finer-grained level-1 clustering, not real recursion. Mention as a "v0 monorepo mitigation".*
 - `toolkit/INGEST_DESIGN.md` — add a "System-of-systems" caveat in *Provenance* / *Open questions* sections referencing this finding + the follow-up design doc.
 
-**Priority for tuning branch:** **none** (out of scope). **Priority for follow-up design:** **high.** Without this, hp-ingest is qualitatively a "small-project ingest" tool that produces oversimplified models on monorepo-scale targets. cloudctlplane proves the limitation; any other team's monorepo would hit the same wall.
+**Priority for tuning branch:** **none** (out of scope). **Priority for follow-up design:** **high.** Without this, hp-ingest is qualitatively a "small-project ingest" tool that produces oversimplified models on monorepo-scale targets. acme-cp proves the limitation; any other team's monorepo would hit the same wall.
 
 ### H.4 Domain glossary extraction — seed agents with the project's ubiquitous language
 
 **Evidence:**
-- cloudctlplane modules carry domain names where they were directly named in the codebase: `am_prism`, `am_hramp`, `am_aurora`, `am_sentinel`, `am_pulse`, `am_dgraph`, `am_clickhouse` (the project's brand vocabulary, lifted from `hydra/services/<name>/` directories + Dockerfile/compose tags).
-- But processes drift into generic English: `proc_explore_graphql`, `proc_ingest_signals`, `proc_evaluate_rules`, `proc_query_api`. None of these use the project's own vocabulary even though the codebase + docs almost certainly have domain-specific terms (pulse, archi, signals, rules, alerts, gfl, etc.) defined in READMEs / proposals / docs.
-- Flow labels are similarly generic: `F11: pulse signals`, `F13: archi gRPC responses` — they *partially* pick up domain terms when those terms appear in code/file names, but lose the surrounding domain vocabulary that the project's documentation has formalized.
+- acme-cp modules carry domain names where they were directly named in the codebase: `am_svc_query`, `am_svc_a`, `am_svc_b`, `am_svc_d`, `am_svc_c`, `am_graph_db`, `am_columnar_db` (the project's brand vocabulary, lifted from `services/<name>/` directories + Dockerfile/compose tags).
+- But processes drift into generic English: `proc_explore_graphql`, `proc_ingest_signals`, `proc_evaluate_rules`, `proc_query_api`. None of these use the project's own vocabulary even though the codebase + docs almost certainly have domain-specific terms (svc-c, svc-e, signals, rules, alerts, toolchain, etc.) defined in READMEs / proposals / docs.
+- Flow labels are similarly generic: `F11: svc-c signals`, `F13: svc-e gRPC responses` — they *partially* pick up domain terms when those terms appear in code/file names, but lose the surrounding domain vocabulary that the project's documentation has formalized.
 - Anywhere the agent has a directly named artifact (directory, Dockerfile, compose service), it preserves the domain term. Anywhere it has to *describe what something does*, it falls back to plain English.
 
 **Observed:** The Stage-1/2/5 agents have no access to the project's domain glossary. They read structural candidates (file clusters, infra files) and infer English-language process / module names from scratch.
 
-**Expected:** Every project of cloudctlplane's scale has a ubiquitous language already formed in its docs — README headings, "definitions" sections, recurring capitalized terms, glossary tables, the project's own naming for the things it does. The ingest should **derive that glossary and seed every agent's prompt with it**, so process/flow/state names match the team's existing vocabulary rather than re-inventing generic English.
+**Expected:** Every project of acme-cp's scale has a ubiquitous language already formed in its docs — README headings, "definitions" sections, recurring capitalized terms, glossary tables, the project's own naming for the things it does. The ingest should **derive that glossary and seed every agent's prompt with it**, so process/flow/state names match the team's existing vocabulary rather than re-inventing generic English.
 
 This is exactly the DDD ubiquitous-language principle the toolkit already speaks to in `BOUNDED_CONTEXTS_DESIGN.md` (Evans 2003 / Vernon 2013 / Khononov 2021). Currently the toolkit honors it post-ingest via `hp-propose-bounded-contexts`; the proposal here is to honor it *during* ingest, when entity names are still being formed.
 
@@ -453,8 +453,8 @@ Scan documentation sources in the codebase:
 - Any other markdown tree the project conventionally uses
 
 Extract candidate glossary terms by deterministic heuristics:
-- Bold or italicized capitalized phrases (`**Pulse**` / `*Archi*`)
-- Defined terms after a colon or dash (`Pulse: ...` / `Pulse — ...`)
+- Bold or italicized capitalized phrases (`**svc-c**` / `*svc-e*`)
+- Defined terms after a colon or dash (`svc-c: ...` / `svc-c — ...`)
 - Recurring CamelCase or capitalized-multi-word phrases (frequency > N across docs)
 - Terms inside `<dt>` / `<dfn>` HTML / markdown definition lists
 - Headings in glossary-named sections (`## Glossary`, `## Terminology`, `## Concepts`)
@@ -483,7 +483,7 @@ Cost: small. One LLM call with ~3–5k tokens in (the candidate list) + ~2k out.
 
 Every agent skill (`hp-ingest-boundary`, `hp-ingest-processes`, `hp-ingest-leaf`, `hp-ingest-architect`) gets a new behavior step at the top:
 
-> *"Read `intermediate/glossary.curated.json`. The project has an existing ubiquitous language — when naming terminators / processes / flows / states / modules, prefer terms from this glossary over generic English. If a glossary term matches the entity you're naming, use it (e.g., 'Pulse Stream' not 'event stream'; 'Archi' not 'architecture model'). Flow labels likewise: use 'pulse signals' if 'pulse' is the project's term for what the system observes, not 'telemetry events'."*
+> *"Read `intermediate/glossary.curated.json`. The project has an existing ubiquitous language — when naming terminators / processes / flows / states / modules, prefer terms from this glossary over generic English. If a glossary term matches the entity you're naming, use it (e.g., 'svc-c Stream' not 'event stream'; 'svc-e' not 'architecture model'). Flow labels likewise: use 'svc-c signals' if 'svc-c' is the project's term for what the system observes, not 'telemetry events'."*
 
 The agent prompts also gain a "Domain language faithfulness" item on the discipline list.
 
@@ -499,7 +499,7 @@ The agent prompts also gain a "Domain language faithfulness" item on the discipl
 
 **Notes / interactions:**
 - **Composes cleanly with H.2 (rationale sources):** the glossary extractor and the rationale-source gatherer both scan READMEs / docs. They can share an underlying file walker. The rationale gatherer focuses on *prose blocks per module*; the glossary extractor focuses on *terms across the whole doc tree*.
-- **Composes cleanly with H.3 (system-of-systems):** in a hierarchical ingest, each subsystem's recursive run uses *that subsystem's* localized glossary in addition to the project-wide one. A subsystem named "Prism" might have its own internal terminology (resolvers, stitching, the cache layer) that should be honored when decomposing it.
+- **Composes cleanly with H.3 (system-of-systems):** in a hierarchical ingest, each subsystem's recursive run uses *that subsystem's* localized glossary in addition to the project-wide one. A subsystem named "svc-query" might have its own internal terminology (resolvers, stitching, the cache layer) that should be honored when decomposing it.
 - **Foreshadows `hp-propose-bounded-contexts`:** the glossary becomes evidence the architect can use later when declaring formal bounded contexts. If the glossary shows two clusters of terminology that rarely co-occur, that's a bounded-context boundary signal.
 
 ### H.5 Deployment artifacts under-extracted — the highest-signal architecture sources are scanned shallowly
@@ -507,8 +507,8 @@ The agent prompts also gain a "Domain language faithfulness" item on the discipl
 **Evidence:**
 - `architecture_candidates.py` extracts only service *names* from `docker-compose.yml` (one module per service + a single "default network" interconnect). Doesn't read `depends_on:`, `networks:`, `ports:`, `volumes:`, `environment:`, `image:` vs `build:`, or `profiles:`.
 - `Dockerfile` extraction captures only `FROM` lines. Doesn't read `EXPOSE` / `ENTRYPOINT` / `CMD` / `WORKDIR` / `HEALTHCHECK` / `ENV`.
-- cloudctlplane has *two* deployment models (`bluerockccpd/compose.yml`, `hydra/deployments/agate-test-deployment/compose.yml`, plus `hydra/deployments/aws-basic/compose.yml`). The pipeline treats them as independent candidate files; the architect agent has no notion of "deployment configuration" or per-config interconnect topology.
-- Architect agent's emission for `am_prism`: `implemented_by` correctly references the Dockerfile + multiple compose files, but the *relationship structure* between those facts (which service does prism depend on per-deployment, which network it lives on, what env-var URLs it expects) is never captured as IR edges.
+- acme-cp has *two* deployment models (`deploy-prod/compose.yml`, `deployments/deploy-test/compose.yml`, plus `deployments/deploy-cloud/compose.yml`). The pipeline treats them as independent candidate files; the architect agent has no notion of "deployment configuration" or per-config interconnect topology.
+- Architect agent's emission for `am_svc_query`: `implemented_by` correctly references the Dockerfile + multiple compose files, but the *relationship structure* between those facts (which service does svc-query depend on per-deployment, which network it lives on, what env-var URLs it expects) is never captured as IR edges.
 
 **Observed:** Deployment artifacts are the highest-signal architectural sources in any real codebase — they encode the executable, validated architecture. The current extractor produces a candidate *list* of modules + interconnects; it doesn't read the *graph* the compose / k8s files already encode.
 
@@ -519,7 +519,7 @@ The agent prompts also gain a "Domain language faithfulness" item on the discipl
 3. **External-facing surface** from `ports:` exposures + k8s `LoadBalancer` / `Ingress` (which modules carry inbound terminator flows).
 4. **Data store allocations** from `volumes:` + k8s PersistentVolumeClaim mappings (which modules own which data stores).
 5. **Module kind / deployment pattern** from `image:` vs `build:` (SaaS / pre-built / in-tree-built — different module kinds in HP).
-6. **Deployment variants** when multiple compose / k8s configs exist (cloudctlplane's bluerockccpd + agate-test + aws-basic). Each is a distinct deployment configuration; module set is their union; per-config interconnects + allocations differ. Architect agent should produce *one* module set + *N* deployment-config-specific views.
+6. **Deployment variants** when multiple compose / k8s configs exist (acme-cp's deploy-prod + deploy-test + deploy-cloud). Each is a distinct deployment configuration; module set is their union; per-config interconnects + allocations differ. Architect agent should produce *one* module set + *N* deployment-config-specific views.
 
 **Proposed fix:**
 
@@ -532,22 +532,22 @@ The agent prompts also gain a "Domain language faithfulness" item on the discipl
 
 All feed into a richer `intermediate/architecture-candidates.json` with explicit candidate edges, not just candidate modules.
 
-**H.5.b — Deployment-configuration grouping.** New helper recognizes multiple compose / k8s configs and groups them as deployment *variants* rather than independent module sources. For cloudctlplane:
+**H.5.b — Deployment-configuration grouping.** New helper recognizes multiple compose / k8s configs and groups them as deployment *variants* rather than independent module sources. For acme-cp:
 
 ```jsonc
 {
   "deployments": {
-    "bluerockccpd":           { "source": "bluerockccpd/compose.yml",            "services": [...], "networks": {...} },
-    "agate-test-deployment":  { "source": "hydra/deployments/agate-test-.../compose.yml", "services": [...] },
-    "aws-basic":              { "source": "hydra/deployments/aws-basic/compose.yml",      "services": [...] }
+    "deploy-prod":           { "source": "deploy-prod/compose.yml",            "services": [...], "networks": {...} },
+    "deploy-test":  { "source": "deployments/deploy-test-.../compose.yml", "services": [...] },
+    "deploy-cloud":              { "source": "deployments/deploy-cloud/compose.yml",      "services": [...] }
   },
   "modules": [
     // union of services across all deployments; each module records which deployments include it
-    { "candidate_id": "compose-prism", "deployments": ["bluerockccpd", "agate-test-deployment", "aws-basic"], ... }
+    { "candidate_id": "compose-svc-query", "deployments": ["deploy-prod", "deploy-test", "deploy-cloud"], ... }
   ],
   "interconnects_per_deployment": {
-    "bluerockccpd":          [...],
-    "agate-test-deployment": [...]
+    "deploy-prod":          [...],
+    "deploy-test": [...]
   }
 }
 ```
@@ -579,7 +579,7 @@ Stage 5 architect agent then knows: "produce *one* module set; allocate processe
 ### H.6 User-facing documentation — gold for Stage 1 boundary inference
 
 **Evidence:**
-- cloudctlplane terminators currently: `term_ws_client`, `term_query_client`, `term_otlp_client`, `term_cli_operator`, `term_ops_monitor`. Generic protocol-shaped names. The actual project README + docs almost certainly use *role-shaped* names (the user / dev / SRE personas this system serves) that would produce richer terminator labels and richer boundary-flow narratives.
+- acme-cp terminators currently: `term_ws_client`, `term_query_client`, `term_otlp_client`, `term_cli_operator`, `term_ops_monitor`. Generic protocol-shaped names. The actual project README + docs almost certainly use *role-shaped* names (the user / dev / SRE personas this system serves) that would produce richer terminator labels and richer boundary-flow narratives.
 - The current boundary agent reads `scan.json` + `boundary-candidates.json` (HTTP listener / CLI / consumer grep evidence). It does NOT read:
   - `README.md` "Usage" / "Getting Started" / "Quickstart" sections
   - `docs/user-guide*`, `docs/tutorials/`, `docs/howtos/`, `docs/usage/`
@@ -614,7 +614,7 @@ Output: `intermediate/user-docs.json` keyed by candidate boundary file or candid
 - `examples`: code/command examples (kept short — 5–10 lines each)
 - `source_files`: where the excerpts came from
 
-The boundary agent's input grows by ~5–20k tokens for a cloudctlplane-scale project (bounded; usage docs are usually small). Architect-friendliness payoff is large.
+The boundary agent's input grows by ~5–20k tokens for a acme-cp-scale project (bounded; usage docs are usually small). Architect-friendliness payoff is large.
 
 **`hp-ingest-boundary.md` skill update:**
 
@@ -651,13 +651,13 @@ This collectively becomes the "agents read the project's documentation, not just
 ### H.7 Purpose-built testbeds — executable specifications hp-ingest currently ignores or misclassifies
 
 **Evidence:**
-- cloudctlplane includes `agent-gym/` — a purpose-built testbed specifically written to exercise the hydra/odyssey system. It's not unit-test noise; it's an architectural asset:
+- acme-cp includes `testbed/` — a purpose-built testbed specifically written to exercise the the-runtime system. It's not unit-test noise; it's an architectural asset:
   - **Scenarios** that walk through operational use cases ("when X happens, system does Y")
   - **Fixtures** that document environment + deployment expectations
   - **System-spin-up scripts** (likely its own compose/k8s setup) that confirm topology
   - **Assertions** that document expected behaviors + invariants
   - **Test data** that documents the shapes flowing through the system
-- Current ingest: `agent-gym/` doesn't match any path filter in `significance.py` (no `tests/` prefix, no `_test.*` suffix), so it's NOT dropped. But its files also get *no special treatment* — they get classified by the same generic role-hint rules as production code, blended into Stage-2 clusters, and (likely) inflate the leaf-analyzer pass with what looks like noise.
+- Current ingest: `testbed/` doesn't match any path filter in `significance.py` (no `tests/` prefix, no `_test.*` suffix), so it's NOT dropped. But its files also get *no special treatment* — they get classified by the same generic role-hint rules as production code, blended into Stage-2 clusters, and (likely) inflate the leaf-analyzer pass with what looks like noise.
 - The Stage-5 architect agent's allocations almost certainly include testbed-side modules as if they were production-deployable units. Worth verifying once Kevin reviews `architecture_modules:` in `dictionary.yaml`.
 
 **Observed:** Testbed code is treated indistinguishably from production code. Its unique signal — operational scenarios, deployment expectations, behavioral assertions — is invisible to every agent. Worse: testbed files inflate process clusters + architecture-module candidates, producing spurious entities.
@@ -726,7 +726,7 @@ Output: `intermediate/testbeds.json` keyed by detected testbed name.
 
 **Notes / interactions:**
 
-- **Composes with H.5 (deployment artifacts):** testbed compose / k8s files are *additional deployment configurations*. cloudctlplane currently has 3 production-side compose files (bluerockccpd, agate-test-deployment, aws-basic); agent-gym likely adds a 4th (testbed-side). H.5's deployment-configuration grouping should naturally include this with a `kind: testbed` annotation.
+- **Composes with H.5 (deployment artifacts):** testbed compose / k8s files are *additional deployment configurations*. acme-cp currently has 3 production-side compose files (deploy-prod, deploy-test, deploy-cloud); testbed likely adds a 4th (testbed-side). H.5's deployment-configuration grouping should naturally include this with a `kind: testbed` annotation.
 - **Composes with H.4 (glossary):** testbed code uses the project's domain vocabulary extensively (test names, fixture names, assertion messages). The glossary extractor should mine testbeds heavily — they're a high-density vocabulary source.
 - **Composes with H.6 (user docs):** testbed scenario docstrings often double as usage documentation. Same shared `docs_walker.py` from the H.6 synthesis can pick up scenario files in addition to README sections.
 - **Significance filter discipline:** the unit-test filter patterns in `significance.py` stay — they correctly drop `services/X/tests/` directories. The testbed detector adds *recognition* of a separate category, not a filter relaxation.
@@ -745,7 +745,7 @@ Output: `intermediate/testbeds.json` keyed by detected testbed name.
 ### H.8 External context solicitation — QA plans, ADRs, requirements docs that don't live in the repo
 
 **Evidence:**
-- Kevin's note: QA test plans for cloudctlplane exist *outside* the repo (Confluence, Notion, Google Docs, or similar). They aren't surfaced by any code-scan strategy and won't be — they're not files hp-ingest can reach.
+- Kevin's note: QA test plans for acme-cp exist *outside* the repo (Confluence, Notion, Google Docs, or similar). They aren't surfaced by any code-scan strategy and won't be — they're not files hp-ingest can reach.
 - Generalizes: every non-trivial system has architectural context that lives outside the source tree. Common categories:
   - **QA test plans** — what the system is supposed to do, from the test-engineer's perspective. Strongest single signal for Stage 1 boundary intent + Stage 4 PSPEC outcome expectations.
   - **Architecture review documents** — wiki / drive design docs from prior architecture passes. Direct rationale + glossary source.
@@ -765,7 +765,7 @@ Output: `intermediate/testbeds.json` keyed by detected testbed name.
 
 The orchestrator asks the user (a single message with a structured menu):
 
-> *"hp-ingest works best when it has access to the project's architectural context, not just its code. The repo scan picked up `README.md`, `docs/`, and `agent-gym/` (a detected testbed). Are there additional context sources outside the repo that would help? Common categories:*
+> *"hp-ingest works best when it has access to the project's architectural context, not just its code. The repo scan picked up `README.md`, `docs/`, and `testbed/` (a detected testbed). Are there additional context sources outside the repo that would help? Common categories:*
 > - *QA test plans / acceptance criteria*
 > - *Architecture decision records (ADRs) in a wiki*
 > - *Design docs / proposals in shared drives*
@@ -784,14 +784,14 @@ Either auto-created or user-managed. Convention:
 external-context/
 ├── qa-test-plans/
 │   ├── plan-001-graphql-bff.md           (pasted by user)
-│   └── plan-002-pulse-ingest.md
+│   └── plan-002-svc-c-ingest.md
 ├── adrs/
 │   ├── confluence-export-2026-03.md
-│   └── design-prism-bff-2026-04.md
+│   └── design-svc-query-bff-2026-04.md
 ├── requirements/
 │   └── stakeholder-brief-2026.md
 ├── runbooks/
-│   └── prism-restart-procedure.md
+│   └── svc-query-restart-procedure.md
 ├── glossary/
 │   └── ops-vocabulary.md
 └── manifest.json                          (auto-managed: maps each file to its category)
@@ -823,7 +823,7 @@ The user can drop files into `external-context/` *at any time before the relevan
 - `.gitignore` — extend `examples/**/*.generated.*` rule to also ignore `examples/**/external-context/` by default (with override possible).
 - `hp_toolkit/ingest/schema.py` — `Provenance` gains optional `external_context_used: list[str]` field.
 
-**Priority:** **medium.** Mechanism is small + general; pattern fits the existing input-bundle approach (sibling to `intermediate/hints/` from F.3). The payoff depends entirely on whether the user has external context to provide — for cloudctlplane, Kevin says yes; for many other targets, no. Worth implementing so the *mechanism* is available; users without external context don't pay any cost.
+**Priority:** **medium.** Mechanism is small + general; pattern fits the existing input-bundle approach (sibling to `intermediate/hints/` from F.3). The payoff depends entirely on whether the user has external context to provide — for acme-cp, Kevin says yes; for many other targets, no. Worth implementing so the *mechanism* is available; users without external context don't pay any cost.
 
 **Notes / interactions:**
 
@@ -882,7 +882,7 @@ A new pipeline stage — **Stage 0a: domain reconnaissance** — would run befor
 - Same audit should walk every subagent skill (`hp-ingest-boundary`, `hp-ingest-processes`, `hp-ingest-architect`, `hp-ingest-review`) to confirm the same ambiguity isn't latent there.
 - Defensive: the merger could *also* strip well-known stray-token patterns before `json.load()` — but the right fix is upstream in the prompt.
 
-**Priority:** Medium — bug bites every 5–10 leaves on average for a dbt-core-sized project, requires manual intervention. Bigger projects (PX4 / Airflow / cloudctlplane-scale) would see proportionally more failures. Fix is small (one-paragraph prompt edit + cross-skill audit).
+**Priority:** Medium — bug bites every 5–10 leaves on average for a dbt-core-sized project, requires manual intervention. Bigger projects (PX4 / Airflow / acme-cp-scale) would see proportionally more failures. Fix is small (one-paragraph prompt edit + cross-skill audit).
 
 **Composes with:** none — pure prompt-clarity bug. **But** the same cross-skill audit should pick up other prompt-discipline issues in the same family. Specifically:
 
@@ -983,7 +983,7 @@ The first is what the orchestrator effectively did manually. Codifying it in `re
 
 ### H.15 Schema undermodeling pattern — LLMs propose useful sub-distinctions the schema doesn't accept
 
-**Finding raised:** 2026-05-25 — dbt-core dogfood, but **observed as a recurring pattern across multiple dogfood targets** (cloudctlplane, embedded firmware via Branch 4, dbt-core).
+**Finding raised:** 2026-05-25 — dbt-core dogfood, but **observed as a recurring pattern across multiple dogfood targets** (acme-cp, embedded firmware via Branch 4, dbt-core).
 
 **The pattern:** Given good context (code + docs + glossary), LLM agents emit architecturally sensible sub-distinctions that exceed the schema's enum vocabulary. The reviewer agent canonicalizes the LLM's value into the schema's coarser enum + stashes the lost detail in `description:` or an `extras` field. The information *survives* but loses its first-class status. Every fresh ingest re-runs this canonicalization. The signal is: **the schemas are undermodeled relative to what the LLMs can reliably produce.**
 
@@ -1034,7 +1034,7 @@ The first is what the orchestrator effectively did manually. Codifying it in `re
 
 **Composes with:** **H.9** — this finding converges on the same direction H.9 lean argued: the LLM stages are doing meaningful work and the cost is appropriate; the deterministic prep doesn't need to be domain-rich because the LLM stages compensate via docs + code reads. Together they paint a clearer picture: *thin deterministic prep + rich LLM context + full-rigor leaf grounding* is the toolkit's actual cost shape and architectural value.
 
-**Priority:** **MEDIUM.** Not blocking but the docs are wrong by 5× and that's user-experience-affecting. Bigger targets (PX4-scale ~5k files, cloudctlplane-scale monorepos) would balloon proportionally — anyone budgeting an ingest based on the current docs gets a surprise.
+**Priority:** **MEDIUM.** Not blocking but the docs are wrong by 5× and that's user-experience-affecting. Bigger targets (PX4-scale ~5k files, acme-cp-scale monorepos) would balloon proportionally — anyone budgeting an ingest based on the current docs gets a surprise.
 
 ### H.18 Level-N DFD renderers don't filter cross-level edges (dangling endpoints into recursion sub-decompositions)
 
@@ -1103,7 +1103,7 @@ Applied to all three renderers (cytoscape, mermaid, d2). The dropped edges belon
 
 **Sub-finding to characterize what the 82 errors actually are:** see the dbt-core triage below in the prose body of this doc (or in the per-dogfood reports). The breakdown will tell us whether the validator needs tightening (errors → warnings for benign cases) or whether the ingest emits genuinely broken structure that the reviewer is missing.
 
-**Priority:** **HIGH.** This is a *correctness signal* problem — the toolkit is telling the user "you're good to go" when the rest of the toolkit can't accept the artifact. Every dogfood we've run probably has this same condition (cloudctlplane, PX4, leocore, dbt-core); we just hadn't noticed because we weren't running both validators back-to-back.
+**Priority:** **HIGH.** This is a *correctness signal* problem — the toolkit is telling the user "you're good to go" when the rest of the toolkit can't accept the artifact. Every dogfood we've run probably has this same condition (acme-cp, PX4, leocore, dbt-core); we just hadn't noticed because we weren't running both validators back-to-back.
 
 **Composes with:** **H.15** (schema undermodeling — many of the 82 errors may be the LLM emitting more-expressive output than the schema accepts, which is the H.15 pattern at the validator layer); the eventual `SCHEMA_V2_DESIGN.md` proposed under H.15 should also normalize the validator's strictness levels.
 
@@ -1240,7 +1240,7 @@ Four commits on `kg/hp-ingest-dogfood-tuning`. Each verifiable in isolation.
 - E.1 + E.3 — alias-table additions (`deploys → refines`; `depends_on_library` dropped).
 - H.1.2 (validator warning half of H.1) — `merge_graph.py` flags boundary flows missing refinements.
 
-**Verification:** re-run scanner + candidate prep against cloudctlplane (no LLM cost) — classifier output tightens; merge-report warns on unrefined boundary flows.
+**Verification:** re-run scanner + candidate prep against acme-cp (no LLM cost) — classifier output tightens; merge-report warns on unrefined boundary flows.
 
 ### Commit T2 — Progress log + resume support
 - F.1 — `progress_log.py` helper + integration into all Python scripts.
@@ -1257,7 +1257,7 @@ Four commits on `kg/hp-ingest-dogfood-tuning`. Each verifiable in isolation.
 - G.4 (low-confidence audit) — `hp-ingest-review.md` discipline note ("low-confidence is a signal, not a bug").
 - H.1.1 + H.1.3 (the agent-prompt halves of H.1) — `hp-ingest-processes.md` checklist + `hp-ingest-review.md` repair checklist.
 
-**Verification:** re-run hp-ingest on cloudctlplane (full LLM run, cheaper now thanks to T1). New `ingest-report.md` should have ≤10 warnings; level-1 DFD renders.
+**Verification:** re-run hp-ingest on acme-cp (full LLM run, cheaper now thanks to T1). New `ingest-report.md` should have ≤10 warnings; level-1 DFD renders.
 
 ### Commit T4 — Doc catch-up
 - Update `toolkit/INGEST_DESIGN.md` with lived findings (Branch 1 only — Branches 2 + 3 update their respective docs).
@@ -1318,7 +1318,7 @@ I lean augment. The console output is human-readable; progress.log is machine-re
 
 ### Q4. H.5 deployment-configuration modeling — informational vs first-class?
 
-cloudctlplane has 3+ compose configurations (bluerockccpd, agate-test-deployment, aws-basic) + likely a 4th from agent-gym (testbed-side). Each represents a distinct deployment topology. How should hp-ingest represent them in the IR + dictionary?
+acme-cp has 3+ compose configurations (deploy-prod, deploy-test, deploy-cloud) + likely a 4th from testbed (testbed-side). Each represents a distinct deployment topology. How should hp-ingest represent them in the IR + dictionary?
 
 - [x] **Informational-only (recommended for Branch 2):** record per-deployment compose evidence on each module's `provenance` + `implemented_by`; no schema extension. Architect distinguishes deployment-specific behavior in the `hp-propose-architecture` form-based pass post-ingest.
 - [ ] **First-class** — add `deployment_config:` annotation on `ArchInterconnect` (or a new `deployment_configurations:` top-level section in dictionary.yaml). Requires extending `hp_toolkit/model.py` schema + validator + renderer. Bigger lift; not in Branch 2 scope.
@@ -1350,7 +1350,7 @@ I lean **auto-detect with fallback ask**. Users who pre-populate the directory (
 
 ## Notes
 
-- Schema vocabulary expansion (E.2) is intentionally **out of scope** for this branch. If Kevin reviewing cloudctlplane decides `deploys` deserves to be first-class, that lands as a follow-up design doc (`SCHEMA_V2_DESIGN.md` or similar).
+- Schema vocabulary expansion (E.2) is intentionally **out of scope** for this branch. If Kevin reviewing acme-cp decides `deploys` deserves to be first-class, that lands as a follow-up design doc (`SCHEMA_V2_DESIGN.md` or similar).
 - No new ingest stages, no LLM-vs-Python boundary changes, no agent-topology changes. This branch is polish, not architecture.
 - The H-findings slot is meant to be filled as Kevin reviews — each one a small targeted improvement. The doc isn't meant to be exhaustive on day one.
 

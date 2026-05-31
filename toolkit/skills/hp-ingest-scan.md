@@ -20,7 +20,7 @@ Output structure (`intermediate/scan.json`):
 ```jsonc
 {
   "project": {
-    "name": "cloudctlplane",
+    "name": "acme-cp",
     "languages": ["rust", "python", "typescript", "go"],
     "frameworks": ["Axum", "Tonic", "FastAPI", "React", ...],
     "git_commit_hash": "<sha>",
@@ -74,14 +74,14 @@ When invoked, conversationally:
 
 - **The classifier is deterministic Python.** Never asks the LLM to classify a file's role. The LLM is reserved for architectural judgment (Stage 1+), not file-level classification.
 - **Aggressive filter, transparent filter.** Filtered-out files stay in scan.json with `is_significant=False` + a reason. The architect should be able to audit "why didn't hp-ingest see X?" via grep over scan.json.
-- **Tunable thresholds.** `SignificanceConfig` exposes `min_pure_logic_lines`, `skip_config_when_size_under`, `keep_all_infra`. Defaults aim for ~50–100 significant entities at cloudctlplane scale; tighten for smaller, loosen for larger.
-- **Cheap.** Scanner runs in seconds on cloudctlplane-scale repos. The downstream agents are where token cost happens, so cheap Stage 0 = more agility to iterate on filter tuning.
+- **Tunable thresholds.** `SignificanceConfig` exposes `min_pure_logic_lines`, `skip_config_when_size_under`, `keep_all_infra`. Defaults aim for ~50–100 significant entities at acme-cp scale; tighten for smaller, loosen for larger.
+- **Cheap.** Scanner runs in seconds on acme-cp-scale repos. The downstream agents are where token cost happens, so cheap Stage 0 = more agility to iterate on filter tuning.
 
 ## Lived examples
 
 - `/home/kevin/hatley-pirbhai/examples/fishing-rig/` — small self-test target. Expected output: ~10 files significant, dominated by `pure-logic` + a handful of `config` / `infra`.
 - `/home/kevin/hatley-pirbhai/` (the toolkit itself, self-ingest) — ~50 files significant, polyglot Python + markdown.
-- `/home/kevin/bluerock/cloudctlplane/` — real polyglot brownfield. First non-trivial test, IP-firewalled (no IP into toolkit artifacts).
+- `~/projects/acme-cp/` — real polyglot brownfield. First non-trivial test, IP-firewalled (no IP into toolkit artifacts).
 
 ## Implementation status
 

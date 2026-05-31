@@ -26,15 +26,15 @@ Output shape:
 {
   "terms": [
     {
-      "term": "Pulse",
-      "aliases": ["pulse", "pulses", "PulseStream"],
+      "term": "Heartbeat",
+      "aliases": ["heartbeats", "HeartbeatStream"],
       "definition": "Real-time telemetry signal flowing into the system from external sensors; emitted at 100ms cadence; the primary event the platform observes.",
       "category": "event",
-      "sources": ["docs/architecture/pulse-design.md", "hydra/services/pulse/README.md"]
+      "sources": ["docs/architecture/heartbeat-design.md", "services/heartbeat/README.md"]
     },
     {
-      "term": "Archi",
-      "aliases": ["archi"],
+      "term": "ProjectModel",
+      "aliases": ["ProjectModel"],
       "definition": "An architecture-model artifact — the platform's project-level vocabulary for what an external user is examining when they query the system.",
       "category": "artifact",
       "sources": ["docs/glossary.md"]
@@ -45,10 +45,10 @@ Output shape:
 
 Categories (locked, per H.4.a):
 
-- **`concept`** — domain abstractions (`PulseStream`, `BoundedContext`)
+- **`concept`** — domain abstractions (`HeartbeatStream`, `BoundedContext`)
 - **`actor`** — external participants the system serves (`Developer`, `SRE`, `TelemetryProducer`)
-- **`event`** — things that happen, often flowing across boundaries (`Pulse`, `RuleViolation`, `OrderPlaced`)
-- **`artifact`** — produced / stored things (`Archi`, `RuleTable`, `IngestReport`)
+- **`event`** — things that happen, often flowing across boundaries (`Heartbeat`, `RuleViolation`, `OrderPlaced`)
+- **`artifact`** — produced / stored things (`ProjectModel`, `RuleTable`, `IngestReport`)
 - **`process`** — the project's own name for an internal capability (`ExploreGraph`, `EvaluateRules`)
 - **`state`** — operational states (`Quiescent`, `Backpressured`, `RecoveryMode`)
 
@@ -63,10 +63,10 @@ When invoked, conversationally:
 1. **Read inputs.** Load `intermediate/glossary-candidates.json`. If `intermediate/docs-corpus.json` is available + the candidate list has thin `definition_excerpt` fields, you can use the corpus to look up surrounding context in the original doc file (read the file directly from the codebase root).
 2. **Drop generics.** Any candidate that's a common English word, generic technical term, or framework-shipped name has no place in the project's domain glossary. Drop: `API`, `JSON`, `HTTP`, `POST`, `GET`, `URL`, `JWT`, `OAuth`, `Server`, `Client`, `Request`, `Response`, `Error`, `Success`, `Note`, `Tip`, `Example`, `TODO`, `Note`. Drop file-format names + RFC titles + framework class names. Keep terms only if they're *the project's own* vocabulary.
 3. **Drop one-source noise.** Terms appearing in only one doc file with `extraction_kind: frequency` are usually section-heading noise or accidental capitalizations. Drop unless the frequency is unusually high (≥10 in one file = a legit term, just not cross-doc).
-4. **Merge variants.** Group case-aliases (`pulse` / `Pulse` / `PULSE` → one entry, canonical=`Pulse`), plurals (`Pulse` / `Pulses` → one entry), and abbreviations (`Pulse Stream` / `PulseStream` / `PS` → one entry IF the abbreviation is unambiguous). Keep the canonical form as the entry's `term`; the rest go in `aliases`.
+4. **Merge variants.** Group case-aliases (`Heartbeat` / `heartbeat` / `HEARTBEAT` → one entry, canonical=`Heartbeat`), plurals (`Heartbeat` / `Heartbeats` → one entry), and abbreviations (`Heartbeat Stream` / `HeartbeatStream` / `HBS` → one entry IF the abbreviation is unambiguous). Keep the canonical form as the entry's `term`; the rest go in `aliases`.
 5. **Categorize each kept term.** Use the six categories above. If a term is ambiguous (could be `event` or `artifact`), pick the more concrete one. If you can't categorize, drop — uncategorizable terms aren't useful guidance for downstream agents.
 6. **Write definitions** if not already present. Each curated term needs a 1–2 sentence definition pulled from its source files (you have the paths + excerpts). Definitions should be project-specific — "the system's term for X" rather than "X" the general concept.
-7. **Cap at 30–60 entries.** Aim for the 30 most-load-bearing terms in a small project, up to 60 for cloudctlplane-scale. Beyond that, downstream agents lose focus — too many name candidates dilutes the "use these words" signal.
+7. **Cap at 30–60 entries.** Aim for the 30 most-load-bearing terms in a small project, up to 60 for acme-cp-scale. Beyond that, downstream agents lose focus — too many name candidates dilutes the "use these words" signal.
 8. **Write `intermediate/glossary.curated.json`.**
 
 ## Discipline
@@ -81,7 +81,7 @@ When invoked, conversationally:
 
 Each agent (`hp-ingest-boundary`, `hp-ingest-processes`, `hp-ingest-leaf`, `hp-ingest-architect`) is taught to load `intermediate/glossary.curated.json` at the top of its run. When naming a terminator / process / flow / state / module, the agent's discipline is:
 
-> *Prefer terms from the project's glossary over generic English. If a glossary term matches the entity you're naming, use it — "Pulse Stream" not "event stream"; "Archi" not "architecture artifact". Flow labels likewise: use "pulse signals" if "pulse" is the project's word for what the system observes, not "telemetry events".*
+> *Prefer terms from the project's glossary over generic English. If a glossary term matches the entity you're naming, use it — "Heartbeat Stream" not "event stream"; "ProjectModel" not "architecture artifact". Flow labels likewise: use "Heartbeat signals" if "Heartbeat" is the project's word for what the system observes, not "telemetry events".*
 
 This is enforced as discipline, not via mechanical substitution — the agent reads the glossary, internalizes the vocabulary, and produces names that honor it.
 
