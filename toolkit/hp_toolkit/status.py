@@ -175,9 +175,9 @@ def _check_stage_3(project: Project, project_dir: Path) -> StageStatus:
     if not procs:
         return StageStatus(3, "CSPECs", "n/a", "no processes need_cspec=true")
 
-    # Scan the filesystem for locked CSPEC proposals rather than deriving the
-    # subdir from process id — solar predates the id-based subdir convention
-    # (its proposal lives in cspecs/energy-manager/, not cspecs/compute-balance/).
+    # Scan the filesystem for locked CSPEC proposals. The renderer derives
+    # subdir from process id (proc_X → X-with-dashes), but tolerating any
+    # subdir name keeps status robust to label-based directories.
     cspecs_dir = project_dir / "01-level1" / "cspecs"
     locked_subdirs: list[Path] = []
     if cspecs_dir.is_dir():

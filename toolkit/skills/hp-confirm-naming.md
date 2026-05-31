@@ -85,4 +85,4 @@ These rules come from lived experience on the dogfood project and are non-negoti
 - Lived examples in the dogfood:
   - `examples/solar/00-context/naming-review.md` (Status: Resolved)
   - `examples/solar/01-level1/naming-review.md` (Status: Resolved)
-  - `examples/solar/01-level1/cspecs/energy-manager/naming-review.md` (Status: Resolved)
+  - `examples/solar/01-level1/cspecs/compute-balance/naming-review.md` (Status: Resolved)

@@ -209,7 +209,7 @@ def main() -> int:
     print()
 
     # ─── Mermaid (CSPEC — Energy Manager state machine) ───
-    cspec_dir = repo_root / "examples" / "solar" / "01-level1" / "cspecs" / "energy-manager"
+    cspec_dir = repo_root / "examples" / "solar" / "01-level1" / "cspecs" / "compute-balance"
     print(_color("==> Rendering Energy Manager CSPEC — Mermaid", "1"))
     gen_cspec_mermaid = render_mermaid.render_state_machine(
         project, parent_machine_id="proc_compute_balance"

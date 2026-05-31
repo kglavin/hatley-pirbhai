@@ -302,7 +302,7 @@ Where things live in this repo.
 | `examples/solar/dictionary.yaml` | Per-project naming dictionary — stable IDs, labels, descriptions for every entity / flow / transition across all levels | Active |
 | `examples/fishing-rig/` | Second dogfood project — automated fishing rig. **Stages 1+2+3 all locked**: 21 entities (6 + 6 + 9) / 12 flows / 2 edges / 18 transitions. Context + level-1 DFD + Bite Detector CSPEC all generated end-to-end via `scripts/render_project.py`. Fully transferable proof: same toolkit code handles both projects. | Active — complete through Stage 3 |
 | `examples/solar/01-level1/` | HP level-1 / first decomposition — proposal, naming review (both resolved), `dfd.{md,html,d2}` sources, rendered SVGs | ✅ Locked |
-| `examples/solar/01-level1/cspecs/energy-manager/` | Level-2 CSPEC for the Energy Manager bubble — hierarchical state machine, 4 modes + 9 sub-states, 3 views | ✅ State machine locked; events/actions pending |
+| `examples/solar/01-level1/cspecs/compute-balance/` | Level-2 CSPEC for the Energy Manager bubble (`proc_compute_balance`) — hierarchical state machine, 4 modes + 9 sub-states, 3 views | ✅ State machine locked; events/actions pending |
 | `graphify-out/` | Knowledge graph of both HP books (187 nodes / 234 edges / 20 communities) | One-time workshop reference; see `graphify-out/GRAPH_REPORT.md` |
 | `reference-docs/` | Workshop reading aids — source PDFs (1988 and 2000 HP books). `.gitignore`'d. | Local-only |
 | `proposals/` | (empty, placeholder) | Reserved |
