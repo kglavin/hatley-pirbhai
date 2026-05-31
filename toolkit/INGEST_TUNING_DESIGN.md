@@ -381,7 +381,9 @@ Cloudctlplane example: if a tail of progress.log had shown `Stage 2: emitted 30 
 - This is *not* a modernization-layer expansion. ADRs / SLOs / budgets / TPMs / observability / V&V / STRIDE remain out of scope for hp-ingest per the locked Q3 — those are decisions, not extractable facts. The rationale prose here is the standard 2000 §4.2.5.4 AMS content, which has *always* been part of the HP toolkit's vocabulary; hp-ingest just wasn't populating it.
 - Token cost on H.2.b + H.2.c rises modestly (architect agent reads more files; writes longer prose). Net is probably +50–100k tokens on a cloudctlplane-scale run. The improved review-quality / architect-time payoff is large.
 
-### H.3 System-of-systems: recursive decomposition for monorepos *(scope expansion → spawns follow-up branch)*
+### H.3 System-of-systems: recursive decomposition for monorepos ✅ *(landed in Branch 3 / `kg/hp-ingest-hierarchical`)*
+
+**Status:** ✅ shipped. See [HIERARCHICAL_INGEST_DESIGN.md](HIERARCHICAL_INGEST_DESIGN.md) for the full design + locked Q1–Q5 decisions. Implementation T11–T14. Option X (Hierarchical single-dictionary) landed; Option Y (SoS multi-project) deferred as a sibling design doc if a multi-repo target appears.
 
 **Evidence:**
 - cloudctlplane is a monorepo containing 8+ independently-deployable subsystems (hramp, prism, aurora, pulse, sentinel, gfl_toolchain, dgraph, clickhouse, …). Each is a substantial software system with its own internal boundaries, state machines, and architecture.
@@ -850,11 +852,11 @@ Originally scoped as a single tuning branch. After review (8 H-findings, several
 
 **Scope:** F.3.a · H.2 · H.4 · H.5 · H.6 · H.7 · H.8.a/b/c — all landed. **Scope additions during implementation:** Makefile + Justfile recipe parser (`recipe_parser.py`; landed in T9 per Kevin's question during T8). **Deferred from this branch:** `terraform_parser.py` (H.5.a's 4th parser; the regex extractor still surfaces .tf as `infra_resource` modules — re-evaluate when a re-ingest confirms terraform-resource typing carries architect-decision value); F.3.b explicit stage-boundary pauses + F.3.c confidence-driven auto-pause (kept out of this branch as a follow-up if dogfood signal warrants).
 
-### Branch 3 — `kg/hp-ingest-hierarchical` *(new branch, spawns after Branches 1 + 2 land)*
+### Branch 3 — `kg/hp-ingest-hierarchical` ✅ *(in-flight; T11–T14 landed; see [HIERARCHICAL_INGEST_DESIGN.md](HIERARCHICAL_INGEST_DESIGN.md))*
 
-**Theme:** recursive system-of-systems decomposition. Pipeline shape change: Stage 2 becomes recursive; orchestrator walks a tree. Needs its own design doc (`SYSTEM_OF_SYSTEMS_DESIGN.md` or similar) first.
+**Theme:** recursive system-of-systems decomposition. Pipeline shape change: Stage 2 becomes recursive; orchestrator walks a tree.
 
-**Scope:** H.3 only.
+**Scope:** H.3 only — Option X (Hierarchical single-dictionary) per locked Q1. Option Y (SoS multi-project) deferred until a multi-repo target appears.
 
 ---
 
@@ -908,9 +910,14 @@ Same pattern as prior arc catch-ups.
 
 ---
 
-## Proposed implementation order — Branch 3 *(deferred)*
+## Implementation order — Branch 3 ✅ *(landed in 4 commits, T11–T14)*
 
-Awaits its own design doc (`SYSTEM_OF_SYSTEMS_DESIGN.md`). Expected ~3 commits.
+Design locked in [HIERARCHICAL_INGEST_DESIGN.md](HIERARCHICAL_INGEST_DESIGN.md) (2026-05-25). See that doc for the full per-commit detail; one-line summary here:
+
+- **T11** ✅ — `recursion.py` helpers (should_recurse, scope_for_subsystem, derive_level, is_leaf_process) + validator extensions (allow `parent: proc_X` on processes; non-leaf process can't carry CSPEC/PSPEC; flow-refinement-chain rule) + emitter (derive level from parent chain; suppress non-leaf process specs).
+- **T12** ✅ — Orchestrator recursion loop: `python -m hp_toolkit.ingest.recursion` CLI + `prepare_subsystem_recursions` helper + `RECURSE_DECISION` / `RECURSE_INTO` progress.log events + orchestrator skill Phase 2-recurse + processes skill recursive-mode discipline.
+- **T13** ✅ — Renderer level-N generalization (mermaid + d2 + cytoscape relative `child_level = parent.level + 1`) + per-parent DFD walker in `render_project.py` writing `02-decomp/<slug>/dfd.generated.*` + sidebar nesting under Stage 2 + architect skill leaves-only allocation rule.
+- **T14** ✅ — Doc catch-up: this section + HIERARCHICAL_INGEST_DESIGN status notes + INGEST_DESIGN file-tree + README skill table.
 
 ---
 

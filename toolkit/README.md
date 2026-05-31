@@ -123,8 +123,9 @@ A six-agent pipeline turns the codebase into a draft `dictionary.yaml`:
 - **Stage 0 (Python; no LLM):** scan files, classify each with an HP **role hint** (`boundary` / `pure-logic` / `state-machine` / `data-store` / `infra` / `config`). The single most decision-shaping signal in the whole pipeline. Deterministic, cheap, runs in seconds even on cloudctlplane-scale repos.
 - **Stage 1 (LLM):** `hp-ingest-boundary` decides which `boundary`-classified files map to real Stage-1 terminators.
 - **Stage 2 (LLM):** `hp-ingest-processes` clusters significant non-boundary files into Stage-2 processes + data stores + internal flows.
-- **Stages 3 + 4 (parallel LLM):** `hp-ingest-leaf` runs once per leaf process (3–5 concurrent) — writes a CSPEC for state-rich processes, a PSPEC for the rest.
-- **Stage 5 (LLM):** `hp-ingest-architect` allocates every leaf process / CSPEC / data store to an architecture module + draws interconnects.
+- **Stage 2-recurse (Python + recursive LLM):** for monorepos, processes whose `implemented_by` exceeds the threshold get a recursive Stage-2 dispatch that emits their internal level-2 sub-processes. The recursion walks `--max-recursion-depth` (default 3). See [`HIERARCHICAL_INGEST_DESIGN.md`](HIERARCHICAL_INGEST_DESIGN.md).
+- **Stages 3 + 4 (parallel LLM):** `hp-ingest-leaf` runs once per leaf process (3–5 concurrent) — writes a CSPEC for state-rich processes, a PSPEC for the rest. Leaves can be at any recursion depth.
+- **Stage 5 (LLM):** `hp-ingest-architect` allocates every leaf process / CSPEC / data store to an architecture module + draws interconnects. Once at the top — sees the full hierarchy in `hp-graph.json`.
 - **Review (LLM):** `hp-ingest-review` runs `hp-validate` against the projected dictionary and repairs anything broken before emission.
 
 **Two design ideas are load-bearing:**
@@ -295,6 +296,18 @@ uv run python scripts/hp_ingest.py <codebase-path> --output <project-dir> --resu
 #   --min-pure-logic LINES  significance threshold for pure-logic files (default 50)
 #   --max-depth N           cap directory-cluster depth for Stage-2 process candidates
 uv run python scripts/hp_ingest.py <codebase-path> --output <project-dir> --min-pure-logic 200 --max-depth 3
+
+# Brownfield ingest — hierarchical Stage-2 recursion (see HIERARCHICAL_INGEST_DESIGN.md)
+# Called by the /hp-ingest orchestrator after Stage 2 LLM emits processes.json.
+#   --threshold-files N       min files in implemented_by[] to recurse (default 30)
+#   --threshold-lines N       min total lines (default 3000)
+#   --max-depth N             hard recursion-depth cap (default 3)
+#   --no-recurse              disable recursion entirely (back to flat level-1)
+uv run python -m hp_toolkit.ingest.recursion \
+    --processes <project-dir>/intermediate/processes.json \
+    --scan <project-dir>/intermediate/scan.json \
+    --intermediate <project-dir>/intermediate \
+    --current-depth 1
 ```
 
 All commands also work programmatically — see *Programmatic API* below. Note: the full hp-ingest LLM pipeline dispatch (boundary / processes / leaf×N / architect / review subagents) runs via `/hp-ingest` in a Claude Code session, not via the Python CLI — the CLI handles the deterministic prep + merge + emit steps only. Every ingest run appends START / DONE / SKIP rows to `<output>/intermediate/progress.log` so external observers can `tail -f` a run live.

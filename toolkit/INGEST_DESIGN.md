@@ -34,6 +34,10 @@ Three insights from the [Understand-Anything](https://github.com/Lum1104/Underst
 
 ## Architecture: 6 agents + one IR
 
+> **Note (2026-05-25):** the base architecture below is unchanged. Two follow-up arcs extend it without altering its shape:
+> - [INGEST_TUNING_DESIGN.md](INGEST_TUNING_DESIGN.md) (Branches 1+2) — adds deterministic prep stages (docs walker, glossary extractor, user-docs gatherer, testbed miner, recipe parser, rationale gatherer) + the optional `hp-ingest-glossary` LLM curator skill. Same agent set; richer inputs.
+> - [HIERARCHICAL_INGEST_DESIGN.md](HIERARCHICAL_INGEST_DESIGN.md) (Branch 3) — makes Stage 2 (`hp-process-extractor` / `hp-ingest-processes`) recursive for monorepos. Same agent; runs N times (once per subsystem deserving deeper decomposition) instead of once.
+
 ```
 ┌─────────────────────────────────────────────────────────────────────────┐
 │                                                                         │
@@ -166,6 +170,7 @@ The filter is in `scripts/hp_significance.py`. Configurable thresholds (e.g., mi
 toolkit/
 ├── INGEST_DESIGN.md                   ← this file
 ├── INGEST_TUNING_DESIGN.md            ← post-dogfood tuning + input-expansion design (Branches 1+2)
+├── HIERARCHICAL_INGEST_DESIGN.md      ← recursive Stage-2 decomposition design (Branch 3; H.3)
 ├── hp_toolkit/
 │   └── ingest/
 │       ├── __init__.py
@@ -192,9 +197,11 @@ toolkit/
 │       ├── user_docs_gatherer.py      ← usage excerpts + actor + intent phrases for boundary (H.6)
 │       ├── testbed_miner.py           ← purpose-built testbed detect + scenario mining (H.7)
 │       ├── recipe_parser.py           ← Makefile + Justfile recipe extraction (deploy / up / build / …)
+│       │   # Hierarchical decomposition (T11–T13; recursive Stage-2 for monorepos)
+│       ├── recursion.py               ← should_recurse + scope_for_subsystem + level derivation (H.3)
 │       │   # Merge + emit
 │       ├── merge_graph.py             ← deterministic IR merge + normalization + warnings
-│       ├── emit_dictionary.py         ← IR → dictionary.yaml writer (surfaces LLM rationale prose per H.2.a)
+│       ├── emit_dictionary.py         ← IR → dictionary.yaml writer (level-N derived from parent chain; H.2.a rationale prose)
 │       └── schema.py                  ← Pydantic schemas for the IR (+ Provenance.external_context_used)
 │
 ├── skills/
