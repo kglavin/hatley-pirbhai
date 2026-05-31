@@ -1,12 +1,9 @@
 """Render `project_index.generated.html` — the project portal landing page.
 
-The index page is the "land here" front door for a project. It renders the
-project tree (built by render.tree.build_project_tree) as the main content,
-with the project name + validation status + modernization summary at the top
-and a footer pointing back at the toolkit reference docs.
-
-Sidebar injection on every other generated page is Commit 2; full PDF
-composition is Commit 3.
+The index page is the "land here" front door for a project. It pairs the same
+collapsible left-sidebar that every other generated page carries (Commit 2)
+with a main-content view of the project tree rendered as section cards — the
+project's "executive dashboard."
 """
 
 from __future__ import annotations
@@ -17,6 +14,7 @@ from pathlib import Path
 from ..model import Project
 from ..status import ModernizationSummary, modernization_summary
 from ..validate import ValidationReport, validate
+from .sidebar import SIDEBAR_CSS, SIDEBAR_JS, render_sidebar_html
 from .tree import TreeNode, build_project_tree
 
 
@@ -38,6 +36,9 @@ def render_project_index_html(project: Project, project_dir: Path) -> str:
         sections_html=_render_sections(tree),
         modernization_html=_render_modernization_overview(modern),
         toolkit_links=_render_toolkit_links(),
+        sidebar_html=render_sidebar_html(tree, current_path="project_index.generated.html"),
+        sidebar_css=SIDEBAR_CSS,
+        sidebar_js=SIDEBAR_JS,
     )
 
 
@@ -152,13 +153,20 @@ _PAGE_TEMPLATE = """<!doctype html>
   <meta charset="utf-8">
   <title>{title}</title>
   <style>
+    * {{ box-sizing: border-box; }}
+    html, body {{ margin: 0; padding: 0; }}
     body {{
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
       color: #222;
-      max-width: 1100px;
-      margin: 0 auto;
-      padding: 24px 32px 60px 32px;
+      display: flex;
+      min-height: 100vh;
       line-height: 1.5;
+    }}
+    .hp-index-main {{
+      flex: 1;
+      min-width: 0;
+      max-width: 1000px;
+      padding: 24px 36px 60px 36px;
     }}
     header {{
       border-bottom: 1px solid #ddd;
@@ -232,25 +240,30 @@ _PAGE_TEMPLATE = """<!doctype html>
     }}
     footer a {{ color: #2050a0; text-decoration: none; }}
     footer a:hover {{ text-decoration: underline; }}
+{sidebar_css}
   </style>
 </head>
 <body>
-  <header>
-    <h1>{title}</h1>
-    <p class="description">{description}</p>
-    <p class="meta">
-      Dictionary last updated <strong>{last_updated}</strong> ·
-      Rendered <strong>{rendered_at}</strong> ·
-      {validation_pill}
-    </p>
-    <p class="modernization-line">Modernization — {modernization_html}</p>
-  </header>
+  {sidebar_html}
+  <main class="hp-index-main">
+    <header>
+      <h1>{title}</h1>
+      <p class="description">{description}</p>
+      <p class="meta">
+        Dictionary last updated <strong>{last_updated}</strong> ·
+        Rendered <strong>{rendered_at}</strong> ·
+        {validation_pill}
+      </p>
+      <p class="modernization-line">Modernization — {modernization_html}</p>
+    </header>
 
-  {sections_html}
+    {sections_html}
 
-  <footer>
-    {toolkit_links}
-  </footer>
+    <footer>
+      {toolkit_links}
+    </footer>
+  </main>
+  <script>{sidebar_js}</script>
 </body>
 </html>
 """
