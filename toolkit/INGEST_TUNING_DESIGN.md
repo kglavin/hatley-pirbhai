@@ -1086,7 +1086,62 @@ Applied to all three renderers (cytoscape, mermaid, d2). The dropped edges belon
 
 **Future work:** the d2 + cytoscape renderers may have analogous issues with hyphenated state names — not surfaced yet because dbt-core's d2 + cytoscape views did render. Audit when a future dogfood hits a similar shape.
 
-### H.20 *(placeholder — add as you find more)*
+### H.20 Two-validator inconsistency — ingest reviewer's "validator PASS" is incomplete signal
+
+**Finding raised:** 2026-05-25 — dbt-core dogfood, during the modernization phase (ADR-001 subagent surfaced it). The ingest reviewer agent (`hp-ingest-review`) reports "validator PASS" based on `scripts/check_dictionary.py`. But the canonical `hp_toolkit.validate` module — the validator the other modernization skills + the project's coverage metrics + the rendered portal all depend on — reports **82 errors** on the same dictionary.
+
+`check_dictionary.py` PASSED. `hp_toolkit.validate` FAILED with 82 errors. Same dictionary, different verdict.
+
+**Why this matters:** the dictionaries hp-ingest emits are being declared "validated" on a weaker check than the rest of the toolkit uses. Downstream modernization skills (`hp-propose-slos`, `hp-propose-threat-model`, `hp-propose-budgets-and-tpms`, `hp-propose-observability`) reference processes / interconnects / PSPECs that may not validate under the canonical validator. Each modernization layer added on top compounds the structural issue.
+
+**Diagnosis:** the two validators have different strictness. `check_dictionary.py` is the lightweight smoke-check (file exists, parses as YAML, has top-level keys). `hp_toolkit.validate` is the rigorous one (reference integrity, hierarchy consistency, PSPEC balancing, architecture allocation, modernization rules, coverage metrics). The ingest pipeline currently treats the lightweight check as authoritative — that's the gap.
+
+**Proposed fix (two parts):**
+
+- **Wire `hp-ingest-review` to call `hp_toolkit.validate` instead of (or in addition to) `check_dictionary.py`.** The ingest pipeline's "PASS" should mean the dictionary passes the same validator the rest of the toolkit uses. Error-bucket the output: real errors → repair pass; coverage warnings → ingest-report.md, not blocking.
+- **Distinguish error vs warning** in `hp_toolkit.validate` output. Many of the 82 dbt-core errors are likely coverage warnings (orphan stores, missing optional fields) that shouldn't block emit. Real structural errors (broken refs, missing parents) should. Bucketing makes "validator PASS" meaningful again.
+
+**Sub-finding to characterize what the 82 errors actually are:** see the dbt-core triage below in the prose body of this doc (or in the per-dogfood reports). The breakdown will tell us whether the validator needs tightening (errors → warnings for benign cases) or whether the ingest emits genuinely broken structure that the reviewer is missing.
+
+**Priority:** **HIGH.** This is a *correctness signal* problem — the toolkit is telling the user "you're good to go" when the rest of the toolkit can't accept the artifact. Every dogfood we've run probably has this same condition (cloudctlplane, PX4, leocore, dbt-core); we just hadn't noticed because we weren't running both validators back-to-back.
+
+**Composes with:** **H.15** (schema undermodeling — many of the 82 errors may be the LLM emitting more-expressive output than the schema accepts, which is the H.15 pattern at the validator layer); the eventual `SCHEMA_V2_DESIGN.md` proposed under H.15 should also normalize the validator's strictness levels.
+
+### H.21 Architect agent skips the `architecture_flows:` section entirely
+
+**Finding raised:** 2026-05-25 — dbt-core dogfood, during the H.20 validator-error triage. The architect agent (`hp-ingest-architect`) authored every other Stage-5 section:
+
+- `architecture_modules:` — 5 modules
+- `architecture_module_specs:` — 5 AMS sidecars
+- `architecture_interconnects:` — 3 interconnects, each with a `carries:` list of flow IDs
+- `architecture_interconnect_specs:` — 3 AIS sidecars
+
+…but did **not** author `architecture_flows:` at all. The section is absent from `dictionary.yaml`. The 3 interconnects' `carries:` lists reference 8 flow IDs that are nowhere defined — neither in `architecture_flows:` (which doesn't exist) nor in the requirements-model `flows:` (the agent invented architecture-layer names like `flow_executor_uses_adapter_manager`).
+
+**Confirmation by inspection:**
+- [`hp_toolkit/model.py`](hp_toolkit/model.py): `class ArchFlow(BaseModel)` defined at line 379; `architecture_flows: dict[str, ArchFlow]` on `Project` at line 734. The schema slot is there.
+- [`hp_toolkit/validate.py`](hp_toolkit/validate.py): rule 8 (line ~654) checks every `ic.carries` against `architecture_flows` keys.
+- dbt-core's `dictionary.yaml`: top-level sections are `entities` / `flows` / `transitions` / `pspecs` / `architecture_modules` / `architecture_module_specs` / `architecture_interconnects` / `architecture_interconnect_specs` / `adrs`. **No `architecture_flows`.**
+
+Net result: 8 of the 82 H.20 validator errors are `architecture [int_X]: carries 'flow_Y' not in architecture_flows`. The interconnects render as unlabeled wires. Downstream Stage-5 reasoning (AID rendering, AIS specs, threat-model on `int_adapter_to_warehouse`) lacks the architecture-flow layer that links interconnects to information streams.
+
+**Root cause (hypothesis):** the `hp-ingest-architect` agent's prompt + skill file describe what to emit (modules, interconnects, allocation) and the deliverable list mentions interconnect `carries:` and `affects:`, but `architecture_flows:` may not be explicitly named as a required emit. The agent inferred carries IDs without grounding them in actual architecture-flow entities — same family as H.15 schema undermodeling, except here the schema *does* have a place for these entities, the agent just didn't fill it.
+
+**Proposed fix (two layers):**
+
+- **(a) Update [`hp-ingest-architect.md`](skills/hp-ingest-architect.md) prompt** to explicitly require authoring `architecture_flows:` as a peer to `architecture_interconnects:`. For each interconnect's `carries:` list, every flow ID referenced must exist in `architecture_flows:`. Each architecture flow needs at minimum: `name`, `source` (module id), `target` (module id), `kind` (`ArchFlowKind` enum), brief description. Add a Discipline rule: "Every flow ID in any `carries:` list MUST correspond to an entry in `architecture_flows:` declared in this same agent's emit."
+- **(b) Update [`hp-ingest-review.md`](skills/hp-ingest-review.md) repair behavior** to catch the missing-`architecture_flows`-section case. When the reviewer sees `carries:` references that don't resolve and `architecture_flows:` is empty, reverse-engineer architecture flows from the interconnect descriptions + the modules they touch (one or two flows per interconnect, named after the interconnect's described purpose). Synthesize the missing section rather than leaving the dictionary in a broken state.
+
+**Priority:** **HIGH** for any toolkit consumer that runs Stage-5+ modernization (threat-model on interconnects, SLO chain anchored to architecture, AID renderer, etc.). The interconnect `carries:` field is what makes architecture interconnects *carry* anything meaningful; without it, the interconnects are unlabeled wires.
+
+**Composes with:**
+- **H.20** — the two-validator gap let this slip past the reviewer's "validator PASS" check. Wiring `hp_toolkit.validate` into the reviewer (H.20 fix part a) would catch this at emit-time.
+- **H.10** — same prompt-clarity family as the DONE-token-in-JSON and missing-provenance issues; subagents miss required emit components. The cross-skill audit should add "every interconnect's `carries:` IDs must reference declared `architecture_flows:`" to the Discipline rules sweep.
+- **H.15** — the architect agent's tendency to invent schema-exceeding values is the same family; here the symptom is an *omitted section* rather than an *enum-value mismatch*. Both are "LLM produces output the schema can't accept" — H.15 because the schema's enum is too narrow; H.21 because the agent forgot the schema slot exists.
+
+**Workaround for the dbt-core dictionary** (until the agent prompt is fixed): a post-ingest cleanup pass authors `architecture_flows:` with 6-8 entries (one per architecture-level information stream the existing interconnects describe), then updates each interconnect's `carries:` to reference these new `af_*` IDs. ~30 min of careful design work; deferred to a separate session.
+
+### H.22 *(placeholder — add as you find more)*
 
 *(... etc — add as many as needed)*
 
