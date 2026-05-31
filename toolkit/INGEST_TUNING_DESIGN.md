@@ -1141,7 +1141,65 @@ Net result: 8 of the 82 H.20 validator errors are `architecture [int_X]: carries
 
 **Workaround for the dbt-core dictionary** (until the agent prompt is fixed): a post-ingest cleanup pass authors `architecture_flows:` with 6-8 entries (one per architecture-level information stream the existing interconnects describe), then updates each interconnect's `carries:` to reference these new `af_*` IDs. ~30 min of careful design work; deferred to a separate session.
 
-### H.22 *(placeholder — add as you find more)*
+### H.22 Boundary candidate prep misses the CLI when the role classifier puts `cli/main.py` in the state-machine bucket
+
+**Finding raised:** 2026-05-25 — dbt-core dogfood, Phase 0 / Stage 1 inspection. The role classifier in `hp_toolkit.ingest.scan` treats Click `@click.group()` / `@click.command()` decorators as state-machine pattern (legitimate — Click commands ARE a command-dispatch FSM). For dbt-core, this put `core/dbt/cli/main.py` (846 lines, the actual primary CLI entry point) in `hp_role_hint=state-machine`. `boundary_candidates.py` then only walks files with `hp_role_hint=boundary` — so `boundary-candidates.json` came out with **1 candidate** (`scripts/migrate-adapters.py`, a minor migration utility). The primary user-facing CLI was invisible to the Stage-1 boundary subagent's candidate-prep input.
+
+**Observed:** scan → 12 state-machine candidates (including `cli/main.py`); 1 boundary candidate. Stage-1 LLM would have produced a near-empty terminator set without orchestrator-level intervention.
+
+**Expected:** boundary-candidates includes the CLI entry point regardless of which secondary classification it also matches.
+
+**Workaround used this run:** orchestrator dropped `intermediate/hints/boundary.md` enumerating the 5 expected terminators (CLI, warehouse-adapter plugin, dbt-project files, target/ artifacts, migrate-adapters script). The boundary subagent loaded the hint as binding guidance and produced a 5-terminator IR. Without the hint, output would have been wrong.
+
+**Proposed fix (two viable):**
+
+- **(a) Multi-label classification at scan time.** Allow `FileEntry` to carry BOTH `hp_role_hint: state-machine` AND a `secondary_hints: [boundary]` flag when a file matches multiple patterns (CLI decorators + state-machine pattern). Then `boundary_candidates.py` widens its filter to include files with `boundary` in either primary or secondary hints. Touch list: `hp_toolkit/ingest/scan.py`, `hp_toolkit/ingest/boundary_candidates.py`, `hp_toolkit/ingest/schema.py` (FileEntry).
+- **(b) Boundary-candidate widening only.** Cheaper: `boundary_candidates.py` walks ALL `*.py` files (not just `boundary`-classified) looking for `import click` / `import argparse` / `import typer` / `import fire` / `if __name__ == '__main__'` patterns and adds matches. The scan stays single-label; the candidate-prep does its own boundary discovery. Touch list: `hp_toolkit/ingest/boundary_candidates.py` only.
+- **(c) Codify hint-file dropping in the orchestrator.** When `boundary-candidates.json` has < 2 candidates AND the scan found ≥ 1 state-machine file matching CLI patterns, the orchestrator AUTOMATICALLY writes a stub `hints/boundary.md` that the boundary subagent can edit/expand. Touch list: `scripts/hp_ingest.py` orchestration, plus the `hp-ingest` skill file documents the auto-hint behavior.
+
+**Priority:** **HIGH** for any Python brownfield ingest where the CLI is the primary boundary (dbt-core, dvc, poetry, etc.). Without it, every such project will need a manual hint or will produce a wrong Stage-1 model.
+
+**Composes with:**
+- **H.6** (user-facing documentation harvest) — the docs corpus already extracted `docs/guides/*.md` which describe the CLI; a richer boundary-candidate prep could cross-reference docs that mention `dbt <command>` patterns to identify boundary-relevant code.
+- **H.11** (schema-vs-LLM disagreement on terminator subtypes) — the CLI's role-hint mismatch is a sibling problem; both want richer multi-classification at the data-shape level.
+- **H.10** family (prompt-clarity sweep) — the boundary subagent's prompt should explicitly tell it "if the scanner found ≤ 1 boundary candidate but state-machine candidates include `cli/main.py` or similar CLI patterns, promote them to boundary" — this is the prompt-level analogue of fix (a) without changing schema.
+
+### H.23 `hosts` edge kind not in IREdgeKind enum — architect emitted it, validator dropped it, merger flagged as unrecoverable
+
+**Finding raised:** 2026-05-25 — dbt-core dogfood, Merge 2 immediately after Stage 5. The architect agent modeled `mod_host` as a hardware module hosting `mod_dbt_core_package`, `mod_warehouse_adapter_plugin`, and `mod_filesystem`. It connected `mod_host` to each via 3 edges with `kind: hosts` (semantically: the host machine *runs* / *contains* these modules). The `IREdgeKind` enum (`schema.py:61`) accepts only `data_flow`, `control_flow`, `physical_edge`, `allocates_to`, `triggers`, `refines`, `carries`. None of these capture the *deployment / hosting* relationship cleanly.
+
+`physical_edge` was the closest fit (the merger ultimately accepted that — orchestrator rewrote `hosts` → `physical_edge` + stashed `hosts_role: hosts` in extras). But `physical_edge` was originally intended for non-data physical interactions (e.g. a sensor wire), not for a "this hardware hosts this software" relationship.
+
+**Why this matters:** the "host runs N modules" relationship is fundamental to deployment-architecture modeling. Cloud-native projects will want to express "this Kubernetes node runs these pods" or "this EC2 instance hosts these containers" — same shape. Without a first-class edge kind, every architect agent invents its own term and the merger rejects it (parallel to H.11's terminator-kind problem at the edge layer).
+
+**Proposed fix:**
+- **(a) Add `hosts` (or `deploys_on` / `runs_on`) to `IREdgeKind`.** First-class semantics: "endpoint A is the physical/virtual host that endpoint B runs in." Used between hardware modules and software modules. Touch list: `hp_toolkit/ingest/schema.py` + `hp_toolkit/model.py` + the renderer's edge-style table.
+- **(b) Document `physical_edge` as the canonical edge kind for hosting relationships.** Update the architect subagent's prompt + skill file to use `physical_edge` and a `physical_edge_role: hosts` extra field. Cheaper if a SchemaV2 lift is too costly. Touch list: `skills/hp-ingest-architect.md`, plus a Discipline note documenting the convention.
+- **(c) Both — short-term (b), long-term (a).** Codify the convention now (no schema change), promote to first-class in the planned `SCHEMA_V2_DESIGN.md`.
+
+**Priority:** **MEDIUM.** Workaround is straightforward (the orchestrator already does it deterministically). But every brownfield ingest with a host/deployment model will hit the same merger error if the agent emits `hosts` naïvely.
+
+**Composes with:**
+- **H.11** + **H.15** — same family (LLM emits richer vocabulary than schema accepts). `IREdgeKind` is the edge analogue of `IRNodeKind`'s terminator-subtype gap.
+- **H.21** — the architect agent's prompt is the same one that omitted `architecture_flows:` entirely; a prompt sweep should also enumerate the canonical edge kinds (or point at the schema enum).
+
+### H.24 Compliance ID regex requires all-caps prefix — `GDPR-ART32` accepted, `GDPR-Art32` rejected
+
+**Finding raised:** 2026-05-25 — dbt-core dogfood, threat-model phase. The threat-model subagent first attempted to emit compliance references as `GDPR-Art32`, `SOC2-CC6.1`, `CCPA-1798.150`. The validator's `compliance_re` regex (the canonical format for `references_compliance:` fields) requires the prefix to be all-caps before the hyphen — `GDPR-ART32`, not `GDPR-Art32`. The subagent had to rewrite mid-run and noted: "Validator's `compliance_re` requires all-uppercase before the hyphen so I used `GDPR-ART32` rather than the orchestrator's `GDPR-Art32`."
+
+**Why this matters:** the format gotcha is invisible until validate-time. Every modernization skill that emits compliance references (`hp-propose-threat-model`, `hp-capture-adr` when it has compliance refs, the future SOC2/HIPAA-aware skills) will trip on this if the format isn't enumerated explicitly in the prompt.
+
+**Proposed fix:**
+- **(a) Document the format in every modernization skill prompt.** Add a line like "Compliance IDs follow `<FRAMEWORK>-<SECTION>` with the framework portion in all-caps: `GDPR-ART32`, `SOC2-CC6.1`, `CCPA-1798.150`, `HIPAA-164.312`, `NIST-AC-2`, `ISA-62443-SL2`." Touch list: `skills/hp-propose-threat-model.md`, `skills/hp-capture-adr.md`, `skills/hp-propose-slos.md` (if/when it cites compliance), `MODERNIZATION_DESIGN.md`.
+- **(b) Widen the regex to allow common mixed-case framework conventions.** E.g. `GDPR-Art32` is the natural way most people write the article reference. Touch list: `hp_toolkit/validate.py` (the `compliance_re` definition).
+- **(c) Both.** Widen the regex to be forgiving + document the canonical form so generated output stays consistent.
+
+**Priority:** **LOW** — once-per-modernization-pass annoyance. The subagent caught it and self-corrected; not a model-breaking issue. But every new modernization skill will repeat the lesson without prompt updates.
+
+**Composes with:**
+- **H.10** family (prompt-clarity sweep) — same shape as the DONE-literal-in-JSON and the missing-provenance issues. The subagent has to *figure out* the format from validator errors at run-time; a clearer prompt avoids the round-trip.
+
+### H.25 *(placeholder — add as you find more)*
 
 *(... etc — add as many as needed)*
 
