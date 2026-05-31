@@ -34,9 +34,10 @@ Three insights from the [Understand-Anything](https://github.com/Lum1104/Underst
 
 ## Architecture: 6 agents + one IR
 
-> **Note (2026-05-25):** the base architecture below is unchanged. Two follow-up arcs extend it without altering its shape:
+> **Note (2026-05-25):** the base architecture below is unchanged. Three follow-up arcs extend it without altering its shape:
 > - [INGEST_TUNING_DESIGN.md](INGEST_TUNING_DESIGN.md) (Branches 1+2) — adds deterministic prep stages (docs walker, glossary extractor, user-docs gatherer, testbed miner, recipe parser, rationale gatherer) + the optional `hp-ingest-glossary` LLM curator skill. Same agent set; richer inputs.
 > - [HIERARCHICAL_INGEST_DESIGN.md](HIERARCHICAL_INGEST_DESIGN.md) (Branch 3) — makes Stage 2 (`hp-process-extractor` / `hp-ingest-processes`) recursive for monorepos. Same agent; runs N times (once per subsystem deserving deeper decomposition) instead of once.
+> - [EMBEDDED_FIRMWARE_TUNING_DESIGN.md](EMBEDDED_FIRMWARE_TUNING_DESIGN.md) (Branch 4) — adds embedded-firmware detectors: RTOS / Micro-ROS / MAVLink / uORB framework recognition; hardware-peripheral + ROS / DDS / uORB boundary kinds; CMake / .ioc / .px4board / .ld / .ino architecture extractors; C/C++ switch-case FSM extraction. Same agent set; recognizes a firmware-shaped vocabulary alongside the cloud-shaped one.
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────┐
@@ -171,6 +172,7 @@ toolkit/
 ├── INGEST_DESIGN.md                   ← this file
 ├── INGEST_TUNING_DESIGN.md            ← post-dogfood tuning + input-expansion design (Branches 1+2)
 ├── HIERARCHICAL_INGEST_DESIGN.md      ← recursive Stage-2 decomposition design (Branch 3; H.3)
+├── EMBEDDED_FIRMWARE_TUNING_DESIGN.md ← embedded-firmware tuning design (Branch 4; A–H)
 ├── hp_toolkit/
 │   └── ingest/
 │       ├── __init__.py
@@ -190,6 +192,8 @@ toolkit/
 │       ├── compose_parser.py          ← typed compose: depends_on, ports, volumes, env, networks, replicas
 │       ├── dockerfile_parser.py       ← typed Dockerfile: FROM / EXPOSE / ENV / CMD / HEALTHCHECK / LABEL
 │       ├── k8s_parser.py              ← typed k8s: Deployment / Service / Ingress / PVC (multi-doc YAML)
+│       │   # Embedded-firmware parsers (Branch 4 / finding C)
+│       ├── embedded_arch_extractor.py ← CMakeLists / .ioc / .px4board / .ld / .ino
 │       │   # Input-expansion gatherers (T5–T9; agents read the project's docs, not just code)
 │       ├── docs_walker.py             ← typed doc-file corpus (READMEs / usage / ADR / glossary / API specs)
 │       ├── rationale_sources.py       ← per-candidate rationale evidence for the architect (H.2.b)

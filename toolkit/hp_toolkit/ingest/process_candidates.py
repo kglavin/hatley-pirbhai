@@ -61,7 +61,15 @@ def extract_candidates(
     `max_depth` caps the cluster key at N path components — useful for
     monorepos where the natural process boundary is `<repo>/<category>/<service>`
     (depth 3) rather than the leaf directory. Default `None` = unlimited (original
-    behavior)."""
+    behavior).
+
+    Per EMBEDDED_FIRMWARE_TUNING_DESIGN.md finding F: embedded targets get
+    two cluster-key adjustments:
+    1. Files under `src/modules/<name>/` cluster by `<name>` (PX4 module
+       convention — the directory name IS the module name).
+    2. FSM-heavy files (state-machine role hint AND ≥ 200 lines) become
+       their own per-file cluster — firmware "architecture-in-one-file"
+       deserves a process bubble of its own."""
     clusters: dict[str, list[tuple[str, HpRoleHint, int]]] = defaultdict(list)
     for f in scan.files:
         if not f.is_significant:
@@ -74,7 +82,11 @@ def extract_candidates(
             # Infra files inform Stage 5 architect, not Stage 2 processes
             continue
 
-        cluster_key = _cluster_key_for(f.path, max_depth=max_depth)
+        # Finding F.2: FSM-heavy file gets its own cluster keyed on file path
+        if f.hp_role_hint == HpRoleHint.STATE_MACHINE and f.size_lines >= 200:
+            cluster_key = f"__fsm__/{f.path}"
+        else:
+            cluster_key = _cluster_key_for(f.path, max_depth=max_depth)
         clusters[cluster_key].append((f.path, f.hp_role_hint, f.size_lines))
 
     out: list[ProcessCandidate] = []
@@ -115,15 +127,28 @@ def _cluster_key_for(rel_path: str, max_depth: Optional[int] = None) -> str:
 
     For files at the repo root, the cluster key is the project name placeholder
     `.` so they don't all merge into one. Most real projects have very few
-    significant files at the repo root."""
+    significant files at the repo root.
+
+    Per EMBEDDED_FIRMWARE_TUNING_DESIGN.md finding F.1: PX4-style module
+    structure (`src/modules/<name>/...`, `src/drivers/<name>/...`,
+    `src/lib/<name>/...`) collapses to `src/<category>/<name>` regardless
+    of depth — every file under one PX4 module becomes the same cluster,
+    matching `px4_add_module(MODULE <name>)` convention."""
     p = Path(rel_path)
+    parts = p.parts
+
+    # Finding F.1: PX4 module-tree shortcut — cluster at depth 3 when the
+    # path starts with src/modules/ / src/drivers/ / src/lib/ / src/examples/.
+    if len(parts) >= 3 and parts[0] == "src" and parts[1] in {"modules", "drivers", "lib", "examples"}:
+        return "/".join(parts[:3])
+
     parent = p.parent.as_posix()
     if not parent or parent == ".":
         return "."
     if max_depth is not None:
-        parts = parent.split("/")
-        if len(parts) > max_depth:
-            parent = "/".join(parts[:max_depth])
+        partsp = parent.split("/")
+        if len(partsp) > max_depth:
+            parent = "/".join(partsp[:max_depth])
     return parent
 
 
@@ -131,9 +156,14 @@ def _cluster_id_for(directory: str) -> str:
     """Synthetic short id derived from the directory path.
 
     `src/orders/validation` → `orders-validation`. Strips common code-tree
-    prefixes (`src/`, `lib/`, etc.) since they don't carry semantic info."""
+    prefixes (`src/`, `lib/`, etc.) since they don't carry semantic info.
+
+    Per EMBEDDED_FIRMWARE_TUNING_DESIGN.md finding F.2: FSM-heavy
+    file-as-cluster gets a `fsm-<filename>` id."""
     if directory == ".":
         return "_root"
+    if directory.startswith("__fsm__/"):
+        return "fsm-" + Path(directory[len("__fsm__/"):]).stem.replace("_", "-")
     parts = directory.split("/")
     # Strip leading common prefixes
     prefixes_to_skip = {"src", "lib", "internal", "pkg", "cmd", "app"}

@@ -240,6 +240,22 @@ Match `add_executable(<name>`, `px4_add_module(MODULE <name>`, `target_link_libr
 
 ---
 
-**Status:** locked 2026-05-25.
+**Status:** ✅ shipped 2026-05-25. T15–T18 landed; all findings A–H closed.
+
 **Branch:** `kg/hp-ingest-embedded-firmware`.
-**Spawning context:** dogfood runs against `leocore_firmware_ros2` + `PX4-Autopilot` on 2026-05-25. Both produced near-empty Stage 1 + Stage 5 with the current pipeline. Eight findings (A–H) captured here as the implementation basis. Implementation T15–T18 begins after this commit.
+
+**Spawning context:** dogfood runs against `leocore_firmware_ros2` + `PX4-Autopilot` on 2026-05-25. Both produced near-empty Stage 1 + Stage 5 with the current pipeline. Eight findings (A–H) captured here as the implementation basis.
+
+**Verified deltas after T18 (deterministic prep only; no LLM):**
+
+| metric | leocore pre | leocore post | PX4 pre | PX4 post |
+|---|---:|---:|---:|---:|
+| frameworks detected | 0 | 4 | 1 | 5 |
+| boundary candidates | 0 | 6 | 52 (host CLI) | 893 |
+| with topic surface | 0 | 1 (7 topics) | 0 | 42 |
+| process clusters | 6 (5 vendor noise) | 2 | 237 | 481 (109 PX4-shaped + 177 FSM file-as-cluster) |
+| state-machine extracted | 0 / 22 (wrong) | 4 states / 3 txs | 0 / 0 | 67 with states / 149 with txs |
+| architecture candidates | 0 | 2 (MCU + memory map) | 1 (dev dockerfile) | 516 (330 px4_modules + 178 memory layouts + 7 firmware targets) |
+| px4_module_depends_on edges | n/a | 0 | n/a | 248 |
+| .px4board deployment configs | n/a | 0 | 0 | 264 |
+| false-positive testbeds | n/a | 0 | 1 (docs/) | 0 |

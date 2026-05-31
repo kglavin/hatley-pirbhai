@@ -128,6 +128,8 @@ A six-agent pipeline turns the codebase into a draft `dictionary.yaml`:
 - **Stage 5 (LLM):** `hp-ingest-architect` allocates every leaf process / CSPEC / data store to an architecture module + draws interconnects. Once at the top — sees the full hierarchy in `hp-graph.json`.
 - **Review (LLM):** `hp-ingest-review` runs `hp-validate` against the projected dictionary and repairs anything broken before emission.
 
+**Embedded firmware support (Branch 4 / [`EMBEDDED_FIRMWARE_TUNING_DESIGN.md`](EMBEDDED_FIRMWARE_TUNING_DESIGN.md)):** the pipeline recognizes a firmware-shaped vocabulary alongside the cloud-shaped one. Detected frameworks include FreeRTOS / NuttX / Zephyr / ChibiOS / Mbed / ESP-IDF / Arduino / AUTOSAR / STM32 HAL / Micro-ROS / ROS 2 / MAVLink / uORB / DDS. Boundary candidates include hardware peripherals (PWM / GPIO / UART / I2C / SPI / CAN / ADC), ROS topic surfaces, uORB advertisers, MAVLink endpoints, NSH commands. Architecture candidates include `px4_add_module()`, STM32CubeMX `.ioc`, PX4 `.px4board` deployment configs, linker scripts. C/C++ switch-case FSMs are detected with state-enum extraction.
+
 **Two design ideas are load-bearing:**
 
 1. **80/20 scripted/LLM** — deterministic Python scripts surface *candidates* (HTTP listeners, file clusters, state enums, Dockerfiles); LLM agents make the *architectural judgment* (is this a real terminator? what's this process named? does it need a CSPEC?). Per-ingest token cost is moderate (~50–100k tokens for fishing-rig-scale, ~300–800k for cloudctlplane-scale) — Python does the heavy lifting.
