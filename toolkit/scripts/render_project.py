@@ -60,7 +60,7 @@ def render_context(project_dir: Path, project, has_internals: bool) -> None:
     ctx_dir = project_dir / "00-context"
     ctx_dir.mkdir(parents=True, exist_ok=True)
 
-    drill_target = "../01-level1/dfd.html" if has_internals else None
+    drill_target = "../01-level1/dfd.generated.html" if has_internals else None
 
     print(_color("==> Level-0 Context — Mermaid", "1"))
     src = render_mermaid.render_context_diagram(project)

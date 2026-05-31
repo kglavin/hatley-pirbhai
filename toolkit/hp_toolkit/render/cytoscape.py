@@ -79,7 +79,7 @@ def _flow_kind(f: Flow) -> str:
 
 def render_context_elements(
     project: Project,
-    drill_target: str | None = "../01-level1/dfd.html",
+    drill_target: str | None = "../01-level1/dfd.generated.html",
 ) -> list[dict[str, Any]]:
     """Produce the Cytoscape elements list for the level-0 Context Diagram.
 
@@ -536,7 +536,7 @@ def _build_nav(project: Project, drill_target: str | None) -> str:
 def wrap_context_html(
     project: Project,
     elements: list[dict[str, Any]] | None = None,
-    drill_target: str | None = "../01-level1/dfd.html",
+    drill_target: str | None = "../01-level1/dfd.generated.html",
 ) -> str:
     """Wrap the level-0 Context Diagram's elements list in the full HTML
     template — Cytoscape script + side panel + legend + navigation.
@@ -596,7 +596,7 @@ def render_dfd_elements(
         if p.needs_cspec:
             cspec_subdir = p.id.replace("proc_", "").replace("_", "-")
             data["decomposable"] = True
-            data["decomposes_to"] = f"cspecs/{cspec_subdir}/cspec.html"
+            data["decomposes_to"] = f"cspecs/{cspec_subdir}/cspec.generated.html"
             data["decomposes_label"] = f"{p.label} CSPEC"
         elif project.pspec_for_process(p.id) is not None:
             # Leaf process with a PSPEC — link to its rendered markdown.
@@ -677,7 +677,7 @@ def render_dfd_elements(
 def _build_dfd_nav(project: Project) -> str:
     return (
         '<p style="margin:4px 0 4px 0;"><strong>↑ Parent:</strong> '
-        '<a href="../00-context/context.html">Level-0 Context Diagram</a> '
+        '<a href="../00-context/context.generated.html">Level-0 Context Diagram</a> '
         '&middot; <a href="../dictionary.yaml">Dictionary</a> '
         '&middot; <a href="../../../toolkit/reference/HP_QUICK_REF.md">HP Reference</a></p>\n'
         '    <p style="margin:0 0 12px 0;font-size:11px;color:#888;">'
@@ -962,7 +962,7 @@ def render_afd_elements(
         # If the module has children, mark decomposable + drill target
         if any(o.parent == m.id for o in project.all_architecture_modules()):
             data["decomposable"] = True
-            data["decomposes_to"] = f"afd-{m.id}.html"
+            data["decomposes_to"] = f"afd-{m.id}.generated.html"
             data["decomposes_label"] = f"{m.name} internals"
         # AMS link
         ams = project.ams_for_module(m.id)
