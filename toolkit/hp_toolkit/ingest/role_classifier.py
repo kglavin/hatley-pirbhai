@@ -38,6 +38,10 @@ _INFRA_FILENAMES = {
     "Makefile", "makefile",
     "Tiltfile", "Procfile",
     ".dockerignore", ".gitlab-ci.yml",
+    # ── Embedded build / config (per EMBEDDED_FIRMWARE_TUNING_DESIGN.md finding E) ──
+    "CMakeLists.txt", "Kconfig", "defconfig",
+    "platformio.ini", "west.yml",
+    "prj.conf",                       # Zephyr app config
 }
 
 # Path-prefix patterns for infra.
@@ -54,6 +58,12 @@ _INFRA_PATH_PATTERNS = [
     re.compile(r"\.tf$"),
     re.compile(r"ansible/.*\.ya?ml$"),
     re.compile(r"playbooks?/.*\.ya?ml$"),
+    # ── Embedded artifacts ──
+    re.compile(r"\.ioc$"),            # STM32CubeMX project file
+    re.compile(r"\.ld$"),             # Linker script
+    re.compile(r"\.px4board$"),       # PX4 board config
+    re.compile(r"\.overlay$"),        # Zephyr DTS overlay
+    re.compile(r"boards/[^/]+/[^/]+/(?:nuttx-config|defconfig)"),  # NuttX board config
 ]
 
 # Filenames that are config (package manifests excluded — handled separately).
@@ -96,6 +106,18 @@ _BOUNDARY_PATTERNS = [
     re.compile(r"\binotify\.|fs\.watch|fsnotify\.NewWatcher"),
     # WebSocket servers
     re.compile(r"\bWebSocketServer|ws\.Server|tokio_tungstenite::accept_async"),
+    # ── Embedded / firmware boundaries (per EMBEDDED_FIRMWARE_TUNING_DESIGN.md finding E) ──
+    # ROS 2 + Micro-ROS topic surfaces (pub/sub = external comm boundary)
+    re.compile(r"\b(rclcpp::create_(publisher|subscription|service|client)|rcl_(publisher|subscription|service|client)_init|rclc_(publisher|subscription|service|client)_init)\b"),
+    # uORB (PX4 internal pub/sub treated as boundary because it's the
+    # cross-module middleware that flow definitions ride on)
+    re.compile(r"\b(orb_advertise|orb_subscribe|ORB_ID\s*\(|ORB_DECLARE)\b"),
+    # MAVLink — off-vehicle by definition
+    re.compile(r"\bmavlink_msg_[a-z0-9_]+_(pack|encode|decode)\b"),
+    # DDS endpoints
+    re.compile(r"\bdds_create_(writer|reader|topic|participant)\b"),
+    # NSH / command-line shell registration on NuttX
+    re.compile(r"\b(NSH_DECLARE_BUILTIN|nsh_builtin)\b"),
 ]
 
 _STATE_MACHINE_PATTERNS = [
@@ -109,6 +131,10 @@ _STATE_MACHINE_PATTERNS = [
     re.compile(r"\b(createMachine|interpret|Machine\()"),
     # Rust enum used as state with `impl` of `match self { … }`
     re.compile(r"match\s+self\s*\{[^}]*=>"),
+    # C/C++ switch on a *_state variable → strong FSM signal
+    re.compile(r"switch\s*\(\s*\w*(state|mode|phase|status)\w*\s*\)", re.IGNORECASE),
+    # C enum with all-caps STATE_* members → state enum convention
+    re.compile(r"\benum\s+(?:class\s+)?\w*\s*\{[^}]*\b(STATE|MODE|PHASE|ST)_[A-Z_]+\s*[,=}]"),
 ]
 
 # DB / cache / queue / object-store client detection. Per tuning H.A: must

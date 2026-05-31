@@ -70,6 +70,34 @@ _FRAMEWORK_MARKERS = [
     ("Docker",      re.compile(r"^FROM\s+", re.MULTILINE)),
     ("Kubernetes",  re.compile(r"^apiVersion:\s*(apps|core|networking|batch)/", re.MULTILINE)),
     ("Terraform",   re.compile(r"^resource\s+\"", re.MULTILINE)),
+
+    # ── Embedded RTOSes (per EMBEDDED_FIRMWARE_TUNING_DESIGN.md finding A) ──
+    ("FreeRTOS",    re.compile(r"\b(xTaskCreate|osThreadDef|osThreadNew|vTaskDelay|vTaskStartScheduler)\b")),
+    ("NuttX",       re.compile(r"\b(px4_arch_|board_app_initialize|nsh_main)\b|^#include\s+<nuttx/")),
+    ("Zephyr",      re.compile(r"\bk_thread_create\b|^#include\s+<zephyr/|^CONFIG_ZEPHYR")),
+    ("ChibiOS",     re.compile(r"\b(chThdCreate|chThdSleep|evtRegister|chSysInit)\b")),
+    ("Mbed",        re.compile(r"^#include\s+\"mbed\.h\"|\bmbed::Thread|\bEventQueue\s*\(")),
+    ("ESP-IDF",     re.compile(r"\besp_event_loop\b|\besp_wifi_\w+\b|^#include\s+\"esp_", re.MULTILINE)),
+
+    # ── STM32 ecosystem ──
+    ("STM32 HAL",   re.compile(r"\bHAL_[A-Z][A-Za-z0-9_]*_Init\b|^#include\s+\"stm32[a-z0-9]+_hal\.h\"")),
+    ("STM32CubeMX", re.compile(r"\bMX_[A-Z][A-Za-z0-9_]*_Init\b|^Mcu\.Family=STM32", re.MULTILINE)),
+    ("STM32 LL",    re.compile(r"\bLL_[A-Z][A-Z0-9_]*_(?:Init|Enable|Disable)\b|^#include\s+\"stm32[a-z0-9]+_ll_")),
+
+    # ── Arduino + AUTOSAR ──
+    ("Arduino",     re.compile(r"^void\s+setup\s*\(\s*\)|^void\s+loop\s*\(\s*\)|^#include\s+(<|\")Arduino\.h", re.MULTILINE)),
+    ("AUTOSAR",     re.compile(r"\b(Rte_[A-Z][\w]+|BswM_[A-Z][\w]+|Com_[A-Z][\w]+|Os_[A-Z][\w]+|EcuM_[A-Z][\w]+)\b")),
+
+    # ── ROS 2 family + Micro-ROS ──
+    ("ROS 2",       re.compile(r"\brclcpp::|\brclpy\.|^#include\s+\"rclcpp/")),
+    ("Micro-ROS",   re.compile(r"\b(rclc_[a-z_]+|rmw_microros_|rcl_publisher_init|rcl_subscription_init)\b")),
+    ("MAVLink",     re.compile(r"\bmavlink_msg_[a-z0-9_]+_(pack|decode|encode)\b|^#include\s+\"mavlink/")),
+    ("uORB",        re.compile(r"\b(orb_advertise|orb_subscribe|ORB_ID\(|ORB_DECLARE)\b")),
+
+    # ── DDS impls ──
+    ("Fast-DDS",    re.compile(r"\beprosima::fastdds::|^#include\s+(<|\")fastdds/")),
+    ("Cyclone DDS", re.compile(r"\bdds_create_(writer|reader|topic|participant)\b|^#include\s+(<|\")dds/")),
+    ("Connext DDS", re.compile(r"\bRTI_Connext|^#include\s+(<|\")ndds/")),
 ]
 
 

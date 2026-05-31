@@ -63,6 +63,25 @@ _SCENARIO_FILENAME = re.compile(
     r"(scenario|e2e|integration|acceptance|smoke)\.py$",
     re.IGNORECASE,
 )
+
+# Extensions that represent *executable* code (vs documentation). Per
+# EMBEDDED_FIRMWARE_TUNING_DESIGN.md finding G: only count
+# scenario-shaped filenames toward "scenarios dominate" detection when
+# the file is one of these. Markdown / RST / ADoc scenario-files are
+# documentation, not executable specs.
+_EXECUTABLE_SCENARIO_EXTENSIONS = {
+    ".py", ".rs", ".go",
+    ".c", ".cc", ".cpp", ".cxx", ".h", ".hpp",
+    ".js", ".ts", ".tsx", ".mjs",
+    ".java", ".kt", ".scala",
+    ".rb", ".sh", ".bash",
+    ".feature",        # Gherkin/Cucumber acceptance specs
+}
+
+
+def _is_executable_scenario_file(rel_path: str) -> bool:
+    ext = Path(rel_path).suffix.lower()
+    return ext in _EXECUTABLE_SCENARIO_EXTENSIONS
 _TESTBED_DIRNAME = re.compile(
     r"^(agent[-_]?gym|testbed|sim|simulator|harness|fixtures|integration|e2e|"
     r"acceptance|system[-_]?test|playground|sandbox|workbench)$",
@@ -200,7 +219,14 @@ def _score_directory(dir_path: str, files: list[Path], root: Path) -> tuple[int,
     # PRIMARY signals — without at least one of these, the dir isn't a testbed.
     has_testbed_name = bool(_TESTBED_DIRNAME.match(dir_path.split("/")[-1]))
 
-    scenario_hits = sum(1 for p in file_rels if _SCENARIO_FILENAME.search(p))
+    # Per EMBEDDED_FIRMWARE_TUNING_DESIGN.md finding G: scenario-shaped
+    # filenames only count when the file is *executable* code, not
+    # documentation. Without this, a docs/ dir full of `integration-guide.md`
+    # / `system-test.md` files scores as a testbed (PX4 hit this).
+    scenario_hits = sum(
+        1 for p in file_rels
+        if _SCENARIO_FILENAME.search(p) and _is_executable_scenario_file(p)
+    )
 
     pytest_marker_hits = 0
     for p in file_rels[:50]:

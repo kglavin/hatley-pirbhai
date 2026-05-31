@@ -33,6 +33,14 @@ _STATE_ENUM_HEADERS = [
     re.compile(r"(?:#\[[^\]]*\]\s*)*enum\s+(\w*(?:State|Mode|Phase|Status))\s*\{"),
     # TypeScript: type / enum FooState = ...
     re.compile(r"(?:enum|type)\s+(\w*(?:State|Mode|Phase|Status))\s*[={]"),
+    # ── C / C++ FSMs (per EMBEDDED_FIRMWARE_TUNING_DESIGN.md finding D) ──
+    # Plain C named enum: `enum FooState { ... };` / `enum foo_state_e { ... };`
+    re.compile(r"enum\s+(\w*(?:[Ss]tate|[Mm]ode|[Pp]hase|[Ss]tatus)\w*)\s*\{"),
+    # Plain C typedef'd enum: `typedef enum { ST_INIT, ... } FooState_t;`
+    # (capture the post-brace typedef name; the enum itself is anonymous)
+    re.compile(r"typedef\s+enum\s*(?:\w+\s*)?\{[^}]*\}\s*(\w*(?:[Ss]tate|[Mm]ode|[Pp]hase|[Ss]tatus)\w*)\s*;"),
+    # C++ enum class: `enum class FooState : uint8_t { ... };`
+    re.compile(r"enum\s+class\s+(\w*(?:[Ss]tate|[Mm]ode|[Pp]hase|[Ss]tatus)\w*)\s*(?::\s*\w+\s*)?\{"),
 ]
 
 
@@ -40,7 +48,12 @@ _STATE_ENUM_HEADERS = [
 # Python: `INITIALIZING = "initializing"` / `INITIALIZING = auto()`
 # Rust: `Initializing,` / `Initializing(...)` / `Initializing { ... }`
 # TS: `Initializing = "initializing"` / `Initializing,`
-_VARIANT_PATTERN = re.compile(r"^\s*(\w+)\s*[,=({]", re.MULTILINE)
+# C/C++: `ST_INIT,` / `ST_INIT = 0,` / `ST_INIT` (last member, no trailing comma)
+#
+# The trailing character class must include `}` (last enum member before
+# closing brace has no comma) — common in C/C++ where trailing commas
+# weren't standardized until C++11.
+_VARIANT_PATTERN = re.compile(r"^\s*(\w+)\s*(?:[,=({}]|$)", re.MULTILINE)
 
 
 # Transition extraction patterns. Heuristic — picks up the most common
@@ -53,6 +66,20 @@ _TRANSITION_PATTERNS = [
     # transitions[A] = B
     re.compile(r"transitions\[['\"]?(\w+)['\"]?\]\s*=\s*['\"]?(\w+)['\"]?"),
 ]
+
+
+# Special C/C++ pattern: `case ST_A: ... state = ST_B; ...` within a switch.
+# We can't easily express this as a single regex (need to track which `case`
+# scope each assignment lives in), so it gets its own walker in _extract_transitions.
+# Match `case ST_FOO:` (C style, bare identifier) OR `case EnumName::FOO:`
+# (C++ enum-class qualified syntax). Capture group 1 = the value name only.
+_C_CASE_LABEL = re.compile(r"\bcase\s+(?:\w+::)?([A-Z_][A-Z0-9_]+)\s*:")
+# Match `state = ST_X` OR `state = EnumName::X` — capture only the value.
+_C_STATE_ASSIGN = re.compile(
+    r"(?:state|mode|phase|status|fsm_state|current_state|next_state)\s*=\s*"
+    r"(?:\w+::)?([A-Z_][A-Z0-9_]+)\s*[;,)]",
+    re.IGNORECASE,
+)
 
 
 # ─────────────────────────────────────────────────────────────────────
@@ -211,6 +238,8 @@ def _extract_transitions(content: str, known_states: set[str]) -> list[Transitio
     restrict to pairs where both endpoints are known states (filters most noise)."""
     pairs: list[TransitionCandidate] = []
     seen: set[tuple[str, str]] = set()
+
+    # Generic patterns (Rust match-arrow, JSON transition tables, etc.)
     for pat in _TRANSITION_PATTERNS:
         for m in pat.finditer(content):
             src, tgt = m.group(1), m.group(2)
@@ -218,6 +247,46 @@ def _extract_transitions(content: str, known_states: set[str]) -> list[Transitio
                 continue
             key = (src, tgt)
             if key in seen or src == tgt:
+                continue
+            seen.add(key)
+            pairs.append(TransitionCandidate(source_state=src, target_state=tgt))
+            if len(pairs) >= 60:
+                return pairs
+
+    # C/C++ switch-case FSM walker: when we see `case ST_FOO:` followed
+    # (within a few lines) by `state = ST_BAR;`, that's a transition
+    # from ST_FOO to ST_BAR. Per EMBEDDED_FIRMWARE_TUNING_DESIGN.md
+    # finding D.
+    pairs.extend(_extract_c_switch_transitions(content, known_states, seen))
+    return pairs[:60]
+
+
+def _extract_c_switch_transitions(
+    content: str,
+    known_states: set[str],
+    seen: set[tuple[str, str]],
+) -> list[TransitionCandidate]:
+    """For each `case ST_X:` in the file, find any state-variable
+    assignments within ~40 lines after the case label + before the next
+    case label or function boundary. Each assignment becomes a
+    transition from ST_X to the assigned state."""
+    pairs: list[TransitionCandidate] = []
+    case_matches = list(_C_CASE_LABEL.finditer(content))
+    for i, m in enumerate(case_matches):
+        src = m.group(1)
+        if known_states and src not in known_states:
+            continue
+        scope_start = m.end()
+        scope_end = case_matches[i + 1].start() if i + 1 < len(case_matches) else min(scope_start + 2000, len(content))
+        scope = content[scope_start:scope_end]
+        for am in _C_STATE_ASSIGN.finditer(scope):
+            tgt = am.group(1)
+            if known_states and tgt not in known_states:
+                continue
+            if src == tgt:
+                continue
+            key = (src, tgt)
+            if key in seen:
                 continue
             seen.add(key)
             pairs.append(TransitionCandidate(source_state=src, target_state=tgt))

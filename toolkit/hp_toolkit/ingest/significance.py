@@ -46,6 +46,15 @@ _ALWAYS_SKIP_PATH_PATTERNS = [
     re.compile(r"\.egg-info/"),
     re.compile(r"(^|/)vendor/"),
     re.compile(r"(^|/)Pods/"),
+    # ── Embedded vendor directories (per EMBEDDED_FIRMWARE_TUNING_DESIGN.md E) ──
+    # Vendor SDKs / HAL headers: CMSIS, ST HAL drivers, Nordic SDK, ESP-IDF
+    # components, NuttX vendor tree. These are scaffolding, not architecture.
+    re.compile(r"(^|/)(CMSIS|cmsis)/"),
+    re.compile(r"(^|/)STM32[A-Z][a-z0-9]+_HAL_Driver/"),
+    re.compile(r"(^|/)Drivers/STM32"),
+    re.compile(r"(^|/)nrfx?/"),                       # Nordic
+    re.compile(r"(^|/)components/(esp_|freertos|driver)/"),  # ESP-IDF components
+    re.compile(r"(^|/)Middlewares/(Third_Party|ST)/"),
     # Generated
     re.compile(r"(^|/)generated/"),
     re.compile(r"\.generated\.[a-z]+$"),
