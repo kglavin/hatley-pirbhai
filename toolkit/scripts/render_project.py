@@ -33,6 +33,7 @@ from hp_toolkit.render import (
     adr as render_adr,
     index as render_index,
     markdown_artifact as render_md,
+    pdf as render_pdf,
 )
 from hp_toolkit.render.tree import build_project_tree, TreeNode
 
@@ -94,7 +95,7 @@ def render_context(project_dir: Path, project, has_internals: bool, *, tree: Tre
     print()
 
 
-def main(project_dir: Path) -> int:
+def main(project_dir: Path, *, pdf_only: bool = False, no_pdf: bool = False) -> int:
     if not project_dir.is_dir():
         print(_color(f"ERROR: {project_dir} is not a directory", "31"), file=sys.stderr)
         return 2
@@ -108,6 +109,12 @@ def main(project_dir: Path) -> int:
     project = load(dictionary_path)
     print(_color(f"  ✓ {project.project} v{project.version}", "32"))
     print()
+
+    if pdf_only:
+        # Assume HTML/SVG artifacts already rendered; just regenerate the PDF.
+        render_project_pdf(project_dir, project)
+        print(_color("Done (PDF only).", "32"))
+        return 0
 
     # Build the project tree once. Both the per-page sidebar and the
     # index page (and the PDF, Commit 3) consume the same tree.
@@ -158,8 +165,20 @@ def main(project_dir: Path) -> int:
     # ─── Project portal index ───
     render_project_index(project_dir, project)
 
+    # ─── PDF (default: yes; opt out with --no-pdf) ───
+    if not no_pdf:
+        render_project_pdf(project_dir, project)
+
     print(_color(f"Done.", "32"))
     return 0
+
+
+def render_project_pdf(project_dir: Path, project) -> None:
+    """Render the single-file portable PDF (Portal — Commit 3)."""
+    print(_color("==> Project PDF", "1"))
+    out = render_pdf.render_project_pdf(project, project_dir)
+    print(f"  wrote {out.name} ({out.stat().st_size} bytes)")
+    print()
 
 
 def render_runbook_htmls(project_dir: Path, *, tree: TreeNode | None = None) -> None:
@@ -482,7 +501,14 @@ def render_cspec(project_dir: Path, project, proc, *, tree: TreeNode | None = No
 
 
 if __name__ == "__main__":
-    if len(sys.argv) < 2:
-        print("usage: render_project.py <project-directory>", file=sys.stderr)
+    args = [a for a in sys.argv[1:] if not a.startswith("-")]
+    flags = {a for a in sys.argv[1:] if a.startswith("-")}
+    if not args:
+        print("usage: render_project.py <project-directory> [--no-pdf] [--pdf-only]",
+              file=sys.stderr)
         sys.exit(2)
-    sys.exit(main(Path(sys.argv[1]).resolve()))
+    sys.exit(main(
+        Path(args[0]).resolve(),
+        pdf_only="--pdf-only" in flags,
+        no_pdf="--no-pdf" in flags,
+    ))

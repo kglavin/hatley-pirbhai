@@ -71,8 +71,13 @@ def _render_leaf(node: TreeNode, prefix: str, is_current: bool) -> str:
     if node.href:
         current_attr = ' class="current"' if is_current else ''
         marker = ' <span class="hp-ext">↗</span>' if node.kind == 'external' else ''
-        # External hrefs already escape outward (../..); leave them alone.
-        href = node.href if node.kind == 'external' else _resolve_href(prefix, node.href)
+        # Absolute URLs (http(s), mailto, root-anchored) bypass the prefix;
+        # everything else — including kind='external' — is project-root-
+        # relative and needs the `../` prefix for the host page's depth.
+        if _is_absolute_url(node.href):
+            href = node.href
+        else:
+            href = _resolve_href(prefix, node.href)
         return (
             f'<li><a href="{_html_escape(href)}"{current_attr}>'
             f'{_html_escape(node.label)}{marker}{badge}</a></li>\n'
@@ -92,6 +97,11 @@ def _path_prefix_for(current_path: str | None) -> str:
 def _resolve_href(prefix: str, href: str) -> str:
     """Convert a project-root-relative href into one relative to the host page."""
     return prefix + href
+
+
+def _is_absolute_url(href: str) -> bool:
+    return (href.startswith("http://") or href.startswith("https://")
+            or href.startswith("mailto:") or href.startswith("/"))
 
 
 def _contains_path(node: TreeNode, path: str | None) -> bool:
