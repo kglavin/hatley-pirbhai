@@ -60,6 +60,18 @@ def build_dictionary_dict(graph: IRGraph) -> dict[str, Any]:
     architecture_module_specs: dict[str, Any] = {}
     architecture_interconnect_specs: dict[str, Any] = {}
 
+    # Per HIERARCHICAL_INGEST_DESIGN.md: `level` derives from the parent
+    # chain depth + non-leaf processes drop their CSPEC/PSPEC. Pre-compute
+    # an id→node map + child-process set so we don't re-walk for every
+    # node we emit.
+    by_id: dict[str, IRNode] = {n.id: n for n in graph.nodes}
+    non_leaf_processes: set[str] = {
+        n.parent for n in graph.nodes
+        if n.kind == IRNodeKind.PROCESS and n.parent and n.parent != "sys_root"
+        and by_id.get(n.parent) is not None
+        and by_id[n.parent].kind == IRNodeKind.PROCESS
+    }
+
     # ─── sys_root scaffold ───
     entities["sys_root"] = {
         "kind": "system",
@@ -72,10 +84,15 @@ def build_dictionary_dict(graph: IRGraph) -> dict[str, Any]:
     # ─── Nodes → entities / pspecs / architecture_* ───
     for n in graph.nodes:
         if n.kind in (IRNodeKind.TERMINATOR, IRNodeKind.PROCESS, IRNodeKind.DATA_STORE):
-            entities[n.id] = _emit_entity(n)
+            entities[n.id] = _emit_entity(n, by_id=by_id, non_leaf_processes=non_leaf_processes)
         elif n.kind in (IRNodeKind.STATE, IRNodeKind.STATE_COMPOSITE):
-            entities[n.id] = _emit_entity(n)
+            entities[n.id] = _emit_entity(n, by_id=by_id, non_leaf_processes=non_leaf_processes)
         elif n.kind == IRNodeKind.PSPEC:
+            # Non-leaf processes don't get PSPECs (per HIERARCHICAL_INGEST_DESIGN.md
+            # Q3 lock — specs live at hierarchy leaves)
+            parent_proc_id = n.parent or n.id.replace("pspec_", "proc_")
+            if parent_proc_id in non_leaf_processes:
+                continue
             pspecs[n.id] = _emit_pspec(n)
         elif n.kind == IRNodeKind.ARCHITECTURE_MODULE:
             architecture_modules[n.id] = _emit_arch_module(n)
@@ -131,23 +148,39 @@ def build_dictionary_dict(graph: IRGraph) -> dict[str, Any]:
 # Per-kind emitters
 # ─────────────────────────────────────────────────────────────────────
 
-def _emit_entity(n: IRNode) -> dict[str, Any]:
+def _emit_entity(
+    n: IRNode,
+    *,
+    by_id: Optional[dict[str, IRNode]] = None,
+    non_leaf_processes: Optional[set[str]] = None,
+) -> dict[str, Any]:
+    """Render one IR entity node into its dictionary.yaml entry.
+
+    `level` is derived from the parent chain depth (HIERARCHICAL_INGEST_DESIGN.md):
+    sub-processes nested under another process come out at level=N+1 of
+    their parent's level. `needs_cspec` is suppressed on non-leaf
+    processes since their decomposition is a sub-DFD, not a CSPEC."""
     out: dict[str, Any] = {
         "kind": n.kind.value,
         "label": n.label,
         "description": n.summary or n.description or "",
     }
-    # Level by kind: terminator/process/data_store at level 1; states deeper.
+    by_id = by_id or {}
+    non_leaf_processes = non_leaf_processes or set()
+
     if n.kind == IRNodeKind.TERMINATOR:
         out["level"] = 0
         out["parent"] = n.parent or "sys_root"
     elif n.kind in (IRNodeKind.PROCESS, IRNodeKind.DATA_STORE):
-        out["level"] = 1
+        out["level"] = _process_level(n, by_id)
         out["parent"] = n.parent or "sys_root"
-        if n.kind == IRNodeKind.PROCESS and n.needs_cspec:
+        # Only LEAF processes carry needs_cspec — a non-leaf process is
+        # organizational (decomposed into sub-processes), not state-rich.
+        if n.kind == IRNodeKind.PROCESS and n.needs_cspec and n.id not in non_leaf_processes:
             out["needs_cspec"] = True
     elif n.kind in (IRNodeKind.STATE, IRNodeKind.STATE_COMPOSITE):
-        out["level"] = 2
+        # States sit one level below the process they belong to.
+        out["level"] = _state_level(n, by_id)
         if n.parent_machine:
             out["parent_machine"] = n.parent_machine
         if n.parent:
@@ -157,6 +190,34 @@ def _emit_entity(n: IRNode) -> dict[str, Any]:
     if n.optional:
         out["optional"] = True
     return out
+
+
+def _process_level(n: IRNode, by_id: dict[str, IRNode]) -> int:
+    """Derive level for a process / data_store node by walking the parent
+    chain. parent=sys_root → level 1; parent=other-process → level 2; etc."""
+    if not n.parent or n.parent == "sys_root":
+        return 1
+    depth = 1
+    cursor = by_id.get(n.parent)
+    while cursor is not None and depth < 10:
+        if not cursor.parent or cursor.parent == "sys_root":
+            return depth + 1
+        depth += 1
+        cursor = by_id.get(cursor.parent)
+    return depth + 1
+
+
+def _state_level(n: IRNode, by_id: dict[str, IRNode]) -> int:
+    """States sit one level below their owning process. The state's
+    `parent` is the process id; we ask `_process_level` for the
+    process's level and add 1. Composite-state nesting is handled via
+    `parent_state`, not `level`."""
+    if not n.parent:
+        return 2
+    parent = by_id.get(n.parent)
+    if parent is None or parent.kind != IRNodeKind.PROCESS:
+        return 2
+    return _process_level(parent, by_id) + 1
 
 
 def _emit_pspec(n: IRNode) -> dict[str, Any]:
