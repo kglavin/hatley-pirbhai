@@ -290,6 +290,33 @@ A flow-organized HP graph and a directory-organized code graph are *different vi
 **Drift detection is the primary ongoing job after first ingest.**
 Once a model exists, the long-term value of the toolkit is keeping it aligned with code / schema / runtime, not the initial reverse-engineering. Implementation activity tends to *accelerate*, not stabilize; drift is continuous. *Implication:* the toolkit's compute budget after first ingest is mostly spent on incremental sync, not on re-ingesting from scratch.
 
+**Catalog-reference discipline.**
+Security-related decisions reference industry catalogs (MITRE ATT&CK, CWE, OWASP ASVS, ISA/IEC 62443, NIST 800-53) by ID rather than re-deriving threats and defenses in prose. Like how AIS already references protocol standards (BLE Core Spec 5.0; RFC 6455), security claims reference catalog entries by their numeric ID. *Why:* reinventing threat-model vocabulary is the most common source of "we forgot about that attack class." Anchoring to MITRE ATT&CK means the analysis can be cross-referenced against threat intel + auditor expectations. *Validator backing:* Commit 4's format-check warnings on malformed IDs. *Lived 2026-05-22.*
+
+**Budget-allocation conservation.**
+When allocating budgets across modules, the sum of allocations + reserve must equal the system target — not less (under-allocated), not more (over-allocated). Surface this as a hard validator-anchored discipline; never propose a budget without immediately allocating it. *Why:* unallocated budget is the most dangerous kind — it implies the system can absorb work that hasn't been planned. NASA SE Handbook §6.7 (Technical Resource Management). *Validator backing:* Commit 2's budget allocation hard rule.
+
+---
+
+## Modernization Tactics (post-2026-05-22)
+
+These tactics emerged from the modernization commits (1–5 on `kg/meld-tech-2026`). They guide how the AI uses the 10 new modernization capabilities during interactions with the architect. See [`toolkit/MODERNIZATION_TACTICS.md`](toolkit/MODERNIZATION_TACTICS.md) for the full design.
+
+**Design-intent → runtime chain.**
+At architecture-time, always trace each non-functional concern through the chain: **Budget → TPM → SLO → Observability → Runbook**. Don't propose an architecture-level flow or commitment without surfacing at least one budget concern. Each link failing creates a debugging gap that operations teams pay for downstream. *Sources:* NASA SE Handbook §6.7; Google SRE Book + Workbook. *Validator backing:* Commits 2 + 3 enforce the sub-rules; the tactic ensures the chain is *traced* during proposal authoring. *Belongs to:* Section B (Artifact Discipline).
+
+**Cross-boundary STRIDE pass.**
+Any time an architecture flow or interconnect crosses trust zones, force a STRIDE pass before locking the architecture proposal. Every interconnect bridging different `trust_zone:` values declares mitigations for all six STRIDE categories (out-of-scope is a valid narrative when justified). *Source:* Microsoft SDL (Howard & Lipner 2006); ISA/IEC 62443 makes it auditable for industrial systems. *Validator backing:* Commit 4's stride_coverage_pct rule. *Belongs to:* Section B.
+
+**ADR-as-you-go.**
+When making a non-obvious architectural decision — one with viable alternatives and real trade-offs — capture an ADR immediately, not retroactively. The form-based proposal pattern is the *entry point*; the ADR is the durable artifact. *Why:* decisions decay in memory and team turnover. Nygard 2011's observation: teams forget *why* something was chosen, then re-debate when constraints have changed. *Implication:* every proposal-locking skill ends with "any decisions worth ADR-capturing?" — not optional but invitational. *Belongs to:* Section A (Interaction Posture).
+
+**Observability-first design.**
+When proposing a new bubble (process, architecture module), ask "what does it emit?" alongside "what does it compute?" The observability surface is part of the spec, not bolted on. Same for V&V plans — what verifies this spec? *Why:* modern systems are debugged through observability; SRE practice tracks design-time → runtime via SLOs anchored to observed metrics. If observability is post-hoc, the metrics drift from the design. *Sources:* OpenTelemetry semantic conventions; Google SRE Workbook ch. 5; NASA SE Handbook §5.3 (V&V). *Belongs to:* Section B.
+
+**Context-boundary discipline.**
+When entities are added in a project with declared `bounded_contexts:`, every new entity must be tagged with its context. Untagged entities in a multi-context project are an error, not a default. *Source:* Evans 2003 ch. 14 — "Multiple models are in play on any large project. Yet when code based on distinct models is combined, software becomes buggy." *Validator backing:* Commit 5's BoundedContexts rule fires on missing context refs and cross-context flows without translation. *Belongs to:* Section B.
+
 ---
 
 ## Artifacts Index
