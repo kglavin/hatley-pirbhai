@@ -1,3 +1,5 @@
 reference-docs/Process for System Architecture and Requirements Engineering -- Hatley, Derek J_, 1934-; Hruschka, Peter, 1951-; Pirbhai, -- New York, ©2000.pdf
 reference-docs/Strategies for Real-Time System Specification -- by Derek J_ Hatley, Imtiaz A_ Pirbhai -- New York, United States, 1988.pdf
 graphify-out/
+**/__pycache__/
+examples/**/*.generated.*
