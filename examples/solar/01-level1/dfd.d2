@@ -1,0 +1,101 @@
+# Solar Local Stack — Level-1 DFD (locked 2026-05-22)
+#
+# First decomposition of sys_root into 5 + 1 (optional) internal processes
+# plus the System State data store. Names per ../dictionary.yaml level: 1.
+#
+# Render: d2 dfd.d2 dfd-d2.svg
+
+direction: right
+
+# ─── External terminators ───
+HM:   "Solar Inverters"            { shape: rectangle }
+CM:   "Net Power Meter"            { shape: rectangle }
+VX:   "Battery System"             { shape: rectangle }
+GRID: "Utility Grid" {
+  shape: rectangle
+  style.fill: "#fef0ef"
+  style.stroke: "#e74c3c"
+}
+USR:  "Owner"                      { shape: rectangle }
+SMC:  "S-Miles Cloud\n(optional)" {
+  shape: rectangle
+  style.stroke-dash: 5
+  style.opacity: 0.55
+  style.font-color: "#666"
+}
+
+# ─── Internal processes ───
+P1: "Acquire\nTelemetry" {
+  shape: oval
+  style.fill: "#cfe5ff"
+}
+P2: "Energy Manager" {
+  shape: oval
+  style.fill: "#7fbff5"
+  style.bold: true
+}
+P3: "Dispatch\nCommands" {
+  shape: oval
+  style.fill: "#cfe5ff"
+}
+P4: "Serve UI" {
+  shape: oval
+  style.fill: "#cfe5ff"
+}
+P5: "Handle\nInput" {
+  shape: oval
+  style.fill: "#cfe5ff"
+}
+P6: "Cloud Forward\n(optional)" {
+  shape: oval
+  style.fill: "#e6f0ff"
+  style.stroke-dash: 3
+  style.opacity: 0.7
+}
+
+# ─── Data store (per Decision 4) ───
+DS: "System State" {
+  shape: cylinder
+  style.fill: "#fff5cc"
+}
+
+# ─── Boundary-crossing flows (F1–F8) ───
+HM  -> P1: "F1: telemetry"
+P3  -> HM: "F2: power-limit"
+CM  -> P1: "F3: net grid power"
+VX  -> P1: "F4: SoC, mode"
+P3  -> VX: "F5: charge / setpoint"
+USR -> P5: "F6: config, override"
+P4  -> USR: "F7: dashboards, alerts"
+P6  -> SMC: "F8: telemetry fwd" {
+  style.stroke-dash: 5
+  style.opacity: 0.6
+}
+
+# ─── Physical AC power (context) ───
+GRID -- HM: "AC power" {
+  style.stroke: "#e74c3c"
+  style.stroke-width: 3
+  style.opacity: 0.7
+}
+GRID -- VX: "AC power" {
+  style.stroke: "#e74c3c"
+  style.stroke-width: 3
+  style.opacity: 0.7
+}
+
+# ─── Internal flows ───
+P1 -> DS: "writes state"
+DS -> P2: "reads"
+DS -> P4: "reads"
+DS -> P6: "reads (optional)" {
+  style.stroke-dash: 3
+  style.opacity: 0.6
+}
+P2 -> P3: "cmd_setpoint"
+P2 -> P3: "cmd_inverter_limit"
+P2 -> P4: "event_alert"
+P5 -> P2: "event_override"
+P5 -> P1: "event_config" {
+  style.opacity: 0.5
+}

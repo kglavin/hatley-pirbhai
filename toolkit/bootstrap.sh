@@ -75,9 +75,10 @@ section "d2 (declarative diagrams)"
 if command -v d2 &>/dev/null; then
   ok "d2 installed: $(d2 --version 2>&1 | head -1)"
 else
-  miss "d2 missing — installing to $INSTALL_DIR"
-  # Official installer; -d sets install directory
-  curl -fsSL https://d2lang.com/install.sh | sh -s -- -d "$INSTALL_DIR"
+  miss "d2 missing — installing (defaults to \$HOME/.local for non-root)"
+  # Official installer; defaults to $HOME/.local for non-root users.
+  # Override with --prefix PATH if a different location is wanted.
+  curl -fsSL https://d2lang.com/install.sh | sh -s --
   if command -v d2 &>/dev/null; then
     ok "d2 installed: $(d2 --version 2>&1 | head -1)"
   else
@@ -91,8 +92,9 @@ if command -v mmdc &>/dev/null; then
 else
   if command -v npm &>/dev/null; then
     miss "mmdc missing — installing via npm into $HOME/.local"
-    npm install --prefix "$HOME/.local" @mermaid-js/mermaid-cli >/dev/null 2>&1
-    # npm prefix install puts binaries in $prefix/bin
+    # -g (global) flag is required so npm creates the bin symlink at $prefix/bin.
+    # This pulls Puppeteer + a headless Chromium (~200 MB); takes a few minutes.
+    npm install -g --prefix "$HOME/.local" @mermaid-js/mermaid-cli >/dev/null 2>&1
     if [[ -x "$HOME/.local/bin/mmdc" ]]; then
       ok "mmdc installed at $HOME/.local/bin/mmdc"
     else
@@ -101,6 +103,20 @@ else
   else
     fail "npm not found — Node.js required for mmdc. Install Node first, then re-run."
   fi
+fi
+
+# Puppeteer config for mmdc — Ubuntu 23.10+ disables unprivileged user namespaces
+# via AppArmor, which kills Chromium's default sandbox. We render our own trusted
+# content (Mermaid source from the model), so --no-sandbox is acceptable here.
+# Without this, `mmdc` fails with: "No usable sandbox!"
+PUPPETEER_CFG="$(cd "$(dirname "$0")" && pwd)/.puppeteer-config.json"
+if [[ ! -f "$PUPPETEER_CFG" ]]; then
+  cat > "$PUPPETEER_CFG" <<'EOF'
+{
+  "args": ["--no-sandbox", "--disable-setuid-sandbox"]
+}
+EOF
+  ok "wrote $PUPPETEER_CFG (mmdc needs --no-sandbox on Ubuntu 23.10+)"
 fi
 
 section "Summary"

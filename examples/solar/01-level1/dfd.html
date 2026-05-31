@@ -1,0 +1,314 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Solar Local Stack — Level-1 DFD</title>
+  <script src="https://unpkg.com/cytoscape@3.28.1/dist/cytoscape.min.js"></script>
+  <style>
+    * { box-sizing: border-box; }
+    html, body { margin: 0; padding: 0; height: 100%; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif; }
+    body { display: flex; }
+    #cy { flex: 1; background: #fafafa; }
+    #panel { width: 360px; padding: 18px; background: #fff; border-left: 1px solid #ddd; overflow-y: auto; font-size: 13px; line-height: 1.5; }
+    #panel h1 { font-size: 15px; margin: 0 0 6px; color: #222; }
+    #panel .sub { color: #888; font-size: 11px; margin-bottom: 16px; }
+    #panel h2 { font-size: 13px; margin: 18px 0 6px; color: #333; border-bottom: 1px solid #eee; padding-bottom: 4px; }
+    #panel p { margin: 6px 0; }
+    #panel .label { font-weight: 600; color: #444; }
+    #info { min-height: 80px; }
+    #info .placeholder { color: #999; font-style: italic; }
+    .legend-item { display: flex; align-items: center; margin: 6px 0; font-size: 12px; }
+    .legend-swatch { width: 28px; height: 16px; margin-right: 10px; border-radius: 2px; flex-shrink: 0; }
+    .legend-line { width: 28px; margin-right: 10px; flex-shrink: 0; }
+    .controls { margin-top: 12px; }
+    .controls button { padding: 4px 10px; margin: 2px 4px 2px 0; font-size: 11px; border: 1px solid #ccc; background: #f6f6f6; border-radius: 3px; cursor: pointer; }
+    .controls button:hover { background: #ececec; }
+  </style>
+</head>
+<body>
+  <div id="cy"></div>
+  <div id="panel">
+    <h1>Solar Local Stack — Level-1 DFD</h1>
+    <div class="sub">First decomposition of <code>sys_root</code> · locked 2026-05-22</div>
+
+    <h2>Navigation</h2>
+    <p style="margin:4px 0 4px 0;"><strong>↑ Parent:</strong> <a href="../00-context/context.html">Level-0 Context Diagram</a> &middot; <a href="../dictionary.yaml">Dictionary</a> &middot; <a href="../../../toolkit/reference/HP_QUICK_REF.md">HP Reference</a></p>
+    <p style="margin:0 0 12px 0;font-size:11px;color:#888;">Tip: <strong>double-click</strong> any double-bordered bubble to drill in. Energy Manager (the brain) is marked decomposable — its CSPEC arrives in Stage 3.</p>
+
+    <h2>Selected</h2>
+    <div id="info"><div class="placeholder">Click a node or edge to see details. Drag nodes to rearrange.</div></div>
+
+    <h2>Legend</h2>
+    <div class="legend-item"><div class="legend-swatch" style="background:#7fbff5; border-radius:50%; border:2px solid #1f5a99;"></div>Brain (Energy Manager — needs CSPEC)</div>
+    <div class="legend-item"><div class="legend-swatch" style="background:#cfe5ff; border-radius:50%; border:1px solid #2a70c2;"></div>Internal process</div>
+    <div class="legend-item"><div class="legend-swatch" style="background:#e6f0ff; border-radius:50%; border:1px dashed #888;"></div>Optional process</div>
+    <div class="legend-item"><div class="legend-swatch" style="background:#fff5cc; border:1px solid #b89800;"></div>Data store</div>
+    <div class="legend-item"><div class="legend-swatch" style="background:#fafafa; border:1px solid #444;"></div>Terminator (external)</div>
+    <div class="legend-item"><div class="legend-swatch" style="background:#fafafa; border:1px dashed #888;"></div>Optional terminator</div>
+    <div class="legend-item"><svg class="legend-line" height="6"><line x1="0" y1="3" x2="28" y2="3" stroke="#444" stroke-width="1.5"/></svg>Data/control flow</div>
+    <div class="legend-item"><svg class="legend-line" height="6"><line x1="0" y1="3" x2="28" y2="3" stroke="#888" stroke-width="1.5" stroke-dasharray="4 3"/></svg>Optional flow</div>
+    <div class="legend-item"><svg class="legend-line" height="6"><line x1="0" y1="3" x2="28" y2="3" stroke="#e74c3c" stroke-width="3" opacity="0.7"/></svg>Physical AC power</div>
+
+    <h2>Controls</h2>
+    <div class="controls">
+      <button onclick="cy.fit(undefined, 30); cy.center();">Fit</button>
+      <button onclick="cy.layout({name:'cose', nodeRepulsion: 9000, idealEdgeLength: 130, padding: 40, animate: true}).run();">Re-layout</button>
+      <button onclick="cy.layout({name:'breadthfirst', directed: true, padding: 30, spacingFactor: 1.4, animate: true}).run();">Tree layout</button>
+    </div>
+  </div>
+
+  <script>
+    var elements = [
+      // ─── Terminators (external) ───
+      { data: { id: 'HM', label: 'Solar Inverters', kind: 'terminator',
+        description: 'Hoymiles HMS-2000-4T-NA microinverters. Telemetry via Sub-1G RF to DTU/OpenDTU.' }},
+      { data: { id: 'CM', label: 'Net Power Meter', kind: 'terminator',
+        description: 'Chint DTSU666 utility-grade smart meter. RS485 Modbus RTU. Primary sensor for the diversion loop.' }},
+      { data: { id: 'VX', label: 'Battery System', kind: 'terminator',
+        description: 'Victron MultiPlus + Cerbo GX. Two-way MQTT and Modbus TCP. Handles outage transfer and ESS night-discharge natively.' }},
+      { data: { id: 'GRID', label: 'Utility Grid', kind: 'terminator-grid',
+        description: 'External utility (PG&E) under zero-export tariff. Observed via Net Power Meter; not addressed directly.' }},
+      { data: { id: 'USR', label: 'Owner', kind: 'terminator',
+        description: 'Configures, overrides, reviews dashboards, receives alerts.' }},
+      { data: { id: 'SMC', label: 'S-Miles Cloud\n(optional)', kind: 'terminator-optional',
+        description: 'Hoymiles cloud monitoring. Optional — off by default; replaced by local stack.' }},
+
+      // ─── Internal processes ───
+      { data: { id: 'P1', label: 'Acquire\nTelemetry', kind: 'process',
+        description: 'Multi-protocol ingest layer. Owns Sub-1G/OpenDTU, Modbus RTU, MQTT/Modbus TCP. Normalizes raw frames into system_state. Single writer to the System State store.' }},
+      { data: { id: 'P2', label: 'Energy Manager', kind: 'process-brain',
+        decomposable: true,
+        decomposes_to: 'cspecs/energy-manager.html',
+        decomposes_label: 'Energy Manager CSPEC (Stage 3 — not yet generated)',
+        description: 'The brain. Diversion control loop + night-discharge + outage handling, all as modes of a single CSPEC. State-rich; needs the CSPEC at Stage 3.' }},
+      { data: { id: 'P3', label: 'Dispatch\nCommands', kind: 'process',
+        description: 'Output-side adapter. Translates internal commands (cmd_setpoint, cmd_inverter_limit) into vendor-specific protocols.' }},
+      { data: { id: 'P4', label: 'Serve UI', kind: 'process',
+        description: 'Presentation. Renders dashboards from System State; surfaces alerts emitted by Energy Manager.' }},
+      { data: { id: 'P5', label: 'Handle\nInput', kind: 'process',
+        description: 'Owner-facing input — configuration, manual overrides, enable/disable.' }},
+      { data: { id: 'P6', label: 'Cloud Forward\n(optional)', kind: 'process-optional',
+        description: 'Optional telemetry forward to S-Miles Cloud. Off by default; only enabled if the owner wants belt-and-suspenders cloud retention.' }},
+
+      // ─── Data store ───
+      { data: { id: 'DS', label: 'System State', kind: 'datastore',
+        description: 'Normalized, unified system-state snapshot. Single writer (Acquire Telemetry); multiple readers (Energy Manager, Serve UI, optionally Cloud Forward). Per Decision 4 (explicit store).' }},
+
+      // ─── Boundary flows F1–F8 ───
+      { data: { id: 'F1', source: 'HM', target: 'P1', label: 'F1: telemetry',
+        kind: 'data', medium: 'Sub-1G RF → DTU/OpenDTU', notes: '~30s native; near-realtime via OpenDTU' }},
+      { data: { id: 'F2', source: 'P3', target: 'HM', label: 'F2: power-limit',
+        kind: 'control', medium: 'OpenDTU only', notes: 'Conditional on DTU architectural choice' }},
+      { data: { id: 'F3', source: 'CM', target: 'P1', label: 'F3: net grid power',
+        kind: 'data', medium: 'RS485 Modbus RTU', notes: 'Primary sensing input for the diversion loop' }},
+      { data: { id: 'F4', source: 'VX', target: 'P1', label: 'F4: SoC, mode',
+        kind: 'data', medium: 'MQTT / Modbus TCP' }},
+      { data: { id: 'F5', source: 'P3', target: 'VX', label: 'F5: charge / setpoint',
+        kind: 'control', medium: 'MQTT publish', notes: 'Primary actuating output for the diversion loop' }},
+      { data: { id: 'F6', source: 'USR', target: 'P5', label: 'F6: config, override',
+        kind: 'data', medium: 'UI' }},
+      { data: { id: 'F7', source: 'P4', target: 'USR', label: 'F7: dashboards, alerts',
+        kind: 'data', medium: 'UI' }},
+      { data: { id: 'F8', source: 'P6', target: 'SMC', label: 'F8: telemetry fwd',
+        kind: 'data-optional', medium: 'HTTPS', notes: 'Off by default' }},
+
+      // ─── Physical AC power ───
+      { data: { id: 'AC1', source: 'GRID', target: 'HM', label: 'AC power', kind: 'power' }},
+      { data: { id: 'AC2', source: 'GRID', target: 'VX', label: 'AC power', kind: 'power' }},
+
+      // ─── Internal flows ───
+      { data: { id: 'I1', source: 'P1', target: 'DS', label: 'writes state', kind: 'data', notes: 'Sole writer path into System State.' }},
+      { data: { id: 'I2', source: 'DS', target: 'P2', label: 'reads', kind: 'data', notes: 'Brain reads current state.' }},
+      { data: { id: 'I3', source: 'DS', target: 'P4', label: 'reads', kind: 'data' }},
+      { data: { id: 'I4', source: 'DS', target: 'P6', label: 'reads', kind: 'data-optional' }},
+      { data: { id: 'I5', source: 'P2', target: 'P3', label: 'cmd_setpoint', kind: 'control' }},
+      { data: { id: 'I6', source: 'P2', target: 'P3', label: 'cmd_inverter_limit', kind: 'control' }},
+      { data: { id: 'I7', source: 'P2', target: 'P4', label: 'event_alert', kind: 'control' }},
+      { data: { id: 'I8', source: 'P5', target: 'P2', label: 'event_override', kind: 'control' }},
+      { data: { id: 'I9', source: 'P5', target: 'P1', label: 'event_config', kind: 'control-subtle' }},
+    ];
+
+    var cy = cytoscape({
+      container: document.getElementById('cy'),
+      elements: elements,
+      style: [
+        {
+          selector: 'node[kind="process"]',
+          style: {
+            'shape': 'ellipse', 'background-color': '#cfe5ff', 'color': '#000',
+            'border-color': '#2a70c2', 'border-width': 1,
+            'label': 'data(label)', 'text-valign': 'center', 'text-halign': 'center',
+            'text-wrap': 'wrap', 'width': 110, 'height': 110, 'font-size': 11,
+          }
+        },
+        {
+          selector: 'node[kind="process-brain"]',
+          style: {
+            'shape': 'ellipse', 'background-color': '#7fbff5', 'color': '#000',
+            'border-color': '#1f5a99', 'border-width': 2,
+            'label': 'data(label)', 'text-valign': 'center', 'text-halign': 'center',
+            'text-wrap': 'wrap', 'width': 130, 'height': 130, 'font-size': 12, 'font-weight': 'bold',
+          }
+        },
+        {
+          selector: 'node[kind="process-optional"]',
+          style: {
+            'shape': 'ellipse', 'background-color': '#e6f0ff', 'color': '#444',
+            'border-color': '#888', 'border-width': 1, 'border-style': 'dashed',
+            'label': 'data(label)', 'text-valign': 'center', 'text-halign': 'center',
+            'text-wrap': 'wrap', 'width': 110, 'height': 110, 'font-size': 11, 'opacity': 0.85,
+          }
+        },
+        {
+          selector: 'node[kind="datastore"]',
+          style: {
+            'shape': 'cylinder', 'background-color': '#fff5cc', 'color': '#222',
+            'border-color': '#b89800', 'border-width': 1,
+            'label': 'data(label)', 'text-valign': 'center', 'text-halign': 'center',
+            'text-wrap': 'wrap', 'width': 130, 'height': 70, 'font-size': 11,
+          }
+        },
+        {
+          selector: 'node[kind="terminator"]',
+          style: {
+            'shape': 'rectangle', 'background-color': '#fafafa', 'border-color': '#444',
+            'border-width': 1, 'label': 'data(label)', 'color': '#222',
+            'text-valign': 'center', 'text-halign': 'center', 'text-wrap': 'wrap',
+            'width': 120, 'height': 50, 'padding': 8, 'font-size': 11,
+          }
+        },
+        {
+          selector: 'node[kind="terminator-grid"]',
+          style: {
+            'shape': 'rectangle', 'background-color': '#fef0ef', 'border-color': '#e74c3c',
+            'border-width': 1, 'label': 'data(label)', 'color': '#c0392b',
+            'text-valign': 'center', 'text-halign': 'center', 'text-wrap': 'wrap',
+            'width': 120, 'height': 50, 'padding': 8, 'font-size': 11,
+          }
+        },
+        {
+          selector: 'node[kind="terminator-optional"]',
+          style: {
+            'shape': 'rectangle', 'background-color': '#fafafa', 'border-color': '#888',
+            'border-width': 1, 'border-style': 'dashed', 'label': 'data(label)',
+            'color': '#666',
+            'text-valign': 'center', 'text-halign': 'center', 'text-wrap': 'wrap',
+            'width': 120, 'height': 60, 'padding': 8, 'font-size': 11,
+          }
+        },
+        {
+          selector: 'edge[kind="data"], edge[kind="control"]',
+          style: {
+            'curve-style': 'bezier', 'target-arrow-shape': 'triangle',
+            'target-arrow-color': '#444', 'line-color': '#444', 'width': 1.5,
+            'label': 'data(label)', 'font-size': 9, 'text-rotation': 'autorotate',
+            'text-background-color': '#fafafa', 'text-background-opacity': 0.9,
+            'text-background-padding': 2, 'color': '#333',
+          }
+        },
+        {
+          selector: 'edge[kind="data-optional"], edge[kind="control-subtle"]',
+          style: {
+            'curve-style': 'bezier', 'target-arrow-shape': 'triangle',
+            'target-arrow-color': '#888', 'line-color': '#888',
+            'line-style': 'dashed', 'width': 1.5,
+            'label': 'data(label)', 'font-size': 9, 'text-rotation': 'autorotate',
+            'text-background-color': '#fafafa', 'text-background-opacity': 0.9,
+            'text-background-padding': 2, 'color': '#888',
+          }
+        },
+        {
+          selector: 'edge[kind="power"]',
+          style: {
+            'curve-style': 'bezier', 'line-color': '#e74c3c', 'width': 3,
+            'opacity': 0.7, 'label': 'data(label)', 'font-size': 8,
+            'text-rotation': 'autorotate', 'color': '#c0392b',
+            'text-background-color': '#fafafa', 'text-background-opacity': 0.8,
+            'text-background-padding': 2,
+          }
+        },
+        {
+          selector: 'node[?decomposable]',
+          style: {
+            'border-width': 4,
+            'border-style': 'double',
+          }
+        },
+        {
+          selector: ':selected',
+          style: {
+            'border-color': '#f39c12', 'border-width': 3,
+            'line-color': '#f39c12', 'target-arrow-color': '#f39c12',
+          }
+        }
+      ],
+      layout: { name: 'cose', nodeRepulsion: 9000, idealEdgeLength: 130, padding: 40 }
+    });
+
+    // Map of entity kinds → HP reference anchors.
+    var hpRefMap = {
+      'process': '#process-bubble',
+      'process-brain': '#process-bubble',
+      'process-optional': '#process-bubble',
+      'datastore': '#data-store',
+      'terminator': '#terminator',
+      'terminator-grid': '#terminator',
+      'terminator-optional': '#terminator',
+    };
+    var hpRefBase = '../../../toolkit/reference/HP_QUICK_REF.md';
+
+    function render(html) {
+      document.getElementById('info').innerHTML = html;
+    }
+
+    // Manual double-tap detection (Cytoscape doesn't emit dbltap natively).
+    var lastTapTime = 0, lastTapId = null;
+    var DOUBLE_TAP_MS = 350;
+
+    cy.on('tap', 'node', function(evt) {
+      var d = evt.target.data();
+      var now = Date.now();
+      var isDouble = (lastTapId === d.id) && (now - lastTapTime < DOUBLE_TAP_MS);
+      lastTapTime = now;
+      lastTapId = d.id;
+
+      if (isDouble && d.decomposes_to) {
+        window.location.href = d.decomposes_to;
+        return;
+      }
+
+      var html = '<p><span class="label">Node:</span> ' + d.label.replace(/\n/g, ' ') + '</p>';
+      html += '<p><span class="label">Kind:</span> ' + d.kind + '</p>';
+      if (d.description) html += '<p>' + d.description + '</p>';
+      if (d.decomposes_to) {
+        html += '<p><span class="label">▼ Drills into:</span> <a href="' + d.decomposes_to + '">' + (d.decomposes_label || 'next level') + '</a> <em style="font-size:11px;color:#888;">(or double-click bubble)</em></p>';
+      }
+      var ref = hpRefMap[d.kind];
+      if (ref) {
+        var kindLabel = d.kind.replace('process-brain', 'process').replace('-optional', '').replace('-grid', '').replace('datastore', 'data store');
+        html += '<p style="font-size:11px;color:#888;margin-top:10px;"><a href="' + hpRefBase + ref + '">[?] What is a ' + kindLabel + '?</a> &middot; <a href="../dictionary.yaml">dictionary entry</a></p>';
+      }
+      render(html);
+    });
+
+    cy.on('tap', 'edge', function(evt) {
+      var d = evt.target.data();
+      var src = cy.getElementById(d.source).data('label').replace(/\n/g, ' ');
+      var tgt = cy.getElementById(d.target).data('label').replace(/\n/g, ' ');
+      var html = '<p><span class="label">Flow:</span> ' + d.label + '</p>';
+      html += '<p><span class="label">From:</span> ' + src + '</p>';
+      html += '<p><span class="label">To:</span> ' + tgt + '</p>';
+      html += '<p><span class="label">Kind:</span> ' + d.kind + '</p>';
+      if (d.medium) html += '<p><span class="label">Medium:</span> ' + d.medium + '</p>';
+      if (d.notes) html += '<p>' + d.notes + '</p>';
+      render(html);
+    });
+
+    cy.on('tap', function(evt) {
+      if (evt.target === cy) {
+        render('<div class="placeholder">Click a node or edge to see details. Drag nodes to rearrange.</div>');
+      }
+    });
+  </script>
+</body>
+</html>
