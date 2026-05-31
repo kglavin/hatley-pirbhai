@@ -30,6 +30,7 @@ from .validate import (
     ValidationIssue,
     ValidationReport,
 )
+from .status import status_report, StatusReport, StageStatus
 
 __all__ = [
     "Project",
@@ -48,6 +49,9 @@ __all__ = [
     "find_orphans",
     "ValidationIssue",
     "ValidationReport",
+    "status_report",
+    "StatusReport",
+    "StageStatus",
 ]
 
 __version__ = "0.0.1"

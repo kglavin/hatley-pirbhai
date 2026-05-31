@@ -1,0 +1,56 @@
+# Smart Doorbell — Naming Dictionary
+#
+# Created 2026-05-22 via hp-init. HP's Requirements Dictionary for this
+# project. Populate as you advance through stages:
+#   - Stage 1 adds terminators + boundary flows
+#   - Stage 2 adds internal processes + data stores + internal flows
+#   - Stage 3 adds states + transitions for any process with needs_cspec=true
+
+project: Smart Doorbell
+version: "0.1"
+last_updated: 2026-05-22
+
+entities:
+
+  sys_root:
+    kind: system
+    label: "Smart Doorbell"
+    level: 0
+    description: |
+      A connected doorbell with motion detection, video capture, two-way audio, and mobile alerting. Triggered by physical button press OR motion sensor; uploads to cloud and notifies homeowner.
+
+  # ─── Terminators (add via Stage 1) ───
+  # Template:
+  # term_<name>:
+  #   kind: terminator
+  #   label: "<Display Name>"
+  #   level: 0
+  #   description: |
+  #     <What is this external entity? What's its relationship to the system?>
+
+flows: {}
+  # ─── Boundary flows (Stage 1) ───
+  # Template:
+  # flow_f1_<name>:
+  #   label: "F1: <flow purpose>"
+  #   source: term_<name>
+  #   target: sys_root
+  #   kind: data            # or control / data+control
+  #   level: 0
+  #   medium: "<HTTP / RS485 / etc.>"
+  #   notes: "<context>"
+
+edges: {}
+  # ─── Non-data physical edges (Stage 1, for context) ───
+  # Template:
+  # edge_<name>:
+  #   label: "<short label>"
+  #   source: term_<name>
+  #   target: sys_root
+  #   kind: physical_dc_power      # or physical_ac_power / physical_interaction
+  #   level: 0
+  #   notes: "<context>"
+
+transitions: {}
+  # ─── CSPEC transitions (Stage 3) ───
+  # Populated when a process with needs_cspec=true has its state machine locked.
