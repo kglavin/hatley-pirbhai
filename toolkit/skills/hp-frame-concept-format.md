@@ -25,7 +25,15 @@ outcomes:                                # required; ≥1
   - id: <kebab-slug>
     effect: <prose>                      # the change the user experiences
     standard: <prose>                    # the proficiency required to call it "working"
-    conditions: <prose>                  # environmental variables that must hold
+    conditions: <prose>                  # environmental variables that must hold —
+                                          # INCLUDING value-structure non-linearity when
+                                          # the standard's unit (kWh, requests, minutes,
+                                          # dollars) doesn't have linear value. Common cases:
+                                          # TOU pricing, rate tiers, time-windowed value,
+                                          # incentives/rebates, regulatory tiers, demand
+                                          # charges, SLA percentile structure. Promote to
+                                          # a separate outcome when the non-linearity is
+                                          # significant enough to be its own forcing function.
 
 # Who cares — stakeholders with stakes (Anderson & Webb Ch 4 §4.3.1.1)
 stakeholders:                            # required; ≥1
