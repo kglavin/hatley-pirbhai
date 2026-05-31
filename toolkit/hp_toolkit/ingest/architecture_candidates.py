@@ -199,9 +199,29 @@ def _process_file(
     # the package-manifest / terraform paths.
     from .compose_parser import parse_compose
     from .dockerfile_parser import parse_dockerfile
+    from .embedded_arch_extractor import try_dispatch as try_embedded_dispatch
     from .k8s_parser import parse_k8s
 
     name = Path(rel_path).name.lower()
+
+    # Embedded firmware artifacts (per EMBEDDED_FIRMWARE_TUNING_DESIGN.md
+    # finding C — CMakeLists / .ioc / .px4board / .ld / .ino). Checked first
+    # because some embedded files (notably CMakeLists.txt) might otherwise
+    # fall through to the generic "no match" path.
+    embedded_result = try_embedded_dispatch(rel_path, content)
+    if embedded_result is not None:
+        mods, ics, eds, deployment = embedded_result
+        modules.extend(mods)
+        interconnects.extend(ics)
+        edges.extend(eds)
+        if deployment:
+            deployments.append(deployment)
+        # Don't `return` here — CMakeLists.txt classifies as infra but we
+        # still want it to pass through other extractors if nothing
+        # matched. The current downstream extractors all check filename;
+        # falling through is safe.
+        if mods or ics or eds or deployment:
+            return
 
     # Dockerfile → typed Dockerfile parse (H.5.a)
     if name == "dockerfile" or name.startswith("dockerfile."):
