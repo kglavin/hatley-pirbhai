@@ -42,6 +42,19 @@ Token cost (per [INGEST_DESIGN.md](../INGEST_DESIGN.md) > *Token economics*):
 
 When invoked, conversationally:
 
+### Phase 0a — Check for resume state + progress log
+
+Before doing anything else, check `<project-dir>/intermediate/progress.log` (if present). Each subsequent phase MUST:
+
+- **Check for an existing valid output** for that phase. If present + parseable, **skip the phase** and announce: `[resume] skipping <phase> — <output>.json present (<summary stats>)`. Loud per locked Q2.
+- **Append a START line** to `intermediate/progress.log` before dispatching the subagent: `Bash: echo "$(date -u +%Y-%m-%dT%H:%M:%SZ) START    stage=<N> agent=<skill-name>" >> <intermediate>/progress.log`.
+- **Append a DONE line** after the subagent's output is written, with summary stats: `Bash: echo "$(date -u +%Y-%m-%dT%H:%M:%SZ) DONE     stage=<N> agent=<skill-name> <key>=<value> ..." >> <intermediate>/progress.log`.
+- **Append a SKIP line** when resuming a completed phase: `Bash: echo "$(date -u +%Y-%m-%dT%H:%M:%SZ) SKIP     stage=<N> agent=<skill-name> reason=output_present <key>=<value> ..." >> <intermediate>/progress.log`.
+
+The Python prep scripts (`scan.py`, `boundary_candidates.py`, etc.) already write their own START/DONE lines via `hp_toolkit.ingest.progress_log` when invoked from `scripts/hp_ingest.py --resume`. Subagent skills (boundary, processes, leaf, architect, review) write their own lines.
+
+External observers can `tail -f <intermediate>/progress.log` to watch the run live.
+
 ### Phase 0 — Scan
 
 Run the Python scanner:

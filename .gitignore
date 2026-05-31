@@ -10,3 +10,10 @@ examples/**/*.generated-*.*
 # them); user projects keep their PDFs ignored.
 !examples/fishing-rig/project.generated.pdf
 !examples/solar/project.generated.pdf
+
+# IP-firewalled brownfield ingest output — real-world projects (cloudctlplane,
+# bru, etc.) must not be tracked. examples/ stays for the toolkit's own
+# synthetic demos (fishing-rig, solar, doorbell). Real-world targets live
+# elsewhere (e.g., ~/hp-ingest-runs/) or are ignored at this path.
+examples/cloudctlplane/
+examples/bru/

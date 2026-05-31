@@ -36,6 +36,10 @@ Produce:
 
 ## Behavior
 
+**Progress log:** at entry, append a START line; after composing `ingest-report.md` + approving emission, append a DONE line. Per `hp-ingest.md` orchestrator convention:
+- `Bash: echo "$(date -u +%Y-%m-%dT%H:%M:%SZ) START    stage=review agent=hp-ingest-review" >> <intermediate-dir>/progress.log`
+- `Bash: echo "$(date -u +%Y-%m-%dT%H:%M:%SZ) DONE     stage=review agent=hp-ingest-review repairs=$R conflicts=$C validate_errors=$E" >> <intermediate-dir>/progress.log`
+
 When invoked, conversationally:
 
 1. **Read merge-report.txt.** If non-empty:

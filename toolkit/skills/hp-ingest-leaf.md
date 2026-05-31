@@ -86,6 +86,10 @@ The full PSPEC body (transformation text + constraints) lives in an `extra` fiel
 
 ## Behavior
 
+**Progress log:** at entry, append a START line scoped to *this* leaf invocation (parallel runs each write their own line); after writing `leaf-<process-id>.json`, append a DONE line. Per `hp-ingest.md` orchestrator convention:
+- `Bash: echo "$(date -u +%Y-%m-%dT%H:%M:%SZ) START    stage=3-4 agent=hp-ingest-leaf process=<proc-id>" >> <intermediate-dir>/progress.log`
+- `Bash: echo "$(date -u +%Y-%m-%dT%H:%M:%SZ) DONE     stage=3-4 agent=hp-ingest-leaf process=<proc-id> kind=<cspec|pspec> confidence=<0.0-1.0>" >> <intermediate-dir>/progress.log`
+
 When invoked, conversationally:
 
 1. **Read the process input** (id, label, implemented_by, needs_cspec).

@@ -46,6 +46,10 @@ Output JSON shape:
 
 ## Behavior
 
+**Progress log:** at entry, append a START line; after writing `boundary.json`, append a DONE line with summary stats. Per `hp-ingest.md` orchestrator convention:
+- `Bash: echo "$(date -u +%Y-%m-%dT%H:%M:%SZ) START    stage=1 agent=hp-ingest-boundary" >> <intermediate-dir>/progress.log`
+- `Bash: echo "$(date -u +%Y-%m-%dT%H:%M:%SZ) DONE     stage=1 agent=hp-ingest-boundary terminators=$N flows=$M" >> <intermediate-dir>/progress.log`
+
 When invoked, conversationally:
 
 1. **Read inputs.** `intermediate/scan.json` (for project meta + framework hints) and `intermediate/boundary-candidates.json` (per-file kind + routes/topics + evidence).

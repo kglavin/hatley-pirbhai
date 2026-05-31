@@ -53,6 +53,10 @@ The optional LLM step is a one-paragraph project description fitting the `projec
 
 ## Behavior
 
+**Progress log:** the Python scanner (`hp_toolkit.ingest.scan` invoked via `scripts/hp_ingest.py`) already writes START/DONE lines automatically via `hp_toolkit.ingest.progress_log`. No manual logging needed when the orchestrator path is used. If invoked as a standalone LLM-driven scan (rare), follow the same convention as the other ingest agents:
+- `Bash: echo "$(date -u +%Y-%m-%dT%H:%M:%SZ) START    stage=0 agent=hp-ingest-scan codebase=<path>" >> <intermediate-dir>/progress.log`
+- `Bash: echo "$(date -u +%Y-%m-%dT%H:%M:%SZ) DONE     stage=0 agent=hp-ingest-scan files=$F significant=$S" >> <intermediate-dir>/progress.log`
+
 When invoked, conversationally:
 
 1. **Locate the codebase.** Default: the directory passed via CLI. If `.git/` exists, use `git ls-files` for the file enumeration (respects `.gitignore`). Otherwise recursive walk with default skips.
