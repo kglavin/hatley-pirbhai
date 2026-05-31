@@ -11,6 +11,13 @@ Stage 2 of the `/hp-ingest` orchestration. Runs after `hp-ingest-boundary`. Cons
 
 The LLM's value-add: deciding **which clusters deserve to be Stage-2 bubbles** (some are trivial, some collapse together), naming them in HP convention, and drawing the flow graph between them.
 
+**Two invocation modes** (per HIERARCHICAL_INGEST_DESIGN.md):
+
+1. **Top-level mode** — invoked by the orchestrator after Stage 1. Inputs are at `intermediate/` (no scope prefix). Emits level-1 processes with `parent: sys_root`. This is the existing behavior + the default.
+2. **Recursive mode** — invoked by the orchestrator after the H.3 recursion-prep CLI identifies a level-1 process that exceeds the threshold. Inputs are at `intermediate/<parent-proc-id>/` (scoped to the subsystem's files). Emits level-2 sub-processes with `parent: <parent-proc-id>`. The recursion continues to `--max-recursion-depth` (default 3).
+
+In recursive mode, the orchestrator passes a `parent_process_id` + `parent_process_label` so this agent knows it's decomposing a specific subsystem, not the whole project.
+
 ## What it does
 
 Given the candidate clusters (directory groupings with role-hint mix + size):
@@ -95,6 +102,8 @@ If any check fails, fix in `processes.json` before emitting.
 - **`needs_cspec` follows the role hint.** If the state-machine detector flagged any file in the cluster, `needs_cspec: true`. Don't second-guess the classifier on this — its false positives are surfaced by confidence, but the signal is strong when present.
 - **Refine, don't duplicate, boundary flows.** Boundary flows are already in `boundary.json` with `source=term_X, target=sys_root`. Add `refined_target` / `refined_source` pointing at the right internal process. Don't emit a new flow.
 - **Confidence on imports-based flow inference is medium.** Imports tell you "A uses B" but not always "B sends data to A." If the import is a type-only or utility import, there may be no actual data flow. Use 0.6–0.7 for import-inferred flows; 0.9+ only when there's clear runtime evidence (e.g., the cluster has explicit RPC clients).
+- **Recursive-mode parent emission (H.3).** When invoked in recursive mode (the orchestrator passes a `parent_process_id`), every emitted process node MUST set `parent: <parent-proc-id>` instead of `parent: sys_root`. The validator enforces this — non-leaf processes need correctly-chained `parent` references. The orchestrator's recursion-prep CLI writes scoped intermediates under `intermediate/<parent-proc-id>/`, so your scan/candidates inputs are already narrowed to that subsystem's files.
+- **Recursive-mode flow refinement (H.3 / Q5 lock).** When a level-1 flow exists between `parent_process_id` and another level-1 process, AND your sub-processes participate in that flow, the level-2 flow you emit MUST set `refined_source` / `refined_target` to your sub-process IDs. The merger validates the chain (same H.1.2 pattern Branch 1 established for boundary refinements). Without this, the level-2 DFD renders with arrows dangling at the parent's boundary.
 
 ## Implementation status
 

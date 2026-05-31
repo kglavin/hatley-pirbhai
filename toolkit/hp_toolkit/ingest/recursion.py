@@ -182,3 +182,175 @@ def is_leaf_process(process_id: str, all_nodes: Iterable[IRNode]) -> bool:
         if n.kind.value == "process" and n.parent == process_id:
             return False
     return True
+
+
+# ─────────────────────────────────────────────────────────────────────
+# Subsystem prep — write scoped intermediates per process to recurse on
+# ─────────────────────────────────────────────────────────────────────
+
+def prepare_subsystem_recursions(
+    processes_graph_path: Path,
+    scan_path: Path,
+    intermediate_dir: Path,
+    *,
+    current_depth: int,
+    config: Optional[RecursionConfig] = None,
+    max_depth_param: Optional[int] = None,
+) -> list[dict]:
+    """Given a processes.json (Stage-2 LLM output) + the original scan.json,
+    decide which processes deserve recursive Stage-2 + write their scoped
+    intermediates.
+
+    For each process that passes `should_recurse`:
+      - Write `<intermediate>/<P-id>/scan.json` with the scoped ProjectScan
+      - Write `<intermediate>/<P-id>/process-candidates.json` by re-running
+        `extract_candidates` against the scoped scan
+      - Append a `RECURSE_INTO` event to progress.log
+
+    Returns a list of `{candidate_id, process_id, label, files, lines,
+    subsystem_dir, depth}` records describing the subsystems queued for
+    LLM dispatch — the orchestrator skill iterates this to dispatch
+    hp-ingest-processes for each."""
+    from .progress_log import log_event
+    from .process_candidates import extract_candidates, write_candidates
+    from .scan import write_scan
+    from .schema import IRGraph
+
+    cfg = config or RecursionConfig()
+    if max_depth_param is not None:
+        cfg = RecursionConfig(
+            threshold_files=cfg.threshold_files,
+            threshold_lines=cfg.threshold_lines,
+            max_depth=max_depth_param,
+            enabled=cfg.enabled,
+        )
+
+    graph = IRGraph.model_validate_json(processes_graph_path.read_text())
+    scan = ProjectScan.model_validate_json(scan_path.read_text())
+
+    out: list[dict] = []
+    for node in graph.nodes:
+        if node.kind.value != "process":
+            continue
+        ok, reason = should_recurse(node, depth=current_depth, scan=scan, config=cfg)
+        log_event(
+            intermediate_dir,
+            "RECURSE_DECISION",
+            stage="2-recurse",
+            agent="recursion",
+            process=node.id,
+            decision="yes" if ok else "no",
+            depth=current_depth,
+            reason=reason.replace(" ", "_"),
+        )
+        if not ok:
+            continue
+
+        sub_dir = subsystem_dir(intermediate_dir, node.id)
+        sub_dir.mkdir(parents=True, exist_ok=True)
+
+        scoped_scan = scope_for_subsystem(scan, node.implemented_by)
+        write_scan(scoped_scan, sub_dir / "scan.json")
+
+        scoped_candidates = extract_candidates(scoped_scan)
+        write_candidates(scoped_candidates, sub_dir / "process-candidates.json")
+
+        line_total = _total_lines(node.implemented_by, scan)
+        log_event(
+            intermediate_dir,
+            "RECURSE_INTO",
+            stage="2-recurse",
+            agent="recursion",
+            process=node.id,
+            files=len(node.implemented_by),
+            lines=line_total,
+            depth=current_depth + 1,
+            sub_dir=str(sub_dir.relative_to(intermediate_dir.parent)),
+        )
+
+        out.append({
+            "process_id": node.id,
+            "label": node.label,
+            "files": len(node.implemented_by),
+            "lines": line_total,
+            "subsystem_dir": str(sub_dir),
+            "next_depth": current_depth + 1,
+            "scoped_scan": str(sub_dir / "scan.json"),
+            "scoped_candidates": str(sub_dir / "process-candidates.json"),
+        })
+
+    return out
+
+
+# ─────────────────────────────────────────────────────────────────────
+# CLI
+# ─────────────────────────────────────────────────────────────────────
+
+def _main(argv: Optional[list[str]] = None) -> int:
+    """python -m hp_toolkit.ingest.recursion — recursion-prep step.
+
+    Given a processes.json (Stage-2 LLM output) + scan.json, identify
+    which processes meet the recursion threshold + write their scoped
+    intermediates. The orchestrator skill calls this between Stage 2
+    and the recursive Stage-2 LLM dispatches."""
+    import argparse
+    import json
+    import sys
+    from .progress_log import log_done, log_start
+
+    parser = argparse.ArgumentParser(
+        prog="hp_recursion",
+        description="Hierarchical-ingest recursion prep (H.3 / Branch 3).",
+    )
+    parser.add_argument("--processes", required=True,
+                        help="Path to processes.json (Stage-2 LLM output)")
+    parser.add_argument("--scan", required=True,
+                        help="Path to scan.json (the scan that produced the candidates)")
+    parser.add_argument("--intermediate", required=True,
+                        help="Path to the intermediate dir (parent of progress.log)")
+    parser.add_argument("--current-depth", type=int, default=1,
+                        help="Current recursion depth (1 = top-level Stage 2). "
+                             "Increment by 1 per recursive call.")
+    parser.add_argument("--threshold-files", type=int, default=30,
+                        help="Min files in implemented_by for a process to recurse")
+    parser.add_argument("--threshold-lines", type=int, default=3000,
+                        help="Min total lines for a process to recurse")
+    parser.add_argument("--max-depth", type=int, default=3,
+                        help="Hard depth cap (no recursion past this)")
+    parser.add_argument("--no-recurse", action="store_true",
+                        help="Disable recursion entirely (no subsystem prep written)")
+    args = parser.parse_args(argv)
+
+    intermediate_dir = Path(args.intermediate)
+    log_start(intermediate_dir, stage="2-recurse", agent="recursion",
+              depth=args.current_depth)
+
+    cfg = RecursionConfig(
+        threshold_files=args.threshold_files,
+        threshold_lines=args.threshold_lines,
+        max_depth=args.max_depth,
+        enabled=not args.no_recurse,
+    )
+
+    subsystems = prepare_subsystem_recursions(
+        processes_graph_path=Path(args.processes),
+        scan_path=Path(args.scan),
+        intermediate_dir=intermediate_dir,
+        current_depth=args.current_depth,
+        config=cfg,
+    )
+
+    log_done(intermediate_dir, stage="2-recurse", agent="recursion",
+             depth=args.current_depth,
+             subsystems=len(subsystems))
+
+    # Emit JSON to stdout so the orchestrator skill can parse the list
+    # of subsystems to dispatch.
+    sys.stdout.write(json.dumps({"subsystems": subsystems}, indent=2))
+    sys.stdout.write("\n")
+    return 0
+
+
+if __name__ == "__main__":
+    import sys as _sys
+    _sys.exit(_main())
