@@ -40,6 +40,8 @@ User-space only (`~/.local/bin/`); no sudo; idempotent. Installs:
 
 After install: ensure `~/.local/bin` is on your `$PATH`.
 
+The Python dependencies — Pydantic, PyYAML, Python-Markdown, WeasyPrint — are installed by `uv sync` (run via `uv run`). **WeasyPrint** is used for the project PDF; it has system dependencies (pango, cairo, gdk-pixbuf, fonts) that are usually pre-installed on Ubuntu/Debian. If PDF rendering fails with a font-related error, install `libpango-1.0-0 libpangoft2-1.0-0` via your system package manager.
+
 **Recommended IDE setup:** VS Code + [Markdown Preview Enhanced](https://marketplace.visualstudio.com/items?itemName=shd101wyy.markdown-preview-enhanced) (MPE). MPE renders embedded Mermaid/D2 in preview and lets you click `[ ]` → `[x]` checkboxes directly — the form-based proposal pattern (below) depends on this.
 
 ---
@@ -50,7 +52,7 @@ Three ideas carry the rest of the toolkit:
 
 ### 1. Dictionary as source of truth
 
-Every project has a single `dictionary.yaml` at its root — HP's Requirements Dictionary in YAML form. Every entity, flow, edge, and transition is declared there once. All rendered artifacts (`.mmd`, `.d2`, `.html`, `.svg`) are **derived**: regenerated from the dictionary on demand. Rename a flow in one place and every diagram updates on the next render. The dictionary is the only file you hand-edit; everything else is generated.
+Every project has a single `dictionary.yaml` at its root — HP's Requirements Dictionary in YAML form. Every entity, flow, edge, and transition is declared there once. All rendered artifacts (`.mmd`, `.d2`, `.html`, `.svg`, `.pdf`) are **derived**: regenerated from the dictionary on demand. Rename a flow in one place and every diagram updates on the next render. The dictionary is the only file you hand-edit; everything else is generated.
 
 ### 2. The five HP stages
 
@@ -96,6 +98,17 @@ The 1988/2000 HP method nails *what* and *how*. The 21st-century reality is that
 This forms the **design-intent → runtime chain**: a Budget locks design-time → a TPM measures it over time → an Observability metric emits it → an SLO commits an external promise → a Runbook says what to do when burning. Every link is in the dictionary and the validator enforces the cross-references. The six new modernization skills (table below) each propose one slice through a form-based pass; the validator + renderer surface the rest.
 
 See [`MODERNIZATION_DESIGN.md`](MODERNIZATION_DESIGN.md) for the schema rationale, [`BOUNDED_CONTEXTS_DESIGN.md`](BOUNDED_CONTEXTS_DESIGN.md) for the DDD path, and [`MODERNIZATION_TACTICS.md`](MODERNIZATION_TACTICS.md) for the AI-interaction layer plan.
+
+### 5. Project portal + shareable PDF
+
+Every render produces two top-level "land here" artifacts at the project root:
+
+- **`project_index.generated.html`** — the front-door page. Lists every artifact organized by stage + modernization, with a one-line validation + modernization summary at the top.
+- **`project.generated.pdf`** — a single self-contained PDF you can email or archive: cover page, clickable TOC with page numbers, per-stage section covers, every diagram (SVG) on landscape pages, every markdown sidecar (PSPECs, AMS, AIS, ADRs, SLOs summary, runbooks) on portrait pages, HP Quick Reference as appendix.
+
+Every generated HTML page (Context, DFD, CSPECs, AFD, AID, plus every wrapped markdown sidecar) carries a **collapsible left-sidebar** with the full project tree. Click the ◀ toggle to reclaim canvas on wide diagrams; state persists across pages via localStorage. The same tree feeds the PDF's TOC, so portal and PDF stay in sync.
+
+See [`PORTAL_DESIGN.md`](PORTAL_DESIGN.md) for the shape decisions (page orientation, markdown lib, PDF tracking policy, etc.).
 
 ---
 
@@ -198,24 +211,33 @@ uv run python scripts/hp_init.py <project-name> --label "<Display>" --descriptio
 # Validate a dictionary
 uv run python -m hp_toolkit.validate <path/to/dictionary.yaml>
 
-# Render all artifacts for a project
+# Render all artifacts for a project (diagrams + sidebar'd HTML + index page + PDF)
 uv run python scripts/render_project.py <project-directory>
+
+# Render only the PDF (skips HTML/SVG regeneration; uses existing artifacts)
+uv run python scripts/render_project.py <project-directory> --pdf-only
+
+# Render everything except the PDF (faster during HTML iteration)
+uv run python scripts/render_project.py <project-directory> --no-pdf
 
 # Report stage progress
 uv run python -m hp_toolkit.status <project-directory>
 ```
 
-All four commands also work programmatically — see *Programmatic API* below.
+All commands also work programmatically — see *Programmatic API* below.
 
 ---
 
 ## Programmatic API
 
 ```python
+from pathlib import Path
 from hp_toolkit import load, validate, status_report
-from hp_toolkit.render import mermaid, d2, cytoscape, svg
+from hp_toolkit.render import mermaid, d2, cytoscape, svg, index, pdf
+from hp_toolkit.render.tree import build_project_tree
 
-project = load("examples/solar/dictionary.yaml")
+project_dir = Path("examples/solar")
+project = load(project_dir / "dictionary.yaml")
 report  = validate(project)
 
 if not report.ok:
@@ -226,8 +248,17 @@ mmd = mermaid.render_context_diagram(project)
 mmd = mermaid.render_dfd(project, parent_id="sys_root")
 mmd = mermaid.render_state_machine(project, machine_id="proc_compute_balance")
 
-# Same shape for D2 and Cytoscape (cytoscape additionally has wrap_*_html)
-html = cytoscape.wrap_context_html(project)
+# Cytoscape wrappers now accept the project tree + a current-path; the page
+# gains a collapsible left sidebar with the full project nav.
+tree = build_project_tree(project, project_dir)
+html = cytoscape.wrap_context_html(project, tree=tree,
+                                   current_path="00-context/context.generated.html")
+
+# Project portal landing page
+home = index.render_project_index_html(project, project_dir)
+
+# Single-file PDF
+pdf.render_project_pdf(project, project_dir)  # → project_dir/project.generated.pdf
 
 # Render SVGs
 svg.render_mermaid_to_svg("input.mmd", "output.svg")
@@ -466,7 +497,7 @@ Two example projects in [`../examples/`](../examples/) exercise the full pipelin
 - [`examples/fishing-rig/`](../examples/fishing-rig/) — AutoFishingRig. The transferability test — built from scratch on a completely different domain. **All 5 stages locked + modernization layer**: 5 terminators, 5 processes + 1 CSPEC (Bite Detector — 9 states / 18 transitions), 4 PSPECs, 2 architecture modules (Main Controller Board + Angler Mobile App) + 1 interconnect (BLE Link), 1 ADR, 2 budgets + 2 TPMs, 1 SLO, full STRIDE on `ai_ble`, observability + V&V on `pspec_acquire_tension`. Intentionally single-context (demonstrates the backward-compatible no-`bounded_contexts` path).
 - [`examples/doorbell/`](../examples/doorbell/) — Smart Doorbell. Scaffolded via `hp-init`; Stage 1 in progress. Used as a reference for a fresh-scaffold project.
 
-Both solar and fishing-rig render their full Context + DFD + CSPEC + PSPEC + AFD/AID + AMS/AIS + ADR + (solar) Context-Map + SLOs pipelines through `scripts/render_project.py` with no project-specific code.
+Both solar and fishing-rig render their full Context + DFD + CSPEC + PSPEC + AFD/AID + AMS/AIS + ADR + (solar) Context-Map + SLOs pipelines through `scripts/render_project.py` with no project-specific code. Each project also produces `project_index.generated.html` (portal landing) and `project.generated.pdf` (the example PDFs are committed; user-project PDFs stay gitignored).
 
 ---
 
@@ -487,6 +518,7 @@ toolkit/
 ├── MODERNIZATION_DESIGN.md         ← modernization items #1, #2, #8.1–8.3, #10, #21, #22, #25, #32, #33 — schema + validator rules
 ├── BOUNDED_CONTEXTS_DESIGN.md      ← modernization #5 — Evans-DDD paradigm shift; Path A vs B; ACL patterns
 ├── MODERNIZATION_TACTICS.md        ← AI-interaction-layer plan (Commits A/B/C: tactics + skill extensions + 6 new skills)
+├── PORTAL_DESIGN.md                ← Project portal + PDF design (Commits 1/2/3: tree + sidebar + PDF)
 ├── bootstrap.sh                    ← environment setup (idempotent)
 ├── .puppeteer-config.json          ← mmdc sandbox config for Ubuntu 23.10+
 ├── pyproject.toml                  ← uv-managed Python project
@@ -501,10 +533,15 @@ toolkit/
 │   └── render/
 │       ├── mermaid.py              ← Context + DFD + CSPEC + AFD + AID + Context-Map
 │       ├── d2.py                   ← same
-│       ├── cytoscape.py            ← elements JSON + full HTML wrappers
+│       ├── cytoscape.py            ← elements JSON + full HTML wrappers (now sidebar-aware)
 │       ├── pspec.py                ← PSPEC markdown emitter + V&V + observability sections
 │       ├── architecture.py         ← AMS + AIS markdown emitters + Verification + Budgets + TPMs + Observability + SLOs + STRIDE + LINDDUN + Catalog Refs
 │       ├── adr.py                  ← per-ADR markdown sidecar (modernization #10)
+│       ├── tree.py                 ← Project artifact tree — shared by sidebar + index + PDF (Portal Commit 1)
+│       ├── sidebar.py              ← Collapsible left-sidebar HTML/CSS/JS (Portal Commit 2)
+│       ├── markdown_artifact.py    ← Wrap markdown sidecars (PSPEC/AMS/AIS/ADR/runbook/SLOs) as sidebar'd HTML (Portal Commit 2)
+│       ├── index.py                ← project_index.generated.html landing page (Portal Commit 1)
+│       ├── pdf.py                  ← project.generated.pdf via WeasyPrint (Portal Commit 3)
 │       └── svg.py                  ← orchestrate d2 + mmdc binaries
 │
 ├── scripts/
@@ -534,7 +571,7 @@ toolkit/
 
 ## Status
 
-End-to-end render pipeline live and validated across two domains (solar, fishing-rig). Sixteen skills drafted (five with backing code; eleven conversational). **All 5 HP stages + the modernization layer supported end-to-end** — both demo projects locked from Stage 1 (Context Diagram) through Stage 5 (Architecture Model) plus modernization sections (ADRs, budgets, TPMs, SLOs, observability, V&V, STRIDE, catalog refs; solar adds bounded contexts + ACL).
+End-to-end render pipeline live and validated across two domains (solar, fishing-rig). Sixteen skills drafted (five with backing code; eleven conversational). **All 5 HP stages + the modernization layer supported end-to-end** — both demo projects locked from Stage 1 (Context Diagram) through Stage 5 (Architecture Model) plus modernization sections (ADRs, budgets, TPMs, SLOs, observability, V&V, STRIDE, catalog refs; solar adds bounded contexts + ACL). **Project portal + PDF shipped** — every render emits `project_index.generated.html` (front-door page with collapsible sidebar) plus `project.generated.pdf` (single-file review pack: cover + clickable TOC + per-stage covers + all diagrams + all markdown sidecars + HP Quick Reference appendix).
 
 See [`../PLAN.md`](../PLAN.md) for design rationale, methodology tactics (including the post-2026-05-22 Modernization Tactics section), the AI moves catalog, and a chronological log of decisions.
 

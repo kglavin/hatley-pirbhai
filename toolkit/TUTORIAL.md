@@ -51,6 +51,18 @@ Stages
 
 All five HP stages are locked. On top of these stages, fishing-rig also exercises the **modernization layer** (Commits 1–5): an ADR for the BLE transport choice, two design-time budgets with matching TPMs, one SLO, a full STRIDE pass on the cross-trust-zone BLE link, and V&V + observability declared on `pspec_acquire_tension`. We'll walk Stages 1–5 first, then the modernization layer at the end as **Stage 6**.
 
+### The project portal — land here
+
+Before diving into the stages, the fastest way to orient yourself in any rendered project is the portal landing page:
+
+```bash
+xdg-open ../examples/fishing-rig/project_index.generated.html  # or open it in your browser of choice
+```
+
+You'll see a card per stage and per modernization section, every artifact a single click away. The same project tree appears as a **collapsible left-sidebar on every other rendered page** — Context Diagram, DFD, CSPECs, PSPECs, AFD, AID, AMS, AIS, ADRs, SLOs summary, runbooks. Click the ◀ toggle at the top of the sidebar to reclaim canvas for wide diagrams; the state persists across pages via `localStorage`.
+
+If you'd rather read the project as a single document (or share it with a reviewer), `examples/fishing-rig/project.generated.pdf` is a ~70-page review pack with cover, clickable TOC, every diagram, every sidecar, and the HP Quick Reference appendix. Solar's is `examples/solar/project.generated.pdf` (~80 pages, also includes the Context Map).
+
 ---
 
 ## Stage 1 — Context Diagram
@@ -561,16 +573,17 @@ Every generated artifact (Mermaid, D2, Cytoscape HTML, SVG, PSPEC markdown, AMS 
 
 ## What you've seen
 
-Eight ideas, all grounded in the artifacts you just walked through:
+Nine ideas, all grounded in the artifacts you just walked through:
 
-1. **`dictionary.yaml` is the only file you hand-edit.** Every diagram, PSPEC, AMS, AIS, ADR, and SLO sidecar is derived.
+1. **`dictionary.yaml` is the only file you hand-edit.** Every diagram, PSPEC, AMS, AIS, ADR, SLO sidecar, portal page, and PDF is derived.
 2. **Each stage locks through a form-based proposal**, not a chat conversation. The proposal is the audit record: decisions, alternatives considered, defaults pre-checked, provenance attached.
 3. **Three views per artifact** (Mermaid, D2, Cytoscape HTML) serve three moments: docs, declarative, interactive IDE.
 4. **The Cytoscape HTML is hypertext.** Drill down on decomposable bubbles, walk up via `↑ Parent`, link to dictionary entries, PSPEC sidecars, AMS sidecars, and HP reference cards.
 5. **PSPECs follow 2000 Fig 4.46 exactly** — INPUTS / OUTPUTS / TRANSFORMATION. INPUTS and OUTPUTS are derived from `dictionary.flows`; the PSPEC only carries the transformation body, optional constraints, and optional comments. The validator enforces balancing (1988 §13.1).
 6. **Stage 5 is the bridge from requirements to architecture.** Every leaf process / CSPEC / data store from Stages 1–4 gets *allocated* to an architecture module. The validator's allocation-completeness rule (2000 §4.2.5.4) catches every leak.
 7. **The modernization layer wires the static spec to runtime reality.** Trust zones + STRIDE on cross-boundary interconnects, ADRs at decision-time, design-time budgets → runtime TPMs → SLOs → runbooks-on-burn — a single chain from intent to operations, declared once in `dictionary.yaml` and surfaced everywhere the validator + renderer touch.
-8. **`hp-validate` and `hp-status` keep you honest** — reference integrity, hierarchy consistency, PSPEC balancing, architecture allocation, modernization cross-references (STRIDE on cross-trust-zone interconnects, TPM vs budget direction, SLO→TPM resolution, ACL routing on cross-context flows, runbook path existence), stage progress, artifact freshness.
+8. **The project portal makes the whole thing browsable.** `project_index.generated.html` is the front door; every generated HTML page (including wrapped markdown sidecars) carries the same collapsible left-sidebar tree. The same tree feeds the `project.generated.pdf` review pack: cover, clickable TOC, every diagram, every sidecar, HP Quick Reference appendix.
+9. **`hp-validate` and `hp-status` keep you honest** — reference integrity, hierarchy consistency, PSPEC balancing, architecture allocation, modernization cross-references (STRIDE on cross-trust-zone interconnects, TPM vs budget direction, SLO→TPM resolution, ACL routing on cross-context flows, runbook path existence), stage progress, artifact freshness.
 
 ---
 

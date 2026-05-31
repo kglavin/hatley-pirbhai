@@ -51,6 +51,8 @@ Rendered artifacts span the five HP stages plus a modernization layer:
 | **ADR sidecars** *(modernization #10)* | per `adrs:` entry | Nygard-style record with MITRE/CWE refs |
 | **Context Map** *(modernization #5)* | from `bounded_contexts:` + ACLs | Per-context boundaries with ACL translations |
 | **SLOs summary** *(modernization #32)* | from `service_level_objectives:` | Project-level SLO table |
+| **Project portal index** *(landing page)* | from the full project tree | `project_index.generated.html` — front-door page with collapsible sidebar; every other rendered HTML page carries the same sidebar |
+| **Project PDF** *(shareable review pack)* | from the full project tree | `project.generated.pdf` — cover + TOC + per-stage covers + all diagrams + all markdown sidecars + HP Quick Reference appendix |
 
 ## Quick start
 
@@ -78,6 +80,6 @@ Then open any of the `.generated.html` files under `examples/*/` in a browser to
 
 ## Status
 
-End-to-end rendering pipeline live for both dogfood projects. Both have **all 5 HP stages locked + the modernization layer applied** (ADRs, design-time budgets + runtime TPMs, SLOs anchored to TPMs, per-leaf observability + V&V, STRIDE on cross-trust-zone interconnects + MITRE/CWE/compliance refs; solar additionally declares 2 bounded contexts + an Anti-Corruption Layer). All generated from each project's `dictionary.yaml` via the same generic script. **Toolkit transferability has been validated** across two genuinely different domains (solar energy orchestration; automated fishing rig).
+End-to-end rendering pipeline live for both dogfood projects. Both have **all 5 HP stages locked + the modernization layer applied** (ADRs, design-time budgets + runtime TPMs, SLOs anchored to TPMs, per-leaf observability + V&V, STRIDE on cross-trust-zone interconnects + MITRE/CWE/compliance refs; solar additionally declares 2 bounded contexts + an Anti-Corruption Layer). All generated from each project's `dictionary.yaml` via the same generic script. Both projects also produce a **living portal** (`project_index.generated.html` + collapsible sidebar on every page) and a **shareable PDF** (`project.generated.pdf`, ~70–80 pages of cover + TOC + diagrams + sidecars + HP reference). **Toolkit transferability has been validated** across two genuinely different domains (solar energy orchestration; automated fishing rig).
 
 Deferred work tracked in [`PLAN.md`](PLAN.md) > Open Questions: per-level label abbreviation, edge refinement schema, brownfield ingest (`hp-ingest`), per-context filtered renderer view (`hp-render-context`), third-project transferability (doorbell).
