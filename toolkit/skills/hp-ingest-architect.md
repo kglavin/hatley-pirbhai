@@ -20,10 +20,11 @@ Given:
 Produce:
 
 1. **`architecture_module` nodes** — one per deployable unit. Names follow HP convention (`am_<short>`, label is 1–3 words like "Controller Host" / "API Gateway"). Set `kind`: most are `software`; physical devices / single-board computers are `hardware`; team-owned services are `organizational`.
-2. **`architecture_interconnect` nodes** — one per physical/logical channel between modules. `ai_<short>` id, label like "Local LAN" / "BLE Link" / "Internal RPC bus".
-3. **`allocates_to` edges** — for every process / CSPEC / data store node in `hp-graph.json`, decide which module owns its runtime. Convention: edge source = module id, target = entity id.
-4. **`carries` edges** — for each interconnect, identify which Stage-1/2 flows ride on it (the LLM checks each flow's source/target → module mapping; if both endpoints are on the same interconnect, that flow is carried).
-5. **Set provenance + confidence** on every emitted node/edge.
+2. **`architecture_flow` nodes** — one per architecture-level information stream between two modules (2000 §4.2.2.3). `af_<short>` id. Each architecture flow aggregates ≥1 requirements-model flows that share the same source-module + target-module pair (`allocated_flows:`). Set `kind: data | material | energy`. *Per H.21: this section was being skipped — the prior skill version directed the agent to put Stage-1/2 flow IDs straight into interconnect `carries:`, which doesn't satisfy the schema. The schema requires interconnect `carries:` to reference `architecture_flow` IDs, NOT requirements-model flow IDs.*
+3. **`architecture_interconnect` nodes** — one per physical/logical channel between modules. `ai_<short>` id, label like "Local LAN" / "BLE Link" / "Internal RPC bus".
+4. **`allocates_to` edges** — for every process / CSPEC / data store node in `hp-graph.json`, decide which module owns its runtime. Convention: edge source = module id, target = entity id.
+5. **`carries` field on each interconnect** — list of `architecture_flow` IDs whose source + target modules are both endpoints of this interconnect. Every entry MUST resolve to an `architecture_flow` node emitted in the same output (referential integrity is validated; see Discipline).
+6. **Set provenance + confidence** on every emitted node/edge.
 
 Output JSON shape:
 
@@ -43,10 +44,18 @@ Output JSON shape:
       // ────────────────────────────────────────────────────────────
       "provenance": { "agent": "hp-ingest-architect",
                       "rationale": "k8s Deployment 'api' + Dockerfile.api; serves /v1/* endpoints. README at services/api/README.md confirms ingress role." } },
+    { "id": "af_order_submission", "kind": "architecture_flow",
+      "label": "Order Submission", "stage": 5, "confidence": 0.85,
+      "source": "am_api_gateway", "target": "am_order_service",
+      "arch_flow_kind": "data",
+      "allocated_flows": ["flow_order_event", "flow_order_validation_response"],
+      "physical_description": "gRPC request/response over the cluster RPC interconnect; protobuf payload.",
+      "provenance": { "agent": "hp-ingest-architect",
+                      "rationale": "Aggregates flow_order_event (gateway → order service) and flow_order_validation_response (return). Both ride the same cluster-RPC interconnect; sharing source+target+kind, they're one architecture-level information stream." } },
     { "id": "ai_internal_rpc", "kind": "architecture_interconnect",
       "label": "Internal RPC", "stage": 5, "confidence": 0.8,
       "endpoints": ["am_api_gateway", "am_order_service"],
-      "carries": ["flow_order_event"],
+      "carries": ["af_order_submission"],
       "summary": "gRPC over the cluster network.",
       "design_rationale": "Internal service mesh — all in-cluster RPC. Single interconnect because the cluster's network policy treats all in-cluster traffic as one trust zone." }
   ],
@@ -96,10 +105,11 @@ When invoked, conversationally:
    - Every state-rich process (`needs_cspec: true`) → as `allocated_cspecs` (HP convention, see 2000 §4.2.5.4). State-rich processes are leaves by definition (a non-leaf process can't carry needs_cspec — the validator errors on this; see T11 hierarchy rules).
    - Every `data_store` → the module that owns its persistence (DB pod / cache pod / message queue pod).
    - Terminators DO NOT get allocated — they're external.
-8. **`carries` per interconnect.** For each flow node in `hp-graph.json`, look up its source + target modules. If both endpoints are on the same interconnect's endpoint list, add the flow id to `carries`.
-9. **Confidence calibration.** A clear k8s Deployment + Dockerfile + 1 obvious responsibility → 0.85+. A package manifest at the repo root with no clear runtime → 0.5. Allocations: 0.8+ when one process is clearly inside one container; lower when the same process is implemented across multiple files spanning containers (the architect must adjudicate).
-10. **Set provenance + confidence** on every emitted node/edge.
-11. **Write `intermediate/architecture.json`.**
+8. **Aggregate requirements flows into `architecture_flow` nodes (H.21).** Walk every flow in `hp-graph.json` and look up its source + target modules. Group flows by `(source_module, target_module, kind)` triple — each unique triple becomes ONE `architecture_flow` node. The grouped requirements-model flow IDs go into the architecture flow's `allocated_flows:` list. Name the architecture flow after the *purpose* of the information stream at the architecture level ("Order Submission", "Adapter Contract", "Storage Reads"), not after any single requirements-model flow it aggregates. Architecture flows are coarser than requirements flows — usually 1 architecture flow per 1–6 requirements flows. Set `kind: data` (default), `material` (rare; physical goods), or `energy` (rare; electrical power, fuel).
+9. **`carries:` per interconnect.** For each `architecture_flow` you emitted, check whether its source + target modules are both in some interconnect's `endpoints:` list. If yes, add that architecture-flow ID to that interconnect's `carries:` list. Every entry in any `carries:` list MUST be an `architecture_flow` ID that you also emitted — this is referential integrity, validated by `hp_toolkit.validate` rule 8.
+10. **Confidence calibration.** A clear k8s Deployment + Dockerfile + 1 obvious responsibility → 0.85+. A package manifest at the repo root with no clear runtime → 0.5. Allocations: 0.8+ when one process is clearly inside one container; lower when the same process is implemented across multiple files spanning containers (the architect must adjudicate).
+11. **Set provenance + confidence** on every emitted node/edge.
+12. **Write `intermediate/architecture.json`.**
 
 ## Discipline
 
@@ -107,7 +117,9 @@ When invoked, conversationally:
 - **One module per deployment unit, not per file.** A microservice running in one container is one module — even if it's implemented by 20 files. The `implemented_by[]` array on the module enumerates those files.
 - **Per-deployment-config grouping (H.5.b).** When `architecture-candidates.json`'s `deployments:` array has more than one entry (cloudctlplane has three: `bluerockccpd` / `agate-test-deployment` / `aws-basic`), the candidates appear once per deployment they're part of. **Collapse to a union module set** — one `architecture_module` IR node per logical service, even if it appears across multiple deployments. Use the union's `deployment_config` provenance to record which configurations include it. Interconnect topology, however, is per-deployment — if `bluerockccpd` puts service A on a network B doesn't, emit one interconnect per network and let the rationale say "in deployment X". Don't try to unify mutually-exclusive interconnect graphs.
 - **Interconnects are sparse.** Most projects have 1–3 interconnects (e.g., "Cluster RPC" + "Public Internet" + "Internal Storage"). A dozen interconnects is a sign you're modeling individual network policies rather than HP physical channels.
-- **`carries:` is required on every interconnect (G.3).** Each interconnect's `carries:` list MUST enumerate the architecture-flow ids whose endpoints are both in the interconnect's `endpoints:` list. The merger applies a deterministic post-pass that auto-populates `carries:` from flow-endpoint ↔ interconnect-endpoint matching (so a missing entry gets backfilled), but you should still populate the list directly to declare intent: it tells the reviewer "this flow rides this physical channel," which the auto-pass can't infer when the topology is ambiguous (two interconnects could carry the same flow). When in doubt, emit the `carries:` entry with a `provenance.rationale` documenting the routing decision.
+- **`carries:` is required on every interconnect (G.3) AND must reference architecture-flow IDs you emitted (H.21).** Each interconnect's `carries:` list MUST enumerate **`architecture_flow`** IDs (not requirements-model `flow_*` IDs) whose source + target modules are both in the interconnect's `endpoints:` list. Every entry MUST resolve to an `architecture_flow` node you emitted in the same `architecture.json` — `hp_toolkit.validate` rule 8 checks this referential integrity at emit time. The merger applies a deterministic post-pass that auto-populates `carries:` from flow-endpoint ↔ interconnect-endpoint matching, but you should still populate the list directly to declare intent: it tells the reviewer "this flow rides this physical channel," which the auto-pass can't infer when the topology is ambiguous (two interconnects could carry the same flow). When in doubt, emit the `carries:` entry with a `provenance.rationale` documenting the routing decision.
+
+  **The architecture-flow layer is NOT optional.** Skipping the `architecture_flow` emit (only producing `architecture_module` + `architecture_interconnect`) was the H.21 bug — the interconnects ended up with `carries:` references that didn't resolve anywhere, the validator flagged them as unrecoverable, and downstream Stage-5 modernization (threat-model, AID rendering, AIS specs, SLO chain) lost the architecture-flow layer entirely. Always emit at least one `architecture_flow` per interconnect that carries anything (which is most of them — power buses and ground rails are the rare exceptions).
 - **Trust zone is deferred.** Per the locked Q3 in INGEST_DESIGN.md, do **not** infer `trust_zone` here. The follow-up `hp-propose-architecture` skill (Decision 9) handles it form-based after ingest completes.
 - **`module_kind` matches HP convention** (hardware/software/organizational from 2000 §4.2.2.1 Fig 4.3). Don't invent new kinds.
 - **Embedded firmware mode (per EMBEDDED_FIRMWARE_TUNING_DESIGN.md finding H).** When the candidates include `kind_hint: mcu` / `firmware_target` / `px4_module` / `arduino_sketch` / `memory_layout`, the architecture is hardware-flavored. Apply these patterns:

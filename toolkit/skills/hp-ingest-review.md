@@ -49,12 +49,22 @@ When invoked, conversationally:
    - **Normalizations / duplicates / dropped edges** — already auto-resolved by the merger. Surface them in `ingest-report.md` for transparency but no action needed.
    - **Unrecoverable** — required to repair. Walk each one, edit `hp-graph.json` in place to fix. Common patterns: invented enum value → map to canonical; missing required field → fill with a sensible default + `confidence: 0.4` + `provenance.rationale: "repaired by hp-ingest-review"`.
 3. **Run the projection.** Invoke `emit_dictionary.py` (via Bash) to produce a candidate `dictionary.yaml` at a temp path.
-4. **Run hp-validate** against the candidate YAML. The validator emits structured errors.
-5. **Repair each validator error** in `hp-graph.json` and re-project. Common errors:
+4. **Run the CANONICAL validator** against the candidate YAML — *not* `scripts/check_dictionary.py` (which is a summary + light-shape-check script, NOT the toolkit's rule-running validator). The canonical command is:
+
+   ```bash
+   cd toolkit && uv run python -m hp_toolkit.validate <path-to-candidate-dictionary.yaml>
+   ```
+
+   This runs the toolkit's full rule set (reference integrity, hierarchy consistency, PSPEC balancing, architecture allocation, modernization rules, coverage metrics). Output is structured as **`== N ERROR(S) ==`** (must be repaired) + **`== N WARNING(S) ==`** (surface in `ingest-report.md`, do not block) + **`== Coverage metrics ==`**. Per H.20: **do not declare "validator PASS" based on `check_dictionary.py` — that script's "✓ loaded and validated" message means "Pydantic accepted the shape," not "passed all rules."** Mistaking one for the other leaves dictionaries emitted with structural errors masquerading as clean.
+
+5. **Repair each validator ERROR** in `hp-graph.json` and re-project. Common errors:
    - "Process X not allocated to any architecture module" → add an `allocates_to` edge.
    - "Boundary flow F1 has no refined_target at level 1" → set the refinement on the flow edge.
    - "CSPEC X has no initial state" → identify the most-likely-initial state node and set `is_initial: true`.
    - "Entity X references non-existent parent" → either create the parent or fix the reference.
+   - "Interconnect X carries 'flow_Y' not in architecture_flows" *(H.21)* → likely the architect agent skipped emitting `architecture_flows:`. Cross-reference each missing flow ID against `intermediate/hp-graph.json` to see what it likely meant; either remove the spurious carries ID (last resort) or synthesize the missing `architecture_flow` nodes from interconnect descriptions + module endpoints (preferred — preserves Stage-5 information).
+
+   **Warnings vs errors:** the validator output is bucketed. Errors block emit; warnings get reported. Don't repair warnings unless they're cheap to fix (e.g., a low-confidence node that needs a manual nudge). Coverage-style warnings (orphan stores, missing optional fields, PSPECs with code-like body matches) belong in `ingest-report.md`'s "spot-check" section, not the repair loop.
 
 6. **Repair recoverable warnings from `merge-report.txt`** (the new `warnings` section). These don't fail validation but indicate Stage-1/2/5 agent gaps. Common patterns:
    - **Boundary-flow refinement missing on N edges** (H.1.2 warning): Stage-2 agent skipped refining boundary flows. Cross-reference `intermediate/processes.json` against `intermediate/boundary.json`: for each boundary flow `term_X → sys_root` (inbound) or `sys_root → term_X` (outbound), identify the Stage-2 process whose `implemented_by[]` cluster contains the endpoint handler. Edit `hp-graph.json` to set `refined_target=<proc_id>` (inbound) or `refined_source=<proc_id>` (outbound) on that edge. Re-emit and re-validate. Without this repair, the level-1 DFD renders with boundary arrows dangling at `sys_root`.
@@ -70,7 +80,7 @@ When invoked, conversationally:
 - **Every repair leaves a trail.** When you edit a node, update its `provenance.rationale` to record the repair (`"repaired by hp-ingest-review: invented kind 'external_system' → canonical 'terminator'"`). The IR is the audit log.
 - **Modernization fields are off-limits.** On incremental, `adrs:` / `budgets:` / `tpms:` / `service_level_objectives:` / `bounded_contexts:` / PSPEC `verification:` / PSPEC `observability:` / interconnect `stride_mitigations:` / catalog refs — all preserved verbatim. The reviewer **never** touches them (see Q4 lock + the "Reconciliation rules" in INGEST_DESIGN.md).
 - **Halt on conflict by default.** `ingest-conflicts.md` exists for the user to review; the YAML doesn't get overwritten until they explicitly accept. `--auto-accept` is opt-in.
-- **The validator's word is final.** `hp-validate` clean = ready to emit. If you can't get validation clean after a reasonable number of repair iterations (say, 5), halt and write the unrecovered errors to `ingest-report.md` for the user to resolve manually. Don't paper over validator errors by editing the validator.
+- **The canonical validator's word is final (H.20).** `uv run python -m hp_toolkit.validate <path>` clean (zero errors; warnings are fine) = ready to emit. The lightweight `scripts/check_dictionary.py` is a summary tool, NOT the canonical validator — its "✓ loaded and validated" confirms only Pydantic shape, not rule conformance. *Never report "validator PASS" or approve emission based on `check_dictionary.py` alone.* If you can't get the canonical validator clean after a reasonable number of repair iterations (say, 5), halt and write the unrecovered errors to `ingest-report.md` for the user to resolve manually. Don't paper over validator errors by editing the validator.
 - **Low confidence is a signal, not a bug (G.4).** When a node carries `confidence < 0.6`, that's the architect-spot-check signal working as designed — the agent flagged its own uncertainty so the architect knows what to look at first. Don't "repair" low-confidence entities just because they're low-confidence; only repair when there's a concrete validator error or a missing-required-field gap. Instead, group low-confidence entities into a dedicated **"Spot-check first"** section in `ingest-report.md` (sorted ascending by confidence) — give the architect a focused queue of what to review, not a flat list. This converts confidence from a noisy field into an actionable triage tool.
 
 ## Implementation status
