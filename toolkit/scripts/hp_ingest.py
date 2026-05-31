@@ -86,6 +86,11 @@ def main(argv: list[str] | None = None) -> int:
                              "post-agent dry-run or manual re-emit.")
     parser.add_argument("--no-architecture", action="store_true",
                         help="Skip Stage 5 (architecture model) in prep + emit.")
+    parser.add_argument("--max-depth", type=int, default=None,
+                        help="Process-candidate clustering: cap cluster key at N path "
+                             "components. Useful for monorepos where the natural process "
+                             "boundary is `<repo>/<category>/<service>` (depth 3) rather "
+                             "than the leaf directory. Default unlimited.")
     parser.add_argument("--resume", action="store_true",
                         help="(future) resume from existing intermediate/")
     parser.add_argument("--incremental", action="store_true",
@@ -154,7 +159,7 @@ def main(argv: list[str] | None = None) -> int:
 
         # Stage 2 — process candidates
         print(_color("==> Stage 2 — process candidates", "1"))
-        pc = extract_process_candidates(scan)
+        pc = extract_process_candidates(scan, max_depth=args.max_depth)
         pc_path = intermediate / "process-candidates.json"
         write_process_candidates(pc, pc_path)
         print(_color(f"  wrote {pc_path.name} ({len(pc.clusters)} process candidates)", "32"))

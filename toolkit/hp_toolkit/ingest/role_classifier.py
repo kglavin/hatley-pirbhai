@@ -111,25 +111,50 @@ _STATE_MACHINE_PATTERNS = [
     re.compile(r"match\s+self\s*\{[^}]*=>"),
 ]
 
+# DB / cache / queue / object-store client detection. Per tuning H.A: must
+# require IMPORT context, not bare-token presence — otherwise comments,
+# docstrings, system-prompt strings, and `.gitignore` entries all false-fire.
+#
+# Pattern shape per language:
+#   Python: `import X` / `from X import …` / `from X.Y import …`
+#   Rust:   `use X::…` / `use X;`
+#   TS/JS:  `import X from 'X'` / `from 'X'` / `require('X')`
+#   Go:     `"github.com/<vendor>/<lib>"` (in import block, between quotes)
+# Plus explicit ORM-model declarations + client-construction patterns that
+# are themselves unambiguous in any context.
+
 _DATA_STORE_PATTERNS = [
-    # Common DB clients
-    re.compile(r"\b(psycopg2|sqlalchemy|asyncpg|sqlx::PgPool|gorm\.Open|pg\.Pool)\b"),
-    re.compile(r"\b(mysql|aiomysql|sqlx::MySqlPool)\b"),
-    re.compile(r"\b(sqlite3|aiosqlite|rusqlite|sqlx::SqlitePool)\b"),
-    re.compile(r"\b(redis|aioredis|deadpool_redis|go-redis)\b"),
-    # Mongo: bare 'mongodb' / 'MongoClient' anywhere; 'motor' only in import context
-    # (avoid false-positive on the english word "motor")
-    re.compile(r"\b(mongodb|MongoClient)\b"),
-    re.compile(r"\b(import\s+motor|from\s+motor|require\(['\"]motor)"),
-    re.compile(r"\b(dynamodb|DynamoDB|aws_sdk_dynamodb)\b"),
-    re.compile(r"\b(clickhouse|ClickHouse)\b"),
-    re.compile(r"\b(victoriametrics|VictoriaMetrics|prometheus_client)\b"),
-    re.compile(r"\b(dgraph|Dgraph)\b"),
-    # ORM models
-    re.compile(r"\b(SQLModel|DeclarativeBase|Base\s*=\s*declarative_base)\b"),
-    re.compile(r"#\[derive\(.*sqlx::FromRow"),
-    # Object storage
-    re.compile(r"\b(boto3\.client\(['\"]s3|aws_sdk_s3|gcs|MinioClient)\b"),
+    # Python imports — relational
+    re.compile(r"^\s*(import|from)\s+(psycopg2|psycopg|asyncpg|sqlalchemy|sqlmodel|pony|peewee)\b", re.MULTILINE),
+    re.compile(r"^\s*(import|from)\s+(aiomysql|mysql|pymysql|mysqlclient)\b", re.MULTILINE),
+    re.compile(r"^\s*(import|from)\s+(sqlite3|aiosqlite)\b", re.MULTILINE),
+    # Python imports — k/v + queue + nosql
+    re.compile(r"^\s*(import|from)\s+(redis|aioredis|fakeredis)\b", re.MULTILINE),
+    re.compile(r"^\s*(import|from)\s+(motor|pymongo)\b", re.MULTILINE),
+    re.compile(r"^\s*(import|from)\s+(boto3|aioboto3)\b.*?(dynamodb|s3)?", re.MULTILINE),
+    re.compile(r"^\s*(import|from)\s+(clickhouse_driver|clickhouse_connect|aiochclient)\b", re.MULTILINE),
+    re.compile(r"^\s*(import|from)\s+pydgraph\b", re.MULTILINE),
+    re.compile(r"^\s*(import|from)\s+(kafka|aiokafka|confluent_kafka)\b", re.MULTILINE),
+    re.compile(r"^\s*(import|from)\s+(minio|google\.cloud\.storage)\b", re.MULTILINE),
+    re.compile(r"^\s*(import|from)\s+(elasticsearch|opensearchpy)\b", re.MULTILINE),
+    # Rust use-clauses
+    re.compile(r"^\s*use\s+(sqlx|diesel|sea_orm|tokio_postgres|deadpool_postgres|deadpool_redis|redis|mongodb|clickhouse|kafka|rdkafka|aws_sdk_dynamodb|aws_sdk_s3)\b", re.MULTILINE),
+    # TS/JS imports
+    re.compile(r"""(?:from|require\()\s*['"](pg|pg-pool|mysql2?|sqlite3|better-sqlite3|ioredis|redis|mongodb|mongoose|@aws-sdk/client-dynamodb|@aws-sdk/client-s3|@clickhouse/client|kafkajs|elasticsearch|@elastic/elasticsearch|dgraph-js)['"]"""),
+    re.compile(r"""(?:from|require\()\s*['"](prisma|@prisma/client|typeorm|knex|sequelize|drizzle-orm)['"]"""),
+    # Go imports (inside import-block quotes)
+    re.compile(r'"github\.com/(jackc/pg(x|conn|pool)|lib/pq|go-redis/redis|go-sql-driver/mysql|gorm\.io/gorm|mongodb/mongo-go-driver|aws/aws-sdk-go/service/(dynamodb|s3)|ClickHouse/clickhouse-go|segmentio/kafka-go|olivere/elastic|dgraph-io/dgo)'),
+    re.compile(r'"go\.mongodb\.org/mongo-driver'),
+    # ORM / declarative-model markers (unambiguous regardless of context)
+    re.compile(r"\b(SQLModel|DeclarativeBase)\b"),
+    re.compile(r"Base\s*=\s*declarative_base\("),
+    re.compile(r"#\[derive\([^)]*sqlx::FromRow"),
+    re.compile(r"#\[derive\([^)]*(Queryable|Insertable)"),  # diesel
+    # Client construction (explicit factory calls — also unambiguous)
+    re.compile(r"\b(PgPool|MySqlPool|SqlitePool)::(connect|new)\b"),
+    re.compile(r"\bredis::Client::open\b"),
+    re.compile(r"\bMongoClient\s*\("),
+    re.compile(r"\bnew\s+(Pool|Client|MongoClient|Redis)\s*\("),
 ]
 
 _PURE_LOGIC_HINTS = [
