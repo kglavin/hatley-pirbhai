@@ -1,0 +1,376 @@
+"""Cytoscape renderer — generate the elements JSON and a self-contained
+HTML workspace from the Project model.
+
+The Cytoscape output has two parts:
+    1. Elements list   — list of {data: {...}} dicts; one per node/edge.
+                         JSON-serializable; this is the model-driven part.
+    2. HTML wrapper    — page scaffold (styles, side panel, navigation,
+                         JavaScript for tap/dbltap handlers, legend).
+                         Mostly static; differs per view in legend +
+                         style array + navigation links.
+
+Functions:
+    render_context_elements(project)            -> list[dict]
+    wrap_context_html(project, elements)        -> str (full HTML)
+"""
+
+from __future__ import annotations
+
+import json
+from typing import Any
+
+from ..model import (
+    Project,
+    Entity,
+    Flow,
+    Edge,
+    EntityKind,
+    FlowKind,
+    EdgeKind,
+)
+
+
+# ─────────────────────────────────────────────────────────────────────
+# Kind mapping — translate model kinds + qualifiers to Cytoscape kind
+# tags (which the HTML wrapper's style array selects on).
+# ─────────────────────────────────────────────────────────────────────
+
+def _node_kind(e: Entity) -> str:
+    if e.kind == EntityKind.SYSTEM:
+        return "system"
+    if e.kind == EntityKind.TERMINATOR:
+        if e.optional:
+            return "terminator-optional"
+        if "grid" in e.id:
+            return "terminator-grid"
+        return "terminator"
+    if e.kind == EntityKind.PROCESS:
+        if e.needs_cspec:
+            return "process-brain"
+        if e.optional:
+            return "process-optional"
+        return "process"
+    if e.kind == EntityKind.DATA_STORE:
+        return "datastore"
+    if e.kind == EntityKind.STATE:
+        if e.is_initial and not e.parent_state:
+            return "state-init"
+        return "state"
+    if e.kind == EntityKind.STATE_COMPOSITE:
+        return f"mode-{e.id.replace('state_', '').replace('_', '-')}"
+    return e.kind.value
+
+
+def _flow_kind(f: Flow) -> str:
+    if f.kind == FlowKind.DATA_AND_CONTROL:
+        return "data" if not f.optional else "data-optional"
+    if f.optional:
+        return f"{f.kind.value}-optional"
+    return f.kind.value
+
+
+# ─────────────────────────────────────────────────────────────────────
+# Context Diagram — elements list
+# ─────────────────────────────────────────────────────────────────────
+
+def render_context_elements(project: Project) -> list[dict[str, Any]]:
+    """Produce the Cytoscape elements list for the level-0 Context Diagram.
+
+    Includes the system bubble (with decomposable + drill-down metadata
+    pointing at the level-1 DFD), terminators at level 0, boundary flows
+    at level 0, and non-data edges (e.g., physical AC power).
+    """
+    elements: list[dict[str, Any]] = []
+
+    system = next(
+        (e for e in project.all_entities()
+         if e.kind == EntityKind.SYSTEM and e.level == 0),
+        None,
+    )
+    if system is None:
+        raise ValueError("Project has no level-0 system entity")
+
+    # System node — decomposable into the level-1 DFD
+    elements.append({
+        "data": {
+            "id": system.id,
+            "label": system.label,
+            "kind": _node_kind(system),
+            "decomposable": True,
+            "decomposes_to": "../01-level1/dfd.html",
+            "decomposes_label": "Level-1 DFD (internal processes)",
+            "description": system.description or "",
+        }
+    })
+
+    # Terminators
+    for t in [e for e in project.all_entities()
+              if e.kind == EntityKind.TERMINATOR and e.level == 0]:
+        label = t.label + ("\n(optional)" if t.optional else "")
+        elements.append({
+            "data": {
+                "id": t.id,
+                "label": label,
+                "kind": _node_kind(t),
+                "description": t.description or "",
+            }
+        })
+
+    # Boundary flows (F1–F8)
+    for f in project.flows_at_level(0):
+        node: dict[str, Any] = {
+            "data": {
+                "id": f.id,
+                "source": f.source,
+                "target": f.target,
+                "label": f.label,
+                "kind": _flow_kind(f),
+            }
+        }
+        if f.medium:
+            node["data"]["medium"] = f.medium
+        if f.notes:
+            node["data"]["notes"] = f.notes
+        elements.append(node)
+
+    # Physical AC edges
+    for ed in [e for e in project.all_edges() if e.level == 0]:
+        elements.append({
+            "data": {
+                "id": ed.id,
+                "source": ed.source,
+                "target": ed.target,
+                "label": ed.label or "AC power",
+                "kind": "power",
+            }
+        })
+
+    return elements
+
+
+# ─────────────────────────────────────────────────────────────────────
+# HTML wrapper for the Context view
+# ─────────────────────────────────────────────────────────────────────
+
+_CONTEXT_STYLES_JSON = [
+    {
+        "selector": 'node[kind="system"]',
+        "style": {
+            "shape": "ellipse", "background-color": "#4a90e2", "color": "#fff",
+            "label": "data(label)", "text-valign": "center", "text-halign": "center",
+            "text-wrap": "wrap", "width": 170, "height": 170,
+            "font-weight": "bold", "font-size": 13,
+            "border-width": 2, "border-color": "#2a70c2",
+        }
+    },
+    {
+        "selector": 'node[kind="terminator"]',
+        "style": {
+            "shape": "rectangle", "background-color": "#fafafa", "border-color": "#444",
+            "border-width": 1, "label": "data(label)", "color": "#222",
+            "text-valign": "center", "text-halign": "center", "text-wrap": "wrap",
+            "width": 120, "height": 60, "padding": 8, "font-size": 11,
+        }
+    },
+    {
+        "selector": 'node[kind="terminator-grid"]',
+        "style": {
+            "shape": "rectangle", "background-color": "#fef0ef", "border-color": "#e74c3c",
+            "border-width": 1, "label": "data(label)", "color": "#c0392b",
+            "text-valign": "center", "text-halign": "center", "text-wrap": "wrap",
+            "width": 120, "height": 60, "padding": 8, "font-size": 11,
+        }
+    },
+    {
+        "selector": 'node[kind="terminator-optional"]',
+        "style": {
+            "shape": "rectangle", "background-color": "#fafafa", "border-color": "#888",
+            "border-width": 1, "border-style": "dashed", "label": "data(label)",
+            "color": "#666",
+            "text-valign": "center", "text-halign": "center", "text-wrap": "wrap",
+            "width": 120, "height": 60, "padding": 8, "font-size": 11,
+        }
+    },
+    {
+        "selector": 'node[?decomposable]',
+        "style": {"border-width": 4, "border-style": "double"},
+    },
+    {
+        "selector": 'edge[kind="data"], edge[kind="control"], edge[kind="data+control"]',
+        "style": {
+            "curve-style": "bezier", "target-arrow-shape": "triangle",
+            "target-arrow-color": "#444", "line-color": "#444", "width": 1.5,
+            "label": "data(label)", "font-size": 9, "text-rotation": "autorotate",
+            "text-background-color": "#fafafa", "text-background-opacity": 0.9,
+            "text-background-padding": 2, "color": "#333",
+        }
+    },
+    {
+        "selector": 'edge[kind="data-optional"], edge[kind="control-optional"]',
+        "style": {
+            "curve-style": "bezier", "target-arrow-shape": "triangle",
+            "target-arrow-color": "#888", "line-color": "#888",
+            "line-style": "dashed", "width": 1.5,
+            "label": "data(label)", "font-size": 9, "text-rotation": "autorotate",
+            "text-background-color": "#fafafa", "text-background-opacity": 0.9,
+            "text-background-padding": 2, "color": "#888",
+        }
+    },
+    {
+        "selector": 'edge[kind="power"]',
+        "style": {
+            "curve-style": "bezier", "line-color": "#e74c3c", "width": 3,
+            "opacity": 0.7, "label": "data(label)", "font-size": 8,
+            "text-rotation": "autorotate", "color": "#c0392b",
+            "text-background-color": "#fafafa", "text-background-opacity": 0.8,
+            "text-background-padding": 2,
+        }
+    },
+    {
+        "selector": ':selected',
+        "style": {
+            "border-color": "#f39c12", "border-width": 3,
+            "line-color": "#f39c12", "target-arrow-color": "#f39c12",
+        }
+    },
+]
+
+
+_CONTEXT_HTML_TEMPLATE = """<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>{title}</title>
+  <script src="https://unpkg.com/cytoscape@3.28.1/dist/cytoscape.min.js"></script>
+  <style>
+    * {{ box-sizing: border-box; }}
+    html, body {{ margin: 0; padding: 0; height: 100%; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif; }}
+    body {{ display: flex; }}
+    #cy {{ flex: 1; background: #fafafa; }}
+    #panel {{ width: 340px; padding: 18px; background: #fff; border-left: 1px solid #ddd; overflow-y: auto; font-size: 13px; line-height: 1.5; }}
+    #panel h1 {{ font-size: 15px; margin: 0 0 6px; color: #222; }}
+    #panel .sub {{ color: #888; font-size: 11px; margin-bottom: 16px; }}
+    #panel h2 {{ font-size: 13px; margin: 18px 0 6px; color: #333; border-bottom: 1px solid #eee; padding-bottom: 4px; }}
+    #panel p {{ margin: 6px 0; }}
+    #panel .label {{ font-weight: 600; color: #444; }}
+    #info {{ min-height: 80px; }}
+    #info .placeholder {{ color: #999; font-style: italic; }}
+    .legend-item {{ display: flex; align-items: center; margin: 6px 0; font-size: 12px; }}
+    .legend-swatch {{ width: 28px; height: 16px; margin-right: 10px; border-radius: 2px; flex-shrink: 0; }}
+    .controls button {{ padding: 4px 10px; margin: 2px 4px 2px 0; font-size: 11px; border: 1px solid #ccc; background: #f6f6f6; border-radius: 3px; cursor: pointer; }}
+  </style>
+</head>
+<body>
+  <div id="cy"></div>
+  <div id="panel">
+    <h1>{title}</h1>
+    <div class="sub">{subtitle}</div>
+
+    <h2>Navigation</h2>
+    {nav_html}
+
+    <h2>Selected</h2>
+    <div id="info"><div class="placeholder">Click a node or edge to see details. Drag nodes to rearrange.</div></div>
+
+    <h2>Legend</h2>
+    {legend_html}
+
+    <h2>Controls</h2>
+    <div class="controls">
+      <button onclick="cy.fit(undefined, 30); cy.center();">Fit</button>
+      <button onclick="cy.layout({{name:'cose', nodeRepulsion: 8000, idealEdgeLength: 130, padding: 40, animate: true}}).run();">Re-layout</button>
+    </div>
+  </div>
+
+  <script>
+    var elements = {elements_json};
+    var styles   = {styles_json};
+
+    var cy = cytoscape({{
+      container: document.getElementById('cy'),
+      elements: elements,
+      style: styles,
+      layout: {{ name: 'cose', nodeRepulsion: 8000, idealEdgeLength: 130, padding: 40 }}
+    }});
+
+    var hpRefMap = {{
+      'system': '#process-bubble',
+      'terminator': '#terminator',
+      'terminator-grid': '#terminator',
+      'terminator-optional': '#terminator',
+    }};
+    var hpRefBase = '../../../toolkit/reference/HP_QUICK_REF.md';
+
+    function render(html) {{ document.getElementById('info').innerHTML = html; }}
+
+    var lastTapTime = 0, lastTapId = null;
+    var DOUBLE_TAP_MS = 350;
+
+    cy.on('tap', 'node', function(evt) {{
+      var d = evt.target.data();
+      var now = Date.now();
+      var isDouble = (lastTapId === d.id) && (now - lastTapTime < DOUBLE_TAP_MS);
+      lastTapTime = now; lastTapId = d.id;
+      if (isDouble && d.decomposes_to) {{ window.location.href = d.decomposes_to; return; }}
+      var html = '<p><span class="label">Node:</span> ' + d.label.replace(/\\n/g, ' ') + '</p>';
+      html += '<p><span class="label">Kind:</span> ' + d.kind + '</p>';
+      if (d.description) html += '<p>' + d.description + '</p>';
+      if (d.decomposes_to) {{
+        html += '<p><span class="label">▼ Drills into:</span> <a href="' + d.decomposes_to + '">' + (d.decomposes_label || 'next level') + '</a> <em style="font-size:11px;color:#888;">(or double-click bubble)</em></p>';
+      }}
+      var ref = hpRefMap[d.kind];
+      if (ref) {{
+        html += '<p style="font-size:11px;color:#888;margin-top:10px;"><a href="' + hpRefBase + ref + '">[?] What is a ' + d.kind.replace('-optional','').replace('-grid','') + '?</a> &middot; <a href="../dictionary.yaml">dictionary entry</a></p>';
+      }}
+      render(html);
+    }});
+
+    cy.on('tap', 'edge', function(evt) {{
+      var d = evt.target.data();
+      var src = cy.getElementById(d.source).data('label').replace(/\\n/g, ' ');
+      var tgt = cy.getElementById(d.target).data('label').replace(/\\n/g, ' ');
+      var html = '<p><span class="label">Flow:</span> ' + d.label + '</p>';
+      html += '<p><span class="label">From:</span> ' + src + '</p>';
+      html += '<p><span class="label">To:</span> ' + tgt + '</p>';
+      html += '<p><span class="label">Kind:</span> ' + d.kind + '</p>';
+      if (d.medium) html += '<p><span class="label">Medium:</span> ' + d.medium + '</p>';
+      if (d.notes) html += '<p>' + d.notes + '</p>';
+      render(html);
+    }});
+
+    cy.on('tap', function(evt) {{
+      if (evt.target === cy) {{
+        render('<div class="placeholder">Click a node or edge to see details. Drag nodes to rearrange.</div>');
+      }}
+    }});
+  </script>
+</body>
+</html>
+"""
+
+
+_CONTEXT_LEGEND_HTML = """    <div class="legend-item"><div class="legend-swatch" style="background:#4a90e2; border-radius:50%;"></div>System (what we're designing)</div>
+    <div class="legend-item"><div class="legend-swatch" style="background:#fafafa; border:1px solid #444;"></div>Terminator (external entity)</div>
+    <div class="legend-item"><div class="legend-swatch" style="background:#fafafa; border:1px dashed #888;"></div>Optional terminator</div>
+    <div class="legend-item"><div class="legend-swatch" style="background:#fef0ef; border:1px solid #e74c3c;"></div>Utility grid (physical)</div>"""
+
+
+_CONTEXT_NAV_HTML = """    <p style="margin:4px 0 4px 0;">Level 0 (top of hierarchy). <strong>↓ Drill down:</strong> <a href="../01-level1/dfd.html">Level-1 DFD</a> &middot; <a href="../dictionary.yaml">Dictionary</a> &middot; <a href="../../../toolkit/reference/HP_QUICK_REF.md">HP Reference</a></p>
+    <p style="margin:0 0 12px 0;font-size:11px;color:#888;">Tip: <strong>double-click</strong> any double-bordered bubble to drill into its next level.</p>"""
+
+
+def wrap_context_html(project: Project, elements: list[dict[str, Any]] | None = None) -> str:
+    """Wrap the level-0 Context Diagram's elements list in the full HTML
+    template (Cytoscape script + side panel + legend + navigation).
+    """
+    if elements is None:
+        elements = render_context_elements(project)
+
+    return _CONTEXT_HTML_TEMPLATE.format(
+        title="Solar Local Stack — Context Diagram v0",
+        subtitle=f"Level 0 · generated from dictionary.yaml · {project.last_updated}",
+        nav_html=_CONTEXT_NAV_HTML,
+        legend_html=_CONTEXT_LEGEND_HTML,
+        elements_json=json.dumps(elements, indent=2),
+        styles_json=json.dumps(_CONTEXT_STYLES_JSON, indent=2),
+    )

@@ -19,6 +19,8 @@ from pathlib import Path
 from hp_toolkit import load
 from hp_toolkit.render import mermaid as render_mermaid
 from hp_toolkit.render import d2 as render_d2
+from hp_toolkit.render import cytoscape as render_cytoscape
+from hp_toolkit.render import svg as render_svg
 
 
 def _color(text: str, code: str) -> str:
@@ -40,6 +42,25 @@ def _diff(a: str, b: str, label_a: str, label_b: str) -> str:
     ))
 
 
+def _try_svg(source: Path, output: Path, kind: str) -> None:
+    """Render source → SVG via the right binary. Best-effort; warn on
+    failure but don't abort."""
+    try:
+        if kind == "d2":
+            ok = render_svg.render_d2_to_svg(source, output)
+        elif kind in ("mermaid", "mmd"):
+            ok = render_svg.render_mermaid_to_svg(source, output)
+        else:
+            raise ValueError(f"unknown SVG renderer kind: {kind!r}")
+        if ok:
+            size = output.stat().st_size
+            print(_color(f"  ✓ rendered SVG: {output.name} ({size} bytes)", "32"))
+        else:
+            print(_color(f"  ✗ render failed for {source.name}", "31"))
+    except FileNotFoundError as e:
+        print(_color(f"  ⚠ SVG skipped: {e}", "33"))
+
+
 def main() -> int:
     repo_root = Path(__file__).resolve().parent.parent.parent
     dict_path = repo_root / "examples" / "solar" / "dictionary.yaml"
@@ -57,6 +78,7 @@ def main() -> int:
     out_mermaid = ctx_dir / "context.generated.mmd"
     out_mermaid.write_text(gen_mermaid)
     print(f"  wrote {out_mermaid.relative_to(repo_root)} ({len(gen_mermaid)} bytes)")
+    _try_svg(out_mermaid, ctx_dir / "context.generated-mermaid.svg", "mermaid")
 
     # Compare to the block in the hand-written context.md
     hand_md = (ctx_dir / "context.md").read_text()
@@ -84,6 +106,7 @@ def main() -> int:
     out_d2 = ctx_dir / "context.generated.d2"
     out_d2.write_text(gen_d2)
     print(f"  wrote {out_d2.relative_to(repo_root)} ({len(gen_d2)} bytes)")
+    _try_svg(out_d2, ctx_dir / "context.generated-d2.svg", "d2")
 
     hand_d2 = (ctx_dir / "context.d2").read_text()
     if hand_d2.strip() == gen_d2.strip():
@@ -111,6 +134,19 @@ def main() -> int:
             print("  (diff truncated)")
     print()
 
+    # ─── Cytoscape HTML (level-0 Context) ───
+    print(_color("==> Rendering level-0 context — HTML (Cytoscape)", "1"))
+    gen_ctx_elements = render_cytoscape.render_context_elements(project)
+    gen_ctx_html = render_cytoscape.wrap_context_html(project, gen_ctx_elements)
+
+    out_ctx_html = ctx_dir / "context.generated.html"
+    out_ctx_html.write_text(gen_ctx_html)
+    print(f"  wrote {out_ctx_html.relative_to(repo_root)} ({len(gen_ctx_html)} bytes)")
+    print(f"  elements: {len(gen_ctx_elements)}  (nodes + edges)")
+    print(f"  hand-written context.html exists; the generated version is a sidecar.")
+    print(f"  open both in a browser to compare interactivity.")
+    print()
+
     # ─── Mermaid (level-1 DFD) ───
     l1_dir = repo_root / "examples" / "solar" / "01-level1"
     print(_color("==> Rendering level-1 DFD — Mermaid", "1"))
@@ -119,6 +155,7 @@ def main() -> int:
     out_l1_mermaid = l1_dir / "dfd.generated.mmd"
     out_l1_mermaid.write_text(gen_l1_mermaid)
     print(f"  wrote {out_l1_mermaid.relative_to(repo_root)} ({len(gen_l1_mermaid)} bytes)")
+    _try_svg(out_l1_mermaid, l1_dir / "dfd.generated-mermaid.svg", "mermaid")
 
     hand_l1_md = (l1_dir / "dfd.md").read_text()
     hand_l1_mermaid = _extract_mermaid_block(hand_l1_md)
@@ -145,6 +182,7 @@ def main() -> int:
     out_l1_d2 = l1_dir / "dfd.generated.d2"
     out_l1_d2.write_text(gen_l1_d2)
     print(f"  wrote {out_l1_d2.relative_to(repo_root)} ({len(gen_l1_d2)} bytes)")
+    _try_svg(out_l1_d2, l1_dir / "dfd.generated-d2.svg", "d2")
 
     hand_l1_d2 = (l1_dir / "dfd.d2").read_text()
     if hand_l1_d2.strip() == gen_l1_d2.strip():
@@ -179,6 +217,7 @@ def main() -> int:
     out_cspec_mermaid = cspec_dir / "cspec.generated.mmd"
     out_cspec_mermaid.write_text(gen_cspec_mermaid)
     print(f"  wrote {out_cspec_mermaid.relative_to(repo_root)} ({len(gen_cspec_mermaid)} bytes)")
+    _try_svg(out_cspec_mermaid, cspec_dir / "cspec.generated-mermaid.svg", "mermaid")
 
     # Hand-written is in cspec.md (Mermaid block) and proposal-states.mmd
     hand_cspec_md = (cspec_dir / "cspec.md").read_text()
@@ -208,6 +247,7 @@ def main() -> int:
     out_cspec_d2 = cspec_dir / "cspec.generated.d2"
     out_cspec_d2.write_text(gen_cspec_d2)
     print(f"  wrote {out_cspec_d2.relative_to(repo_root)} ({len(gen_cspec_d2)} bytes)")
+    _try_svg(out_cspec_d2, cspec_dir / "cspec.generated-d2.svg", "d2")
 
     hand_cspec_d2 = (cspec_dir / "cspec.d2").read_text()
     if hand_cspec_d2.strip() == gen_cspec_d2.strip():
