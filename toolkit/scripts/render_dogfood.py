@@ -170,6 +170,69 @@ def main() -> int:
             print("  (diff truncated)")
     print()
 
+    # ─── Mermaid (CSPEC — Energy Manager state machine) ───
+    cspec_dir = repo_root / "examples" / "solar" / "01-level1" / "cspecs" / "energy-manager"
+    print(_color("==> Rendering Energy Manager CSPEC — Mermaid", "1"))
+    gen_cspec_mermaid = render_mermaid.render_state_machine(
+        project, parent_machine_id="proc_compute_balance"
+    )
+    out_cspec_mermaid = cspec_dir / "cspec.generated.mmd"
+    out_cspec_mermaid.write_text(gen_cspec_mermaid)
+    print(f"  wrote {out_cspec_mermaid.relative_to(repo_root)} ({len(gen_cspec_mermaid)} bytes)")
+
+    # Hand-written is in cspec.md (Mermaid block) and proposal-states.mmd
+    hand_cspec_md = (cspec_dir / "cspec.md").read_text()
+    hand_cspec_mermaid = _extract_mermaid_block(hand_cspec_md)
+    if hand_cspec_mermaid:
+        if hand_cspec_mermaid.strip() == gen_cspec_mermaid.strip():
+            print(_color("  ✓ matches hand-written cspec.md mermaid block", "32"))
+        else:
+            print(_color("  ≠ differs from hand-written (see diff below)", "33"))
+            d = _diff(hand_cspec_mermaid, gen_cspec_mermaid,
+                      "hand-written (cspec.md block)", "generated")
+            for line in d.splitlines()[:80]:
+                if line.startswith("+"):
+                    print(_color(line, "32"))
+                elif line.startswith("-"):
+                    print(_color(line, "31"))
+                else:
+                    print(line)
+            print("  (diff truncated if long)")
+    print()
+
+    # ─── D2 (CSPEC) ───
+    print(_color("==> Rendering Energy Manager CSPEC — D2", "1"))
+    gen_cspec_d2 = render_d2.render_state_machine(
+        project, parent_machine_id="proc_compute_balance"
+    )
+    out_cspec_d2 = cspec_dir / "cspec.generated.d2"
+    out_cspec_d2.write_text(gen_cspec_d2)
+    print(f"  wrote {out_cspec_d2.relative_to(repo_root)} ({len(gen_cspec_d2)} bytes)")
+
+    hand_cspec_d2 = (cspec_dir / "cspec.d2").read_text()
+    if hand_cspec_d2.strip() == gen_cspec_d2.strip():
+        print(_color("  ✓ matches hand-written cspec.d2", "32"))
+    else:
+        def _normalize(s: str) -> str:
+            keep = [ln for ln in s.splitlines()
+                    if ln.strip() and not ln.strip().startswith("#")]
+            return "\n".join(keep)
+        if _normalize(hand_cspec_d2) == _normalize(gen_cspec_d2):
+            print(_color("  ✓ matches hand-written cspec.d2 (ignoring comments/blanks)", "32"))
+        else:
+            print(_color("  ≠ differs from hand-written (see diff below)", "33"))
+            d = _diff(hand_cspec_d2, gen_cspec_d2,
+                      "hand-written cspec.d2", "generated")
+            for line in d.splitlines()[:80]:
+                if line.startswith("+"):
+                    print(_color(line, "32"))
+                elif line.startswith("-"):
+                    print(_color(line, "31"))
+                else:
+                    print(line)
+            print("  (diff truncated)")
+    print()
+
     print(_color("Done. See *.generated.* files for the renderer output.", "32"))
     return 0
 

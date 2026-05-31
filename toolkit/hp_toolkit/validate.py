@@ -123,6 +123,23 @@ def reference_integrity(project: Project) -> ValidationReport:
                 f"edge target {ed.target!r} not in dictionary"
             ))
 
+    for t in project.all_transitions():
+        if t.source_state not in entity_ids:
+            report.issues.append(ValidationIssue(
+                "error", "reference", t.id,
+                f"transition source_state {t.source_state!r} not in dictionary"
+            ))
+        if t.target_state not in entity_ids:
+            report.issues.append(ValidationIssue(
+                "error", "reference", t.id,
+                f"transition target_state {t.target_state!r} not in dictionary"
+            ))
+        if t.parent_machine not in entity_ids:
+            report.issues.append(ValidationIssue(
+                "error", "reference", t.id,
+                f"transition parent_machine {t.parent_machine!r} not in dictionary"
+            ))
+
     return report
 
 

@@ -6,7 +6,7 @@ follow once the dictionary models boundary-flow refinement.
 
 from __future__ import annotations
 
-from ..model import Project, Entity, Flow, Edge, EntityKind, FlowKind
+from ..model import Project, Entity, Flow, Edge, Transition, EntityKind, FlowKind
 
 
 def _esc(text: str) -> str:
@@ -245,5 +245,97 @@ def render_dfd(project: Project, parent_id: str = "sys_root") -> str:
     if terms_normal:   lines.append(f"    class {','.join(terms_normal)} terminator;")
     if terms_grid:     lines.append(f"    class {','.join(terms_grid)} grid;")
     if terms_optional: lines.append(f"    class {','.join(terms_optional)} termopt;")
+
+    return "\n".join(lines) + "\n"
+
+
+def _tx_label(t: Transition) -> str:
+    """Pick a transition's diagram label — `label` if set, otherwise `event`."""
+    return _esc(t.label or t.event)
+
+
+def render_state_machine(project: Project, parent_machine_id: str) -> str:
+    """Render a CSPEC state machine as Mermaid stateDiagram-v2.
+
+    `parent_machine_id` is the process entity whose CSPEC contains the
+    states and transitions. States are identified by their `label`
+    (Mermaid uses label-as-identifier in stateDiagram-v2).
+
+    Hierarchy: composite states get their own `state X { ... }` blocks
+    containing their sub-states. A transition whose source and target are
+    both substates of the same composite is emitted *inside* that
+    composite's block; all other transitions go at the top level.
+
+    Initial states are marked with `is_initial: true` in the dictionary
+    (one for the whole machine, one per composite).
+    """
+    machine = project.entities.get(parent_machine_id)
+    if machine is None:
+        raise ValueError(f"Parent machine {parent_machine_id!r} not in project")
+
+    all_states = [
+        e for e in project.all_entities()
+        if e.parent == parent_machine_id
+        and e.kind in (EntityKind.STATE, EntityKind.STATE_COMPOSITE)
+    ]
+    top_level_states = [s for s in all_states if not s.parent_state]
+    composite_states = [s for s in all_states if s.kind == EntityKind.STATE_COMPOSITE]
+
+    transitions = project.transitions_for(parent_machine_id)
+
+    # Partition transitions: inside-composite vs top-level
+    composite_txns: dict[str, list[Transition]] = {c.id: [] for c in composite_states}
+    top_txns: list[Transition] = []
+    for t in transitions:
+        src = project.entities.get(t.source_state)
+        tgt = project.entities.get(t.target_state)
+        if src and tgt and src.parent_state and src.parent_state == tgt.parent_state:
+            composite_txns[src.parent_state].append(t)
+        else:
+            top_txns.append(t)
+
+    # Find the machine-level initial state
+    initial_top = next((s for s in top_level_states if s.is_initial), None)
+
+    lines: list[str] = ["stateDiagram-v2", "    direction LR", ""]
+
+    if initial_top:
+        lines.append(f"    [*] --> {initial_top.label}")
+        lines.append("")
+
+    # Top-level transitions
+    for t in top_txns:
+        src_label = project.entities[t.source_state].label
+        tgt_label = project.entities[t.target_state].label
+        lines.append(f"    {src_label} --> {tgt_label} : {_tx_label(t)}")
+    lines.append("")
+
+    # Composite blocks
+    for comp in composite_states:
+        lines.append(f"    state {comp.label} {{")
+        lines.append("        direction LR")
+        substates = [s for s in all_states if s.parent_state == comp.id]
+        initial_sub = next((s for s in substates if s.is_initial), None)
+        if initial_sub:
+            lines.append(f"        [*] --> {initial_sub.label}")
+        # Substates that have no transitions to/from (e.g., siblings in Fault)
+        # need to be declared explicitly so they appear in the diagram
+        referenced_in_block: set[str] = set()
+        if initial_sub:
+            referenced_in_block.add(initial_sub.id)
+        for t in composite_txns[comp.id]:
+            referenced_in_block.add(t.source_state)
+            referenced_in_block.add(t.target_state)
+        # Declare unreferenced sub-states with bare labels
+        for s in substates:
+            if s.id not in referenced_in_block:
+                lines.append(f"        {s.label}")
+        # Inner transitions
+        for t in composite_txns[comp.id]:
+            src_label = project.entities[t.source_state].label
+            tgt_label = project.entities[t.target_state].label
+            lines.append(f"        {src_label} --> {tgt_label} : {_tx_label(t)}")
+        lines.append("    }")
+        lines.append("")
 
     return "\n".join(lines) + "\n"

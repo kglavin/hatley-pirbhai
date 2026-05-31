@@ -5,7 +5,7 @@ Currently supports: level-0 Context Diagram.
 
 from __future__ import annotations
 
-from ..model import Project, Entity, Flow, Edge, EntityKind
+from ..model import Project, Entity, Flow, Edge, Transition, EntityKind
 
 
 def _esc(text: str) -> str:
@@ -208,5 +208,110 @@ def render_dfd(project: Project, parent_id: str = "sys_root") -> str:
     lines.append("# --- Internal flows ---")
     for f in internal_flows:
         lines.append(_flow_edge(f))
+
+    return "\n".join(lines) + "\n"
+
+
+def _tx_label(t: Transition) -> str:
+    return _esc(t.label or t.event)
+
+
+def render_state_machine(project: Project, parent_machine_id: str) -> str:
+    """Render a CSPEC state machine as D2 with container blocks for
+    composite states. References to sub-states from outside their
+    composite use dot notation (e.g., `Fault.TelemetryFault`)."""
+    machine = project.entities.get(parent_machine_id)
+    if machine is None:
+        raise ValueError(f"Parent machine {parent_machine_id!r} not in project")
+
+    all_states = [
+        e for e in project.all_entities()
+        if e.parent == parent_machine_id
+        and e.kind in (EntityKind.STATE, EntityKind.STATE_COMPOSITE)
+    ]
+    top_level_states = [s for s in all_states if not s.parent_state]
+    composite_states = [s for s in all_states if s.kind == EntityKind.STATE_COMPOSITE]
+    atomic_top_states = [s for s in top_level_states if s.kind == EntityKind.STATE]
+
+    transitions = project.transitions_for(parent_machine_id)
+
+    # Partition transitions
+    composite_txns: dict[str, list[Transition]] = {c.id: [] for c in composite_states}
+    cross_txns: list[Transition] = []
+    for t in transitions:
+        src = project.entities.get(t.source_state)
+        tgt = project.entities.get(t.target_state)
+        if src and tgt and src.parent_state and src.parent_state == tgt.parent_state:
+            composite_txns[src.parent_state].append(t)
+        else:
+            cross_txns.append(t)
+
+    initial_top = next((s for s in top_level_states if s.is_initial), None)
+
+    lines: list[str] = ["direction: right", ""]
+
+    # Start pseudo-state
+    lines.extend([
+        'start: "●" {',
+        '  shape: circle',
+        '  style.fill: "#222"',
+        '  width: 30',
+        '  height: 30',
+        "}",
+        "",
+    ])
+
+    # Top-level atomic states (e.g., Initializing)
+    for s in atomic_top_states:
+        lines.append(f'{s.label}: {{ shape: oval; style.fill: "#e8e8e8" }}')
+    lines.append("")
+
+    # Composite state containers
+    for comp in composite_states:
+        # Choose styling per composite by name (heuristic)
+        if comp.id == "state_grid_tie":
+            fill, stroke = "#e6f3ff", "#2a70c2"
+        elif comp.id == "state_island":
+            fill, stroke = "#fff3e6", "#d68910"
+        elif comp.id == "state_fault":
+            fill, stroke = "#fee6e6", "#c0392b"
+        else:
+            fill, stroke = "#f0f0f0", "#888"
+
+        lines.append(f'{comp.label}: {{')
+        lines.append(f'  label: "{comp.label}"')
+        lines.append(f'  style.fill: "{fill}"')
+        lines.append(f'  style.stroke: "{stroke}"')
+        lines.append("")
+
+        substates = [s for s in all_states if s.parent_state == comp.id]
+        for s in substates:
+            lines.append(f'  {s.label}: {{ shape: oval; style.fill: "#fff" }}')
+
+        # Inner transitions
+        if composite_txns[comp.id]:
+            lines.append("")
+            for t in composite_txns[comp.id]:
+                src_label = project.entities[t.source_state].label
+                tgt_label = project.entities[t.target_state].label
+                lines.append(f'  {src_label} -> {tgt_label}: "{_tx_label(t)}"')
+
+        lines.append("}")
+        lines.append("")
+
+    # Cross-state transitions (use dot notation for substate targets if needed)
+    def _ref(state_id: str) -> str:
+        """D2 reference — dotted if the state is inside a composite."""
+        s = project.entities[state_id]
+        if s.parent_state:
+            parent_label = project.entities[s.parent_state].label
+            return f"{parent_label}.{s.label}"
+        return s.label
+
+    lines.append("# --- Cross-state transitions ---")
+    if initial_top:
+        lines.append(f"start -> {_ref(initial_top.id)}")
+    for t in cross_txns:
+        lines.append(f'{_ref(t.source_state)} -> {_ref(t.target_state)}: "{_tx_label(t)}"')
 
     return "\n".join(lines) + "\n"

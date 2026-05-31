@@ -23,8 +23,8 @@ Generates diagram sources from the Project model. Currently supports:
 | Level-0 Context Diagram (Mermaid) | ✅ live | `render.mermaid.render_context_diagram(project)` |
 | Level-0 Context Diagram (D2) | ✅ live | `render.d2.render_context_diagram(project)` |
 | Level-1 DFD (Mermaid / D2) | ✅ live | `render.mermaid.render_dfd(project, parent_id)` · `render.d2.render_dfd(project, parent_id)` — requires `refined_source` / `refined_target` populated on boundary flows |
+| State machine (Mermaid `stateDiagram-v2` / D2 containers) | ✅ live | `render.mermaid.render_state_machine(project, parent_machine_id)` · `render.d2.render_state_machine(project, parent_machine_id)` — requires `transitions:` populated, plus `is_initial: true` on the CSPEC entry state and each composite's initial sub-state |
 | Cytoscape elements JSON (any level) | planned | for HTML5 interactive workspaces |
-| State machine (Mermaid `stateDiagram-v2` / D2 containers) | planned | requires `transitions:` schema addition to dictionary |
 | SVG orchestration | planned | invoke `d2` and `mmdc` binaries on generated sources |
 
 Output is **deterministic** — same dictionary always produces byte-identical sources. Iteration order is YAML insertion order.
