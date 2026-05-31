@@ -29,6 +29,8 @@ uv run python scripts/hp_init.py fishing-rig \
     --description "Motorized rig that auto-detects bites and reels in fish."
 ```
 
+If you're starting from a *concept* rather than a locked plan (project boundary still fuzzy, outcomes not yet operational), `hp-frame` is an optional earlier pass that produces `concept.md` — a Stage-0 framing artifact `hp-init` can read to seed Stage 1. See [`skills/hp-frame.md`](skills/hp-frame.md). The fishing-rig example skipped `hp-frame` because its concept was already locked.
+
 **(B) Brownfield: `hp-ingest`** — takes an existing codebase and produces a draft `dictionary.yaml` to start from:
 
 ```bash

@@ -110,9 +110,17 @@ Every generated HTML page (Context, DFD, CSPECs, AFD, AID, plus every wrapped ma
 
 See [`PORTAL_DESIGN.md`](PORTAL_DESIGN.md) for the shape decisions (page orientation, markdown lib, PDF tracking policy, etc.).
 
-### 6. Brownfield ingest — bootstrap from existing code
+### 6. Greenfield framing — Stage 0, before HP starts
 
-The first five ideas all assume a *greenfield* HP project — you write `dictionary.yaml` from scratch, the AI helps you lock each stage. The reality is most engineers come to HP with an existing codebase. `hp-ingest` is the bootstrap path:
+HP's five stages assume you already have a *concept* worth analyzing. [`hp-frame`](skills/hp-frame.md) is the path before that — a conversational pre-HP pass that pressure-tests a greenfield concept against systems-thinking + capabilities-based discipline (Rebovich/Anderson/Webb, *Enterprise Systems Engineering*, 2011) and emits a `concept.md` — the seed that bootstraps an HP project.
+
+`hp-frame` walks nine framing branches (synthesis → outcomes → stakeholders → boundary → reference portfolio → tensions → slack → variation → uncertainty), one question at a time, recommending answers and capturing decisions to `concept.md` inline. The artifact is implementation-agnostic — not a spec, not a feature list — and the consumer (an `hp-init` flag or sibling skill, TBD) stays separate from the producer.
+
+See [`skills/hp-frame.md`](skills/hp-frame.md) for the behavior frame and [`skills/hp-frame-concept-format.md`](skills/hp-frame-concept-format.md) for the `concept.md` schema.
+
+### 7. Brownfield ingest — bootstrap from existing code
+
+The first six ideas above cover the *greenfield* path — you frame the concept with `hp-frame` (optional), scaffold with `hp-init`, then walk Stages 1–5 with the form-based propose skills. The reality is most engineers come to HP with an existing codebase. `hp-ingest` is the brownfield bootstrap path:
 
 ```bash
 uv run python scripts/hp_ingest.py /path/to/codebase --output /path/to/hp/project
@@ -141,12 +149,14 @@ See [`INGEST_DESIGN.md`](INGEST_DESIGN.md) for the full pipeline, token economic
 
 ## Workflow
 
-A full project lifecycle, end-to-end. Two entry points — greenfield (`hp-init`) or brownfield (`hp-ingest <codebase>`):
+A full project lifecycle, end-to-end. Two entry points — greenfield (`hp-init`, optionally preceded by `hp-frame` if starting from a concept rather than a plan) or brownfield (`hp-ingest <codebase>`):
 
 ```text
 ─── Greenfield: start from a blank dictionary ─────────────────────
-hp-init <name>                 # scaffold directory + dictionary skeleton
+(optional) hp-frame            # Stage 0: concept framing → concept.md
    ↓
+hp-init <name>                 # scaffold directory + dictionary skeleton
+   ↓                           # (reads concept.md if present)
 hp-propose-context             # Stage 1: terminators + boundary flows
    ↓
 hp-confirm-naming              # review terminator + flow names
@@ -214,7 +224,13 @@ The **modernization-layer skills are optional but recommended.** Validators (Com
 
 ## Skills
 
-Twenty-four skills make up the methodology surface — ten core HP, six modernization, eight brownfield ingest. Each is documented in [`skills/`](skills/) as a Claude Code skill file (markdown + YAML frontmatter). Seven have backing Python; seventeen are conversational (LLM-driven orchestration or form-based review).
+Twenty-five skills make up the methodology surface — one Stage-0 framing, ten core HP, six modernization, eight brownfield ingest. Each is documented in [`skills/`](skills/) as a Claude Code skill file (markdown + YAML frontmatter). Seven have backing Python; eighteen are conversational (LLM-driven orchestration or form-based review).
+
+**Stage 0 — greenfield concept framing (pre-HP):**
+
+| Skill | Stage / purpose | Backing code |
+|---|---|:---:|
+| [`hp-frame`](skills/hp-frame.md) | Stage 0 — interview-style greenfield concept framing; emits `concept.md` that seeds Stage 1 ([format](skills/hp-frame-concept-format.md)) | ⬜ |
 
 **Core HP — one per stage + the cross-cutting tools:**
 

@@ -32,6 +32,7 @@ description: One-line summary used to decide relevance.
 
 | Skill | Status | Stage / Purpose |
 |---|---|---|
+| [`hp-frame`](hp-frame.md) | ✅ drafted | **Stage 0 — greenfield concept framing.** Interview-style; emits `concept.md` (schema in [`hp-frame-concept-format.md`](hp-frame-concept-format.md)) that seeds Stage 1. Use before `hp-init` when starting from an idea, not from code. |
 | [`hp-confirm-naming`](hp-confirm-naming.md) | ✅ drafted | Cross-cutting — form-based naming review after any AI move that introduces named entities |
 | [`hp-validate`](hp-validate.md) | ✅ drafted + code live | Run validators (reference integrity, hierarchy, coverage metrics, orphan detection) |
 | [`hp-render`](hp-render.md) | ✅ drafted + code live | Regenerate diagram sources + SVGs from `dictionary.yaml` |
