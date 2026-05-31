@@ -5,7 +5,10 @@ Currently supports: level-0 Context Diagram.
 
 from __future__ import annotations
 
-from ..model import Project, Entity, Flow, Edge, Transition, EntityKind
+from ..model import (
+    Project, Entity, Flow, Edge, Transition, EntityKind,
+    ArchModule, ArchFlow, ArchInterconnect, ArchModuleKind,
+)
 
 
 def _esc(text: str) -> str:
@@ -330,5 +333,97 @@ def render_state_machine(project: Project, parent_machine_id: str) -> str:
         lines.append(f"start -> {_ref(initial_top.id)}")
     for t in cross_txns:
         lines.append(f'{_ref(t.source_state)} -> {_ref(t.target_state)}: "{_tx_label(t)}"')
+
+    return "\n".join(lines) + "\n"
+
+
+# ─────────────────────────────────────────────────────────────────────
+# Stage 5 — Architecture Model (AFD + AID)
+# ─────────────────────────────────────────────────────────────────────
+
+
+_KIND_STYLE = {
+    "hardware":       "  style.fill: \"#fff4e6\"\n  style.stroke: \"#d68910\"",
+    "software":       "  style.fill: \"#e8f0fe\"\n  style.stroke: \"#4a90e2\"",
+    "organizational": "  style.fill: \"#f4f4f4\"\n  style.stroke: \"#555\"",
+}
+
+
+def _am_decl(m: ArchModule) -> list[str]:
+    """D2 declaration for an architecture module — rounded rectangle."""
+    label = _esc(m.name)
+    if m.module_number:
+        label = f"{label}\\n({_esc(m.module_number)})"
+    lines = [f'{m.id}: "{label}" {{']
+    lines.append("  shape: rectangle")
+    lines.append("  style.border-radius: 12")
+    lines.append(_KIND_STYLE.get(m.kind.value, ""))
+    lines.append("}")
+    return lines
+
+
+def _af_edge(f: ArchFlow) -> str:
+    label = _esc(f.name)
+    if f.kind.value != "data":
+        label = f"{label} ({f.kind.value})"
+    return f'{f.source} -> {f.target}: "{label}"'
+
+
+def render_afd(project: Project, parent_id: str | None = None) -> str:
+    """Render an Architecture Flow Diagram as D2 source."""
+    modules = [m for m in project.all_architecture_modules() if m.parent == parent_id]
+    if not modules:
+        return "# (no architecture modules at this layer)\n"
+
+    module_ids = {m.id for m in modules}
+    flows = [f for f in project.all_architecture_flows()
+             if f.source in module_ids and f.target in module_ids]
+
+    lines: list[str] = ["direction: right", ""]
+    lines.append("# Architecture modules")
+    for m in modules:
+        lines.extend(_am_decl(m))
+    lines.append("")
+
+    if flows:
+        lines.append("# Architecture flows")
+        for f in flows:
+            lines.append(_af_edge(f))
+        lines.append("")
+
+    return "\n".join(lines) + "\n"
+
+
+def render_aid(project: Project, parent_id: str | None = None) -> str:
+    """Render an Architecture Interconnect Diagram as D2 source.
+
+    Interconnects with ≥ 2 endpoints render as undirected, labeled,
+    thicker connections between every adjacent pair of endpoints in
+    the interconnect's endpoints list.
+    """
+    modules = [m for m in project.all_architecture_modules() if m.parent == parent_id]
+    if not modules:
+        return "# (no architecture modules at this layer)\n"
+
+    module_ids = {m.id for m in modules}
+    interconnects = [
+        ic for ic in project.all_architecture_interconnects()
+        if sum(1 for ep in ic.endpoints if ep in module_ids) >= 2
+    ]
+
+    lines: list[str] = ["direction: right", ""]
+    lines.append("# Architecture modules")
+    for m in modules:
+        lines.extend(_am_decl(m))
+    lines.append("")
+
+    if interconnects:
+        lines.append("# Interconnects (physical channels)")
+        for ic in interconnects:
+            eps = [ep for ep in ic.endpoints if ep in module_ids]
+            label = _esc(ic.name)
+            for i in range(len(eps) - 1):
+                lines.append(f'{eps[i]} -- {eps[i+1]}: "{label}" {{ style.stroke-width: 3 }}')
+        lines.append("")
 
     return "\n".join(lines) + "\n"

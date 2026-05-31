@@ -51,6 +51,21 @@ class EdgeKind(str, Enum):
     PHYSICAL_INTERACTION = "physical_interaction"  # e.g., fish acts on line
 
 
+class ArchModuleKind(str, Enum):
+    """Kinds of architecture module — 2000 §4.2.2.1 (Fig 4.3)."""
+    HARDWARE = "hardware"
+    SOFTWARE = "software"
+    ORGANIZATIONAL = "organizational"
+
+
+class ArchFlowKind(str, Enum):
+    """Kinds of architecture flow — broader than data/control because
+    architecture flows can carry material or energy as well (2000 §4.2.2.3)."""
+    DATA = "data"
+    MATERIAL = "material"
+    ENERGY = "energy"
+
+
 class PSpecStyle(str, Enum):
     """Canonical body styles for a PSPEC transformation.
 
@@ -181,6 +196,107 @@ class PSpec(BaseModel):
     comments: Optional[str] = None       # rationale; 1988 §13.5 — NOT part of formal spec
 
 
+class ArchModule(BaseModel):
+    """An architecture module — basic building block of the Stage 5 model.
+
+    Hardware, software, or organizational. Carries the allocation
+    cross-reference back to requirements model components (2000 §4.2.5.4).
+    """
+    model_config = ConfigDict(extra="allow")
+
+    id: str
+    name: str
+    kind: ArchModuleKind
+    module_number: Optional[str] = None       # e.g., "AM 1.2" — 2000 §4.2.5.1
+    parent: Optional[str] = None              # parent module id, if nested
+    description: Optional[str] = None
+    # Allocation (2000 §4.2.5.4 cross-reference) — one requirements component
+    # can be allocated to multiple modules (replication, redundancy).
+    allocated_processes: list[str] = Field(default_factory=list)
+    allocated_cspecs: list[str] = Field(default_factory=list)
+    allocated_stores: list[str] = Field(default_factory=list)
+
+
+class ArchFlow(BaseModel):
+    """An architecture flow — 2000 §4.2.2.3. Data, material, or energy
+    between architecture modules. Carries one or more requirements flows."""
+    model_config = ConfigDict(extra="allow")
+
+    id: str
+    name: str
+    source: str                                # architecture module id
+    target: str                                # architecture module id
+    kind: ArchFlowKind
+    physical_description: Optional[str] = None
+    allocated_flows: list[str] = Field(default_factory=list)   # requirements flow ids
+
+
+class ArchInterconnect(BaseModel):
+    """A physical channel between architecture modules — 2000 §4.2.6.1.
+
+    Carries architecture flows (or can stand alone for power/ground buses
+    where the "flow" is electrical current that isn't modeled as a flow)."""
+    model_config = ConfigDict(extra="allow")
+
+    id: str
+    name: str
+    endpoints: list[str]                       # 2+ architecture module ids
+    carries: list[str] = Field(default_factory=list)   # architecture flow ids
+    description: Optional[str] = None
+
+
+class ArchModuleConstraints(BaseModel):
+    """Required-constraints section of an AMS — 2000 §4.2.5.4 typical contents."""
+    model_config = ConfigDict(extra="allow")
+
+    reliability: Optional[str] = None
+    maintainability: Optional[str] = None
+    safety: Optional[str] = None
+    physical: Optional[str] = None
+    design: Optional[str] = None
+    manufacturability: Optional[str] = None
+    cost: Optional[str] = None
+    schedule: Optional[str] = None
+
+
+class ArchModuleSpec(BaseModel):
+    """Architecture Module Specification — 2000 §4.2.5.4.
+
+    Six typical sections; only `description` + `parent_module` required.
+    Cross-reference (allocation) lives on the ArchModule itself; the spec
+    captures the prose around the allocation (rationale, justification,
+    constraints, interfaces).
+    """
+    model_config = ConfigDict(extra="allow")
+
+    id: str
+    parent_module: str
+    description: str                           # required
+    design_rationale: Optional[str] = None
+    design_justification: Optional[str] = None
+    required_constraints: Optional[ArchModuleConstraints] = None
+    interfaces: Optional[str] = None
+
+
+class ArchInterconnectSpec(BaseModel):
+    """Architecture Interconnect Specification — 2000 §4.2.6.2.
+
+    Similar to AMS but for physical channels. References industry
+    standards (protocols, register maps, etc.) rather than duplicating
+    them. Mapping of flows → interconnects lives in
+    `ArchInterconnect.carries`, NOT in this spec (2000 §4.2.6.2).
+    """
+    model_config = ConfigDict(extra="allow")
+
+    id: str
+    parent_interconnect: str
+    description: str                           # required
+    protocol_standard: Optional[str] = None
+    design_rationale: Optional[str] = None
+    design_justification: Optional[str] = None
+    required_constraints: Optional[ArchModuleConstraints] = None
+
+
 class Transition(BaseModel):
     """A state-machine transition inside a CSPEC.
 
@@ -221,6 +337,12 @@ class Project(BaseModel):
     edges: dict[str, Edge] = Field(default_factory=dict)
     transitions: dict[str, Transition] = Field(default_factory=dict)
     pspecs: dict[str, PSpec] = Field(default_factory=dict)
+    # ─── Stage 5 (Architecture Model) ───
+    architecture_modules: dict[str, ArchModule] = Field(default_factory=dict)
+    architecture_flows: dict[str, ArchFlow] = Field(default_factory=dict)
+    architecture_interconnects: dict[str, ArchInterconnect] = Field(default_factory=dict)
+    architecture_module_specs: dict[str, ArchModuleSpec] = Field(default_factory=dict)
+    architecture_interconnect_specs: dict[str, ArchInterconnectSpec] = Field(default_factory=dict)
 
     # ─── Convenience accessors ───
 
@@ -238,6 +360,33 @@ class Project(BaseModel):
 
     def all_pspecs(self) -> list[PSpec]:
         return list(self.pspecs.values())
+
+    def all_architecture_modules(self) -> list[ArchModule]:
+        return list(self.architecture_modules.values())
+
+    def all_architecture_flows(self) -> list[ArchFlow]:
+        return list(self.architecture_flows.values())
+
+    def all_architecture_interconnects(self) -> list[ArchInterconnect]:
+        return list(self.architecture_interconnects.values())
+
+    def all_architecture_module_specs(self) -> list[ArchModuleSpec]:
+        return list(self.architecture_module_specs.values())
+
+    def all_architecture_interconnect_specs(self) -> list[ArchInterconnectSpec]:
+        return list(self.architecture_interconnect_specs.values())
+
+    def ams_for_module(self, module_id: str) -> Optional[ArchModuleSpec]:
+        for s in self.architecture_module_specs.values():
+            if s.parent_module == module_id:
+                return s
+        return None
+
+    def ais_for_interconnect(self, interconnect_id: str) -> Optional[ArchInterconnectSpec]:
+        for s in self.architecture_interconnect_specs.values():
+            if s.parent_interconnect == interconnect_id:
+                return s
+        return None
 
     def entity(self, id: str) -> Entity:
         return self.entities[id]

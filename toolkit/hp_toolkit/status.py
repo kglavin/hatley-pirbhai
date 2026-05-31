@@ -202,6 +202,66 @@ def _check_stage_4(project: Project, project_dir: Path) -> StageStatus:
                        f"{len(leaves)} leaf process(es) need PSPECs")
 
 
+def _all_leaf_processes(project: Project) -> list:
+    """All leaf requirements processes (with or without needs_cspec).
+    These are the processes Stage 5 must allocate."""
+    leaves = []
+    for e in project.all_entities():
+        if e.kind != EntityKind.PROCESS:
+            continue
+        has_child = any(o.parent == e.id and o.kind == EntityKind.PROCESS
+                        for o in project.all_entities())
+        if not has_child:
+            leaves.append(e)
+    return leaves
+
+
+def _check_stage_5(project: Project, project_dir: Path) -> StageStatus:
+    """Report Stage 5 (Architecture Model) progress.
+
+    Locked = ≥ 1 module present AND every leaf requirements process is
+    allocated (via allocated_processes for non-state-rich; via
+    allocated_cspecs for state-rich) AND every module has an AMS.
+    """
+    if not project.architecture_modules:
+        return StageStatus(5, "Architecture model", "not_started",
+                           "no architecture_modules defined")
+
+    n_modules = len(project.architecture_modules)
+    n_flows = len(project.architecture_flows)
+    n_interconnects = len(project.architecture_interconnects)
+
+    leaves = _all_leaf_processes(project)
+    allocated_procs: set[str] = set()
+    allocated_cspecs: set[str] = set()
+    for m in project.all_architecture_modules():
+        allocated_procs.update(m.allocated_processes)
+        allocated_cspecs.update(m.allocated_cspecs)
+
+    def _is_allocated(p) -> bool:
+        return p.id in allocated_cspecs if p.needs_cspec else p.id in allocated_procs
+
+    n_allocated = sum(1 for p in leaves if _is_allocated(p))
+
+    ams_modules = {s.parent_module for s in project.all_architecture_module_specs()}
+    n_with_ams = sum(1 for m in project.all_architecture_modules() if m.id in ams_modules)
+
+    all_allocated = len(leaves) == n_allocated
+    all_have_ams = n_modules == n_with_ams
+
+    if all_allocated and all_have_ams:
+        return StageStatus(5, "Architecture model", "locked",
+                           f"{n_modules} module(s); {n_flows} flow(s); "
+                           f"{n_interconnects} interconnect(s); "
+                           f"{n_allocated}/{len(leaves)} leaf processes allocated; "
+                           f"{n_with_ams}/{n_modules} AMS")
+
+    return StageStatus(5, "Architecture model", "in_progress",
+                       f"{n_modules} module(s); "
+                       f"{n_allocated}/{len(leaves)} leaf processes allocated; "
+                       f"{n_with_ams}/{n_modules} AMS")
+
+
 def _check_stage_3(project: Project, project_dir: Path) -> StageStatus:
     procs = _cspec_processes(project)
     if not procs:
@@ -294,7 +354,7 @@ def status_report(project_dir: Path) -> StatusReport:
             _check_stage_2(project, project_dir),
             _check_stage_3(project, project_dir),
             _check_stage_4(project, project_dir),
-            StageStatus(5, "Architecture model", "n/a", "stage not yet implemented in toolkit"),
+            _check_stage_5(project, project_dir),
         ],
         validation=validate(project),
         stale_artifacts=_find_stale_artifacts(project_dir),

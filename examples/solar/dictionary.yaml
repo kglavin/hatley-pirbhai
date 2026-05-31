@@ -724,3 +724,153 @@ pspecs:
       Optional bubble (per Stage 1 Decision 5). The "issue" keyword marks
       F8 as time-transient — each posting is a single event, not a held
       output (1988 §13.3).
+
+
+# ─── Stage 5 — Architecture Model ───
+# Format: 2000 §4.2 (AFD + AID + AMS + AIS + allocation).
+# Source: see toolkit/ARCH_DESIGN.md.
+
+architecture_modules:
+
+  am_controller_host:
+    name: "Controller Host"
+    module_number: "AM 1"
+    kind: hardware
+    description: |
+      Raspberry Pi 4 (or x86 mini-PC) running the on-prem controller.
+      Hosts all back-end processes: multi-protocol ingest, the energy-
+      manager state machine, output adapters to inverters + battery,
+      and the optional cloud-forward bridge.
+    allocated_processes:
+      - proc_acquire_telemetry
+      - proc_dispatch_commands
+      - proc_cloud_forward
+    allocated_cspecs:
+      - proc_compute_balance
+    allocated_stores:
+      - store_system_state
+
+  am_dashboard_app:
+    name: "Dashboard Web App"
+    module_number: "AM 2"
+    kind: software
+    description: |
+      Browser-side single-page app for the owner. Renders dashboards
+      built from system_state; surfaces alerts; accepts config + manual
+      overrides. Communicates with the controller host over local
+      WebSocket / HTTP.
+    allocated_processes:
+      - proc_serve_ui
+      - proc_handle_user_input
+
+architecture_flows:
+
+  af_state_to_dashboard:
+    name: "state + alerts"
+    source: am_controller_host
+    target: am_dashboard_app
+    kind: data
+    physical_description: |
+      WebSocket push of state snapshots + event_alert messages.
+      JSON-encoded; ~1 Hz aggregate plus event-driven alerts.
+    allocated_flows:
+      - flow_state_to_ui
+      - flow_event_alert
+
+  af_input_to_controller:
+    name: "config + override"
+    source: am_dashboard_app
+    target: am_controller_host
+    kind: data
+    physical_description: |
+      HTTP POST + WebSocket commands from the dashboard to the
+      controller. Carries config changes and manual overrides.
+    allocated_flows:
+      - flow_event_config
+      - flow_event_override
+
+architecture_interconnects:
+
+  ai_local_lan:
+    name: "Local LAN"
+    endpoints: [am_controller_host, am_dashboard_app]
+    carries: [af_state_to_dashboard, af_input_to_controller]
+    description: |
+      Wired or wireless LAN connecting the owner's browser to the
+      controller host. WebSocket + HTTP over TCP/IP. No public
+      Internet exposure required.
+
+architecture_module_specs:
+
+  ams_controller_host:
+    parent_module: am_controller_host
+    description: |
+      Single-board computer running Linux + the HP-derived controller
+      service. Carries all the device-facing protocols (Sub-1G RF to
+      the DTU, Modbus RTU to the meter, MQTT/Modbus TCP to the
+      battery system), the diversion-control state machine, and the
+      output adapters that translate cmd_setpoint / cmd_inverter_limit
+      back into vendor protocols.
+    design_rationale: |
+      Single-host architecture chosen over a distributed setup because
+      the dataset is small enough (sub-kHz aggregate) to fit on one
+      modest controller, and a single failure domain simplifies the
+      diversion-control safety story.
+    design_justification: |
+      Pi 4 with 2 GB RAM is overprovisioned for the workload: ~50 KB/s
+      aggregate ingest, ~100 KB heap working set. Vendor adapters are
+      Python or Go processes well within budget.
+    required_constraints:
+      reliability: "MTBF > 8000 hours indoor mounted."
+      safety: "Diversion command path must fail-safe to 'zero export'
+        on host failure (Victron's fallback handles outage transfer
+        independently)."
+      physical: "Indoor mount; passive cooling; mains UPS."
+      cost: "BoM ≤ $200 including UPS and enclosure."
+    interfaces: |
+      Inputs:  F1 PER CHANNEL TELEMETRY (Sub-1G RF via DTU-Pro-S or
+               OpenDTU); F3 NET GRID POWER (RS485 Modbus RTU);
+               F4 SOC MODE AC IN (MQTT or Modbus TCP).
+      Outputs: F2 POWER LIMIT SETPOINTS (OpenDTU only);
+               F5 MAX CHARGE GRID SETPOINT (MQTT publish);
+               F8 OPTIONAL TELEMETRY FORWARD (HTTPS, off by default).
+      LAN:     WebSocket + HTTP to the Dashboard Web App.
+
+  ams_dashboard_app:
+    parent_module: am_dashboard_app
+    description: |
+      SPA served from the controller host. Renders live dashboards
+      (power flows, SoC, mode, recent history); surfaces alerts in a
+      banner; exposes config controls and manual override buttons.
+      Runs entirely in the owner's browser; talks back via WebSocket
+      and HTTP.
+    design_rationale: |
+      Browser-based UI chosen over a native app to avoid app-store
+      friction and to make the controller usable from any device on
+      the owner's LAN without install.
+    required_constraints:
+      reliability: "Reconnects to controller within 5 s of WebSocket
+        drop; surfaces 'disconnected' state to the owner."
+      physical: "Runs in any modern browser (Chrome, Safari, Firefox)."
+
+architecture_interconnect_specs:
+
+  ais_local_lan:
+    parent_interconnect: ai_local_lan
+    description: |
+      The owner's local network connecting the dashboard browser to
+      the controller host. WebSocket carries push notifications
+      (state updates, alerts); HTTP serves the SPA and accepts config
+      POSTs.
+    protocol_standard: |
+      HTTP/1.1 (RFC 7230) for static asset serving and config POSTs;
+      WebSocket (RFC 6455) for push notifications. JSON message
+      format documented in the controller's protocol spec.
+    design_rationale: |
+      LAN-only by default — no public Internet exposure. Owner can
+      reverse-proxy externally if remote access is wanted, but that
+      is out-of-scope here.
+    required_constraints:
+      reliability: "Survives router reboots without manual reconnect
+        on the dashboard side."
+      timing: "State-update latency < 1 s end-to-end."
