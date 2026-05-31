@@ -61,22 +61,25 @@ Output JSON shape:
 
 When invoked, conversationally:
 
-1. **Read inputs.** Load `hp-graph.json` (nodes/edges from Stages 1–4) + `architecture-candidates.json` (deployment-unit candidates).
-2. **Build the module set.** For each candidate, decide if it's a real Stage-5 module:
+1. **Read pre-stage file drops (architect guidance + external evidence).**
+   - **Hints:** check `intermediate/hints/architect.md`. If present, treat as binding architect guidance — common cases are "split this module" / "collapse these two" / "rename module X to Y" / "this isn't really a module, drop it". Append a `HINT_LOADED` line: `Bash: echo "$(date -u +%Y-%m-%dT%H:%M:%SZ) HINT_LOADED stage=5 agent=hp-ingest-architect path=intermediate/hints/architect.md" >> <intermediate-dir>/progress.log`.
+   - **External context:** read every file under `external-context/adrs/` (architecture decision records — authoritative for Stage-5 module + interconnect rationale) and `external-context/design-docs/` (design memos that didn't make it into the repo). When an architecture_module / architecture_interconnect node derives from an external doc, record the source path in its `provenance.external_context_used`.
+2. **Read inputs.** Load `hp-graph.json` (nodes/edges from Stages 1–4) + `architecture-candidates.json` (deployment-unit candidates).
+3. **Build the module set.** For each candidate, decide if it's a real Stage-5 module:
    - **Promote** Dockerfiles, k8s Deployments/StatefulSets, single-purpose npm/cargo packages.
    - **Collapse** multiple candidates for the same module (a Dockerfile + a k8s Deployment for the same service → one module; both files go into `implemented_by`).
    - **Skip** candidates that are infrastructure-of-infrastructure (e.g., a Dockerfile for a build image that nothing in the runtime uses).
-3. **Pick `module_kind` per module.** Default `software`. Use `hardware` for SBCs / embedded controllers / physical sensors-and-actuators (rare in cloud projects; common in fishing-rig-style HW projects). Use `organizational` for modules owned by a team-as-a-service (rare for ingest — usually appears in retrofit cases).
-4. **Draw the interconnect graph.** From compose networks + k8s Services + cross-module imports in the codebase, identify which modules talk. Each unique channel = one interconnect. Be conservative — most modules talk over a single shared interconnect (e.g., "Cluster RPC") plus 1–2 external ones (e.g., "Internet ingress").
-5. **Allocate every Stage 1–4 entity** that has a runtime presence:
+4. **Pick `module_kind` per module.** Default `software`. Use `hardware` for SBCs / embedded controllers / physical sensors-and-actuators (rare in cloud projects; common in fishing-rig-style HW projects). Use `organizational` for modules owned by a team-as-a-service (rare for ingest — usually appears in retrofit cases).
+5. **Draw the interconnect graph.** From compose networks + k8s Services + cross-module imports in the codebase, identify which modules talk. Each unique channel = one interconnect. Be conservative — most modules talk over a single shared interconnect (e.g., "Cluster RPC") plus 1–2 external ones (e.g., "Internet ingress").
+6. **Allocate every Stage 1–4 entity** that has a runtime presence:
    - Every leaf `process` → exactly one `architecture_module`.
    - Every state-rich process (`needs_cspec: true`) → as `allocated_cspecs` (HP convention, see 2000 §4.2.5.4).
    - Every `data_store` → the module that owns its persistence (DB pod / cache pod / message queue pod).
    - Terminators DO NOT get allocated — they're external.
-6. **`carries` per interconnect.** For each flow node in `hp-graph.json`, look up its source + target modules. If both endpoints are on the same interconnect's endpoint list, add the flow id to `carries`.
-7. **Confidence calibration.** A clear k8s Deployment + Dockerfile + 1 obvious responsibility → 0.85+. A package manifest at the repo root with no clear runtime → 0.5. Allocations: 0.8+ when one process is clearly inside one container; lower when the same process is implemented across multiple files spanning containers (the architect must adjudicate).
-8. **Set provenance + confidence** on every emitted node/edge.
-9. **Write `intermediate/architecture.json`.**
+7. **`carries` per interconnect.** For each flow node in `hp-graph.json`, look up its source + target modules. If both endpoints are on the same interconnect's endpoint list, add the flow id to `carries`.
+8. **Confidence calibration.** A clear k8s Deployment + Dockerfile + 1 obvious responsibility → 0.85+. A package manifest at the repo root with no clear runtime → 0.5. Allocations: 0.8+ when one process is clearly inside one container; lower when the same process is implemented across multiple files spanning containers (the architect must adjudicate).
+9. **Set provenance + confidence** on every emitted node/edge.
+10. **Write `intermediate/architecture.json`.**
 
 ## Discipline
 
