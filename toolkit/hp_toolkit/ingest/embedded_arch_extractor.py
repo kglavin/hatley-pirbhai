@@ -1,3 +1,6 @@
+# Copyright (c) 2026 github.com/kglavin
+# SPDX-License-Identifier: MIT
+
 """Embedded-target architecture-candidate extractors (per EMBEDDED_FIRMWARE_TUNING_DESIGN.md finding C).
 
 Sibling to `compose_parser.py` / `dockerfile_parser.py` / `k8s_parser.py`

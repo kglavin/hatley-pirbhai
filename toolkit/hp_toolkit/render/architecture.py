@@ -1,3 +1,6 @@
+# Copyright (c) 2026 github.com/kglavin
+# SPDX-License-Identifier: MIT
+
 """AMS + AIS markdown emitters.
 
 Renders each Architecture Module Specification (AMS) and Architecture

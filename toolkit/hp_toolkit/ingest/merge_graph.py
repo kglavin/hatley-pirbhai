@@ -1,3 +1,6 @@
+# Copyright (c) 2026 github.com/kglavin
+# SPDX-License-Identifier: MIT
+
 """Deterministic IR merge — combines all the agents' intermediate JSONs into
 a single validated `intermediate/hp-graph.json`.
 

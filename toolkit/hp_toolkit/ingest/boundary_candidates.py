@@ -1,3 +1,6 @@
+# Copyright (c) 2026 github.com/kglavin
+# SPDX-License-Identifier: MIT
+
 """Stage 1 candidate extractor — surfaces Stage-1 boundary candidates from
 the Stage-0 scan output.
 

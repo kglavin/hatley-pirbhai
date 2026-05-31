@@ -1,3 +1,6 @@
+# Copyright (c) 2026 github.com/kglavin
+# SPDX-License-Identifier: MIT
+
 """Project artifact tree — the single source for portal navigation + PDF TOC.
 
 A `TreeNode` is one entry in the tree; `build_project_tree(project, project_dir)`

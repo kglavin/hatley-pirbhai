@@ -1,3 +1,6 @@
+# Copyright (c) 2026 github.com/kglavin
+# SPDX-License-Identifier: MIT
+
 """Domain-glossary extraction from documentation (H.4.a).
 
 Per locked tuning H.4: every project of acme-cp's scale has a

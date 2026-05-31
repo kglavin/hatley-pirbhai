@@ -1,3 +1,6 @@
+# Copyright (c) 2026 github.com/kglavin
+# SPDX-License-Identifier: MIT
+
 """External-context loader for `<project-dir>/external-context/<category>/*`.
 
 Per locked tuning H.8: every non-trivial system has architectural context

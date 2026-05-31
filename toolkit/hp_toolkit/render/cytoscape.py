@@ -1,3 +1,6 @@
+# Copyright (c) 2026 github.com/kglavin
+# SPDX-License-Identifier: MIT
+
 """Cytoscape renderer — generate the elements JSON and a self-contained
 HTML workspace from the Project model.
 

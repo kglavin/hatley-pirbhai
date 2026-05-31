@@ -1,3 +1,6 @@
+# Copyright (c) 2026 github.com/kglavin
+# SPDX-License-Identifier: MIT
+
 """Makefile + Justfile recipe parser (Kevin's T8 follow-up question).
 
 Per the tuning discussion at T8: Makefile / Justfile recipes carry

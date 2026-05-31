@@ -1,3 +1,6 @@
+# Copyright (c) 2026 github.com/kglavin
+# SPDX-License-Identifier: MIT
+
 """Pydantic schemas for the HP toolkit dictionary model.
 
 The dictionary.yaml file is the canonical source of truth for an HP

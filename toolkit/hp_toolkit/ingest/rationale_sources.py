@@ -1,3 +1,6 @@
+# Copyright (c) 2026 github.com/kglavin
+# SPDX-License-Identifier: MIT
+
 """Per-module-candidate rationale evidence gatherer.
 
 Per locked tuning H.2: the architect agent currently produces terse,

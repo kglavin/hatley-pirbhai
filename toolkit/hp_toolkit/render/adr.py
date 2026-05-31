@@ -1,3 +1,6 @@
+# Copyright (c) 2026 github.com/kglavin
+# SPDX-License-Identifier: MIT
+
 """ADR markdown emitter.
 
 Renders each Architecture Decision Record into a sidecar markdown file

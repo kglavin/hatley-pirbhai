@@ -1,4 +1,7 @@
 #!/usr/bin/env python
+# Copyright (c) 2026 github.com/kglavin
+# SPDX-License-Identifier: MIT
+
 """Regenerate the solar dogfood diagrams from the dictionary.
 
 Currently renders level-0 only (Mermaid + D2). Writes generated sources

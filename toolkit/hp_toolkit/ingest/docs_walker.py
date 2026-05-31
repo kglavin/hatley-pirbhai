@@ -1,3 +1,6 @@
+# Copyright (c) 2026 github.com/kglavin
+# SPDX-License-Identifier: MIT
+
 """Shared documentation-corpus walker for the input-expansion extractors.
 
 The Stage-0 scanner + significance filter intentionally drop documentation

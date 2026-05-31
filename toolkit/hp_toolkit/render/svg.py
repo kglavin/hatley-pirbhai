@@ -1,3 +1,6 @@
+# Copyright (c) 2026 github.com/kglavin
+# SPDX-License-Identifier: MIT
+
 """SVG orchestration — invoke `d2` and `mmdc` binaries to render
 generated source files to static SVGs.
 

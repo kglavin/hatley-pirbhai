@@ -1,3 +1,6 @@
+# Copyright (c) 2026 github.com/kglavin
+# SPDX-License-Identifier: MIT
+
 """Validators for the HP toolkit model.
 
 These implement the "make rigor measurable" tactic — every check produces

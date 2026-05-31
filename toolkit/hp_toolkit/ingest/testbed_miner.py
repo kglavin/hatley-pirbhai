@@ -1,3 +1,6 @@
+# Copyright (c) 2026 github.com/kglavin
+# SPDX-License-Identifier: MIT
+
 """Purpose-built testbed detector + miner (H.7).
 
 Per locked tuning H.7: production systems often ship with purpose-built

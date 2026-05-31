@@ -1,3 +1,6 @@
+# Copyright (c) 2026 github.com/kglavin
+# SPDX-License-Identifier: MIT
+
 """Render the project tree as a collapsible HTML left-sidebar.
 
 Used by every wrap_*_html function in cytoscape.py + by render/index.py +

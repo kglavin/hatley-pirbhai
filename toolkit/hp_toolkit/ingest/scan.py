@@ -1,3 +1,6 @@
+# Copyright (c) 2026 github.com/kglavin
+# SPDX-License-Identifier: MIT
+
 """Stage 0 — codebase scanner. Pure Python, no LLM.
 
 Walks the codebase, classifies each file with an HP role hint (see

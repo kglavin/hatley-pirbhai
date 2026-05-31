@@ -1,3 +1,6 @@
+# Copyright (c) 2026 github.com/kglavin
+# SPDX-License-Identifier: MIT
+
 """Render a markdown sidecar (PSPEC / AMS / AIS / ADR / runbook / SLOs
 summary) as a standalone sidebar'd HTML page.
 

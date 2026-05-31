@@ -1,3 +1,6 @@
+# Copyright (c) 2026 github.com/kglavin
+# SPDX-License-Identifier: MIT
+
 """HP Toolkit — AI-augmented Hatley-Pirbhai methodology.
 
 The toolkit reads a per-project dictionary.yaml (HP's Requirements Dictionary

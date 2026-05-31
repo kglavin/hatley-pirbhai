@@ -1,3 +1,6 @@
+# Copyright (c) 2026 github.com/kglavin
+# SPDX-License-Identifier: MIT
+
 """Renderers — generate diagram sources from the Project model.
 
 Each submodule emits a different target notation:

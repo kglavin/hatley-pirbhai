@@ -1,3 +1,6 @@
+# Copyright (c) 2026 github.com/kglavin
+# SPDX-License-Identifier: MIT
+
 """Stage 5 candidate extractor — surfaces deployment-unit candidates from
 infrastructure files (Dockerfile, docker-compose, k8s manifests, terraform,
 package manifests) for the LLM architect agent.

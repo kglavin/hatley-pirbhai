@@ -1,3 +1,6 @@
+# Copyright (c) 2026 github.com/kglavin
+# SPDX-License-Identifier: MIT
+
 """IR → dictionary.yaml emitter.
 
 Pure Python, no LLM. Takes the merged `intermediate/hp-graph.json` (output

@@ -1,3 +1,6 @@
+# Copyright (c) 2026 github.com/kglavin
+# SPDX-License-Identifier: MIT
+
 """Architect-in-the-loop hints for `intermediate/hints/<stage>.md`.
 
 Per locked tuning F.3.a: an observer watching `intermediate/progress.log`

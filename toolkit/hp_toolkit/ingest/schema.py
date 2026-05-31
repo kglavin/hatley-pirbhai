@@ -1,3 +1,6 @@
+# Copyright (c) 2026 github.com/kglavin
+# SPDX-License-Identifier: MIT
+
 """Pydantic schemas for the brownfield-ingest intermediate representation (IR).
 
 The IR is `intermediate/hp-graph.json`, accreted across the 6 ingest agents

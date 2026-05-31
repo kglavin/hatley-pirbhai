@@ -1,3 +1,6 @@
+# Copyright (c) 2026 github.com/kglavin
+# SPDX-License-Identifier: MIT
+
 """Render dictionary.yaml as a browser-viewable HTML page.
 
 Same pattern as `markdown_artifact.py` — emits a `dictionary.generated.html`

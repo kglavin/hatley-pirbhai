@@ -1,3 +1,6 @@
+# Copyright (c) 2026 github.com/kglavin
+# SPDX-License-Identifier: MIT
+
 """Render a project as a single shareable PDF.
 
 Composes one HTML document and rasterises it via WeasyPrint:

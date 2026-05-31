@@ -1,3 +1,6 @@
+# Copyright (c) 2026 github.com/kglavin
+# SPDX-License-Identifier: MIT
+
 """Load and validate dictionary.yaml into a Project model."""
 
 from __future__ import annotations

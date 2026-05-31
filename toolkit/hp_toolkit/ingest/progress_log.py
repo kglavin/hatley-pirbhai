@@ -1,3 +1,6 @@
+# Copyright (c) 2026 github.com/kglavin
+# SPDX-License-Identifier: MIT
+
 """Append-only progress log — `intermediate/progress.log`.
 
 Every ingest agent (Python scripts + LLM subagents) appends timestamped

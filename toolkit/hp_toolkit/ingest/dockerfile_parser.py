@@ -1,3 +1,6 @@
+# Copyright (c) 2026 github.com/kglavin
+# SPDX-License-Identifier: MIT
+
 """Typed Dockerfile parser for Stage-5 architecture extraction.
 
 Per locked tuning H.5.a: the previous Dockerfile extractor only captured

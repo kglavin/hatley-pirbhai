@@ -1,3 +1,6 @@
+# Copyright (c) 2026 github.com/kglavin
+# SPDX-License-Identifier: MIT
+
 """Significance filter — decides which scanned files are architecturally
 relevant enough to feed into the downstream agents.
 

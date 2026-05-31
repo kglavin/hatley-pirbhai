@@ -1,3 +1,6 @@
+# Copyright (c) 2026 github.com/kglavin
+# SPDX-License-Identifier: MIT
+
 """D2 renderer — emit D2 declarative source from a Project model.
 
 Currently supports: level-0 Context Diagram.

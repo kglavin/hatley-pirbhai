@@ -1,3 +1,6 @@
+# Copyright (c) 2026 github.com/kglavin
+# SPDX-License-Identifier: MIT
+
 """Mermaid renderer — emit Mermaid `graph LR` source from a Project model.
 
 Currently supports: level-0 Context Diagram. Level-N DFD rendering will

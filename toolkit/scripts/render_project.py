@@ -1,4 +1,7 @@
 #!/usr/bin/env python
+# Copyright (c) 2026 github.com/kglavin
+# SPDX-License-Identifier: MIT
+
 """Generic project renderer — works on any HP toolkit project directory
 with a dictionary.yaml.
 

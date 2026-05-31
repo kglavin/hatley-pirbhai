@@ -1,4 +1,7 @@
 #!/usr/bin/env python
+# Copyright (c) 2026 github.com/kglavin
+# SPDX-License-Identifier: MIT
+
 """Sanity script — load the solar dogfood dictionary, summarize, and run
 light cross-reference checks. Validates that the Python model can read
 the dictionary.yaml we've been writing by hand.

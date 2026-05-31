@@ -1,3 +1,6 @@
+# Copyright (c) 2026 github.com/kglavin
+# SPDX-License-Identifier: MIT
+
 """hp-status — report what stages an HP project has reached, plus
 validation, artifact freshness, and open questions.
 

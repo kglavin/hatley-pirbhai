@@ -1,3 +1,6 @@
+# Copyright (c) 2026 github.com/kglavin
+# SPDX-License-Identifier: MIT
+
 """Stage 2 candidate extractor — clusters significant non-boundary files
 into candidate processes for the LLM to name and classify.
 

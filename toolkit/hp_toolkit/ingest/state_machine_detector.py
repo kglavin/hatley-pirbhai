@@ -1,3 +1,6 @@
+# Copyright (c) 2026 github.com/kglavin
+# SPDX-License-Identifier: MIT
+
 """Stage 3 candidate extractor — pulls state names + transition pairs out of
 files classified as `state-machine` by the role classifier.
 

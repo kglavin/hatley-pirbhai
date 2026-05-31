@@ -1,3 +1,6 @@
+# Copyright (c) 2026 github.com/kglavin
+# SPDX-License-Identifier: MIT
+
 """HP role hint classifier — the per-file architectural-role tagger.
 
 The single most decision-shaping signal hp-ingest gives to downstream agents.

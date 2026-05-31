@@ -1,3 +1,6 @@
+# Copyright (c) 2026 github.com/kglavin
+# SPDX-License-Identifier: MIT
+
 """Render `project_index.generated.html` — the project portal landing page.
 
 The index page is the "land here" front door for a project. It pairs the same

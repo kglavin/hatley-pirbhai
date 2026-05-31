@@ -1,3 +1,6 @@
+# Copyright (c) 2026 github.com/kglavin
+# SPDX-License-Identifier: MIT
+
 """User-facing documentation gatherer for Stage-1 boundary inference (H.6).
 
 Per locked tuning H.6: the boundary agent currently sees only

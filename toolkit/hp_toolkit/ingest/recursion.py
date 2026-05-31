@@ -1,3 +1,6 @@
+# Copyright (c) 2026 github.com/kglavin
+# SPDX-License-Identifier: MIT
+
 """Hierarchical-ingest recursion helpers (H.3 / Branch 3).
 
 Per locked HIERARCHICAL_INGEST_DESIGN.md: Stage 2 of hp-ingest becomes

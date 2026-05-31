@@ -1,4 +1,7 @@
 #!/usr/bin/env python
+# Copyright (c) 2026 github.com/kglavin
+# SPDX-License-Identifier: MIT
+
 """hp-init — scaffold a new HP toolkit project.
 
 Creates the canonical directory structure + a minimal schema-valid

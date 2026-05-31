@@ -1,4 +1,7 @@
 #!/usr/bin/env python
+# Copyright (c) 2026 github.com/kglavin
+# SPDX-License-Identifier: MIT
+
 """hp-ingest — brownfield codebase → HP `dictionary.yaml`.
 
 Pipeline stages (matches INGEST_DESIGN.md):

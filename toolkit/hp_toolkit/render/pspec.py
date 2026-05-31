@@ -1,3 +1,6 @@
+# Copyright (c) 2026 github.com/kglavin
+# SPDX-License-Identifier: MIT
+
 """PSPEC markdown emitter.
 
 Renders each PSPEC into a sidecar markdown file following 2000 Fig 4.46
