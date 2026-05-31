@@ -25,7 +25,8 @@ from pathlib import Path
 from .model import (
     Project, Entity, EntityKind, Flow, PSpec, ADR, ADRStatus,
     AuthRequired, Encryption, Budget, TPM, TPMDirection,
-    Observability, Alert, SLO,
+    Observability, Alert, SLO, STRIDEMitigations,
+    ArchInterconnect, ArchModuleSpec, ArchInterconnectSpec,
 )
 
 
@@ -1000,6 +1001,60 @@ def modernization_validation(project: Project, project_dir: Path | None = None) 
             100 * len(slo_module_ids & am_ids_set) / len(am_ids_set), 1)
     if project.service_level_objectives:
         report.counts["slos_total"] = len(project.service_level_objectives)
+
+    # ─── #8.2: STRIDE coverage on cross-trust-zone interconnects ───
+    cross_zone_interconnects: list[ArchInterconnect] = []
+    for ic in project.all_architecture_interconnects():
+        ep_zones = set()
+        for ep_id in ic.endpoints:
+            m = project.architecture_modules.get(ep_id)
+            if m is not None and m.trust_zone is not None:
+                ep_zones.add(m.trust_zone)
+        if len(ep_zones) > 1:
+            cross_zone_interconnects.append(ic)
+            if ic.stride_mitigations is None:
+                report.issues.append(ValidationIssue(
+                    "error", "modernization", ic.id,
+                    f"interconnect crosses trust zones {sorted(z.value for z in ep_zones)!r} "
+                    f"but has no stride_mitigations (modernization #8.2)"))
+
+    if cross_zone_interconnects:
+        n_with_stride = sum(1 for ic in cross_zone_interconnects if ic.stride_mitigations is not None)
+        report.metrics["stride_coverage_pct"] = round(
+            100 * n_with_stride / len(cross_zone_interconnects), 1)
+        report.counts["stride_cross_zone_interconnects"] = len(cross_zone_interconnects)
+
+    # ─── #8.3: reference-catalog ID format checks ───
+    # Patterns are conservative — they catch malformed IDs without trying
+    # to validate against the live external catalogs.
+    mitre_attack_re = re.compile(r"^T\d{4}(\.\d{3})?$")          # T1078 or T1078.001
+    cwe_re          = re.compile(r"^CWE-\d{1,5}$")               # CWE-79
+    compliance_re   = re.compile(r"^[A-Z][A-Z0-9-]*-[A-Z0-9.\-]+$")  # SOC2-CC6.1, ISA-62443-SL2
+
+    def _check_catalog_refs(holder_id: str, holder: object) -> None:
+        for tid in getattr(holder, "references_mitre_attack", []) or []:
+            if not mitre_attack_re.match(tid):
+                report.issues.append(ValidationIssue(
+                    "warning", "modernization", holder_id,
+                    f"MITRE ATT&CK reference {tid!r} does not match T\\d{{4}}(\\.\\d{{3}})? format"))
+        for cwe in getattr(holder, "references_cwe", []) or []:
+            if not cwe_re.match(cwe):
+                report.issues.append(ValidationIssue(
+                    "warning", "modernization", holder_id,
+                    f"CWE reference {cwe!r} does not match CWE-\\d+ format"))
+        for cid in getattr(holder, "references_compliance", []) or []:
+            if not compliance_re.match(cid):
+                report.issues.append(ValidationIssue(
+                    "warning", "modernization", holder_id,
+                    f"compliance reference {cid!r} does not match expected format "
+                    f"(e.g. SOC2-CC6.1, ISA-62443-SL2)"))
+
+    for s in project.all_architecture_module_specs():
+        _check_catalog_refs(s.id, s)
+    for s in project.all_architecture_interconnect_specs():
+        _check_catalog_refs(s.id, s)
+    for adr in project.all_adrs():
+        _check_catalog_refs(adr.id, adr)
 
     return report
 

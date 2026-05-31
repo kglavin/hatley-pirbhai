@@ -685,6 +685,32 @@ architecture_interconnects:
       config writes.
     auth_required: paired_device       # modernization #8.1 — BLE pairing required
     encryption: bluetooth_le_secure    # BLE 5.0 LE Secure Connections
+    # ─── Modernization #8.2 — STRIDE threat model ───
+    stride_mitigations:
+      spoofing: |
+        Paired-device pairing (BLE LE Secure Connections, P-256 ECDH) prevents
+        unauthorized peripherals from impersonating the controller. The first
+        pairing is in-person (proximity-based); subsequent reconnections use
+        the bonded long-term key.
+      tampering: |
+        BLE 5.0 LE Secure Connections provides AES-CCM authenticated
+        encryption on every link-layer packet. In-flight tampering would
+        invalidate the MIC and drop the packet.
+      repudiation: |
+        out_of_scope — single-user session; no third-party audit requirement.
+      info_disclosure: |
+        AES-CCM encryption per BLE 5.0. Telemetry contains fishing-session
+        data only (no PII beyond the angler's pairing key, which is a
+        random bond).
+      denial_of_service: |
+        Rate-limit pairing attempts to mitigate pairing-storm DoS. Reconnect
+        backoff (exponential, capped) prevents reconnect-flood. The motor
+        + sensor remain locally authoritative if BLE drops — degraded mode
+        but no safety impact.
+      elev_of_privilege: |
+        Custom GATT service exposes only telemetry-notify and config-write
+        characteristics. No firmware-update path over BLE (firmware updates
+        require physical USB connection — explicit design choice).
 
 architecture_module_specs:
 
@@ -790,6 +816,13 @@ adrs:
       modules: [am_controller, am_angler_app]
       interconnects: [ai_ble]
       flows: [af_telemetry_to_app, af_config_to_ctrl]
+    # ─── Modernization #8.3 — catalog references ───
+    references_mitre_attack:
+      - T1078       # Valid Accounts — addressed via paired-device bonding
+      - T1565       # Data Manipulation — mitigated by AES-CCM
+    references_cwe:
+      - CWE-319     # Cleartext Transmission of Sensitive Information — not applicable due to encryption
+      - CWE-294     # Authentication Bypass by Capture-replay — mitigated by LE Secure Connections nonces
 
 
 # ─── Modernization #21 / #22 — Budgets + TPMs ───

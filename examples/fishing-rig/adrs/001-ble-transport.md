@@ -44,6 +44,12 @@ paired-device authentication is sufficient for the threat model
 - **Interconnects:** `ai_ble`
 - **Flows:** `af_telemetry_to_app`, `af_config_to_ctrl`
 
+## CATALOG REFERENCES
+
+**MITRE ATT&CK:** [`T1078`](https://attack.mitre.org/techniques/T1078/), [`T1565`](https://attack.mitre.org/techniques/T1565/)
+
+**CWE:** [`CWE-319`](https://cwe.mitre.org/data/definitions/319.html), [`CWE-294`](https://cwe.mitre.org/data/definitions/294.html)
+
 ---
 
 *Format: Michael Nygard 2011 — Context / Decision / Consequences / Alternatives. See [`../toolkit/MODERNIZATION_DESIGN.md`](../toolkit/MODERNIZATION_DESIGN.md).*

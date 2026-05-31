@@ -377,6 +377,9 @@ class ArchInterconnect(BaseModel):
     # ─── Modernization #8.1 — security posture ───
     auth_required: Optional[AuthRequired] = None
     encryption: Optional[Encryption] = None
+    # ─── Modernization #8.2 — STRIDE / LINDDUN per-interconnect threat model ───
+    stride_mitigations: Optional[STRIDEMitigations] = None
+    linddun_mitigations: Optional[LINDDUNMitigations] = None
 
 
 class ArchModuleConstraints(BaseModel):
@@ -412,6 +415,10 @@ class ArchModuleSpec(BaseModel):
     interfaces: Optional[str] = None
     # ─── Modernization #25 — V&V ───
     verification: Optional[VerificationPlan] = None
+    # ─── Modernization #8.3 — reference-catalog discipline ───
+    references_mitre_attack: list[str] = Field(default_factory=list)
+    references_cwe: list[str] = Field(default_factory=list)
+    references_compliance: list[str] = Field(default_factory=list)
 
 
 class Metric(BaseModel):
@@ -547,6 +554,40 @@ class TPM(BaseModel):
     trend_notes: Optional[str] = None             # narrative trend
 
 
+class STRIDEMitigations(BaseModel):
+    """Per-interconnect STRIDE threat-category mitigations.
+
+    Source: Howard & Lipner 2006, *The Security Development Lifecycle*
+    (formalizing the 1999 STRIDE work). Modernization #8.2.
+
+    Each field is the *narrative* describing how the threat category is
+    addressed — or 'out_of_scope' / 'accepted' if explicitly not."""
+    model_config = ConfigDict(extra="allow")
+
+    spoofing:          Optional[str] = None
+    tampering:         Optional[str] = None
+    repudiation:       Optional[str] = None
+    info_disclosure:   Optional[str] = None
+    denial_of_service: Optional[str] = None
+    elev_of_privilege: Optional[str] = None
+
+
+class LINDDUNMitigations(BaseModel):
+    """Per-interconnect LINDDUN privacy-threat mitigations.
+
+    Source: Wuyts & Joosen 2015, KU Leuven DistriNet. Privacy companion
+    to STRIDE; critical for any system handling PII. Modernization #8.2."""
+    model_config = ConfigDict(extra="allow")
+
+    linkability:     Optional[str] = None
+    identifiability: Optional[str] = None
+    non_repudiation: Optional[str] = None
+    detectability:   Optional[str] = None
+    disclosure:      Optional[str] = None
+    unawareness:     Optional[str] = None
+    non_compliance:  Optional[str] = None
+
+
 class ADR(BaseModel):
     """Architecture Decision Record — Michael Nygard 2011 format.
 
@@ -568,6 +609,10 @@ class ADR(BaseModel):
     # Keys: modules, interconnects, flows, processes, stores, etc.
     affects: dict[str, list[str]] = Field(default_factory=dict)
     supersedes: Optional[str] = None          # id of ADR this replaces
+    # ─── Modernization #8.3 — reference-catalog discipline ───
+    references_mitre_attack: list[str] = Field(default_factory=list)
+    references_cwe: list[str] = Field(default_factory=list)
+    references_compliance: list[str] = Field(default_factory=list)
 
 
 class ArchInterconnectSpec(BaseModel):
@@ -587,6 +632,10 @@ class ArchInterconnectSpec(BaseModel):
     design_rationale: Optional[str] = None
     design_justification: Optional[str] = None
     required_constraints: Optional[ArchModuleConstraints] = None
+    # ─── Modernization #8.3 — reference-catalog discipline ───
+    references_mitre_attack: list[str] = Field(default_factory=list)
+    references_cwe: list[str] = Field(default_factory=list)
+    references_compliance: list[str] = Field(default_factory=list)
 
 
 class Transition(BaseModel):
