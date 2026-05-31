@@ -211,7 +211,7 @@ The **modernization-layer skills are optional but recommended.** Validators (Com
 
 ## Skills
 
-Twenty-three skills make up the methodology surface — ten core HP, six modernization, seven brownfield ingest. Each is documented in [`skills/`](skills/) as a Claude Code skill file (markdown + YAML frontmatter). Six have backing Python; seventeen are conversational (LLM-driven orchestration or form-based review).
+Twenty-four skills make up the methodology surface — ten core HP, six modernization, eight brownfield ingest. Each is documented in [`skills/`](skills/) as a Claude Code skill file (markdown + YAML frontmatter). Seven have backing Python; seventeen are conversational (LLM-driven orchestration or form-based review).
 
 **Core HP — one per stage + the cross-cutting tools:**
 
@@ -239,17 +239,18 @@ Twenty-three skills make up the methodology surface — ten core HP, six moderni
 | [`hp-propose-slos`](skills/hp-propose-slos.md) | SLI → SLO → SLA chain anchored to TPMs (#32) | ⬜ |
 | [`hp-propose-bounded-contexts`](skills/hp-propose-bounded-contexts.md) | DDD bounded contexts + Anti-Corruption Layers when multi-team scale arrives (#5) | ⬜ |
 
-**Brownfield ingest — seven new skills (kg/brownfield-ingest):**
+**Brownfield ingest — eight skills (kg/brownfield-ingest + the input-expansion branches):**
 
 | Skill | Stage / purpose | Backing code |
 |---|---|:---:|
-| [`hp-ingest`](skills/hp-ingest.md) | Master orchestrator — codebase → dictionary.yaml via 6-agent pipeline | ✅ |
+| [`hp-ingest`](skills/hp-ingest.md) | Master orchestrator — codebase → dictionary.yaml via the multi-stage pipeline | ✅ |
 | [`hp-ingest-scan`](skills/hp-ingest-scan.md) | Stage 0 — file walk + role-hint classification (`boundary`/`pure-logic`/`state-machine`/`data-store`/`infra`/`config`) | ✅ |
-| [`hp-ingest-boundary`](skills/hp-ingest-boundary.md) | Stage 1 — boundary candidates → real Stage-1 terminators + boundary flows | ⬜ |
-| [`hp-ingest-processes`](skills/hp-ingest-processes.md) | Stage 2 — process candidates → internal processes + data stores + flows | ⬜ |
-| [`hp-ingest-leaf`](skills/hp-ingest-leaf.md) | Stages 3 + 4 — per-process CSPEC (state machine) or PSPEC (functional contract); parallel 3–5 concurrent | ⬜ |
-| [`hp-ingest-architect`](skills/hp-ingest-architect.md) | Stage 5 — architecture-candidate list → modules + interconnects + allocation | ⬜ |
-| [`hp-ingest-review`](skills/hp-ingest-review.md) | Final reviewer — repair, validate, compose ingest-report.md, emit dictionary.yaml | ⬜ |
+| [`hp-ingest-glossary`](skills/hp-ingest-glossary.md) | Stage 0c-curate (optional) — LLM curator that reduces deterministic glossary candidates to ~30–60 canonical entries the naming agents consume | ✅ |
+| [`hp-ingest-boundary`](skills/hp-ingest-boundary.md) | Stage 1 — boundary candidates → Stage-1 terminators + boundary flows (now reads glossary + user-docs + testbeds) | ✅ |
+| [`hp-ingest-processes`](skills/hp-ingest-processes.md) | Stage 2 — process candidates → internal processes + data stores + flows (now reads glossary + testbeds + external-context) | ✅ |
+| [`hp-ingest-leaf`](skills/hp-ingest-leaf.md) | Stages 3 + 4 — per-process CSPEC (state machine) or PSPEC (functional contract); parallel 3–5 concurrent (now reads glossary + testbeds + external-context) | ✅ |
+| [`hp-ingest-architect`](skills/hp-ingest-architect.md) | Stage 5 — architecture-candidate list → modules + interconnects + allocation (now reads typed `CandidateEdge`s, `rationale-sources.json`, recipes, testbed compose/k8s) | ✅ |
+| [`hp-ingest-review`](skills/hp-ingest-review.md) | Final reviewer — repair, validate, compose ingest-report.md, emit dictionary.yaml | ✅ |
 
 The conversational skills (`hp-propose-*`, `hp-confirm-naming`, `hp-capture-adr`, the `hp-ingest-*` subagent specs) work by Claude reading the skill markdown and following the behavior spec. They don't need a Python implementation to invoke — the markdown *is* the executable specification. The schemas + validators + renderers + ingest scripts they target *are* implemented in Python — declared values land in `dictionary.yaml`, `hp-validate` hardens cross-references, `hp-render` emits the sidecars, and `hp-ingest` Python scripts surface candidates the LLM agents judge.
 
@@ -635,7 +636,7 @@ toolkit/
 │   ├── render_dogfood.py           ← solar-specific (legacy; use render_project.py)
 │   └── check_dictionary.py         ← summary + hierarchy view
 │
-├── skills/                         ← Claude Code skill files (23 total: 10 core HP + 6 modernization + 7 ingest)
+├── skills/                         ← Claude Code skill files (24 total: 10 core HP + 6 modernization + 8 ingest)
 │   ├── README.md                   ← skill catalog
 │   ├── hp-init.md
 │   ├── hp-propose-{context,decomp,cspec,pspec,architecture}.md
@@ -649,6 +650,7 @@ toolkit/
 │   ├── hp-propose-bounded-contexts.md               ← modernization #5
 │   ├── hp-ingest.md                                  ← brownfield: master orchestrator
 │   ├── hp-ingest-scan.md                             ← brownfield Stage 0
+│   ├── hp-ingest-glossary.md                         ← brownfield Stage 0c-curate (optional LLM glossary curation, H.4.b)
 │   ├── hp-ingest-boundary.md                         ← brownfield Stage 1
 │   ├── hp-ingest-processes.md                        ← brownfield Stage 2
 │   ├── hp-ingest-leaf.md                             ← brownfield Stages 3+4 (parallel per process)
@@ -663,7 +665,7 @@ toolkit/
 
 ## Status
 
-End-to-end render pipeline live and validated across two domains (solar, fishing-rig). Twenty-three skills drafted (six with backing code; seventeen conversational). **All 5 HP stages + the modernization layer + the project portal + the brownfield ingest pipeline shipped.** Both demo projects locked from Stage 1 through Stage 5 plus modernization sections (ADRs, budgets, TPMs, SLOs, observability, V&V, STRIDE, catalog refs; solar adds bounded contexts + ACL). Every render emits `project_index.generated.html` (front-door page with collapsible sidebar) plus `project.generated.pdf` (single-file review pack: cover + clickable TOC + per-stage covers + all diagrams + all markdown sidecars + HP Quick Reference appendix). Brownfield ingest (`hp-ingest <codebase>`) takes an existing codebase through a 6-agent pipeline (scanner → boundary → processes → leaf×N → architect → reviewer) to a draft `dictionary.yaml` — Python does ~80% of the structural work, LLM agents make the architectural judgment calls; first dogfood target is cloudctlplane.
+End-to-end render pipeline live and validated across two domains (solar, fishing-rig). Twenty-four skills drafted (seven with backing code; seventeen conversational). **All 5 HP stages + the modernization layer + the project portal + the brownfield ingest pipeline shipped.** Both demo projects locked from Stage 1 through Stage 5 plus modernization sections (ADRs, budgets, TPMs, SLOs, observability, V&V, STRIDE, catalog refs; solar adds bounded contexts + ACL). Every render emits `project_index.generated.html` (front-door page with collapsible sidebar) plus `project.generated.pdf` (single-file review pack: cover + clickable TOC + per-stage covers + all diagrams + all markdown sidecars + HP Quick Reference appendix). Brownfield ingest (`hp-ingest <codebase>`) takes an existing codebase through a multi-stage pipeline (scanner → docs-walker → glossary-extractor → glossary-curator → user-docs gatherer → testbed miner → recipe parser → boundary → processes → leaf×N → architect-with-rationale-evidence → reviewer) to a draft `dictionary.yaml` — Python does ~80% of the structural work, LLM agents make the architectural judgment calls; first dogfood target was cloudctlplane (post-dogfood input-expansion arc landed on `kg/hp-ingest-input-expansion`).
 
 See [`../PLAN.md`](../PLAN.md) for design rationale, methodology tactics (including the post-2026-05-22 Modernization Tactics section), the AI moves catalog, and a chronological log of decisions.
 

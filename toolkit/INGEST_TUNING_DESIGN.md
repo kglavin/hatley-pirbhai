@@ -838,17 +838,17 @@ The user can drop files into `external-context/` *at any time before the relevan
 
 Originally scoped as a single tuning branch. After review (8 H-findings, several substantial), splitting into **three branches**, each with a coherent narrative + bounded scope. Same pattern as prior arcs (modernization / portal / brownfield-ingest).
 
-### Branch 1 — `kg/hp-ingest-dogfood-tuning` *(this branch)*
+### Branch 1 — `kg/hp-ingest-dogfood-tuning` ✅ *(merged 2026-05-24 — `Tuning Commit T1`–`T4`)*
 
 **Theme:** small fixes from the dogfood signal. Classifier sharpening, filter gaps, resume support, agent prompt tightening, the DFD-refinement bug. Cheap, foundational; should land first because better candidates feed the input-expansion work in Branch 2.
 
-**Scope:** A · B · C · D · E.1 · E.3 · F.1 · F.2 · G.1–G.4 · H.1
+**Scope:** A · B · C · D · E.1 · E.3 · F.1 · F.2 · G.1–G.4 · H.1 — all landed.
 
-### Branch 2 — `kg/hp-ingest-input-expansion` *(new branch, spawns after Branch 1 lands)*
+### Branch 2 — `kg/hp-ingest-input-expansion` ✅ *(in-flight; T5–T10 landed on this branch)*
 
 **Theme:** *"the agents read the project's documentation, not just its code structure."* Shared `docs_walker.py` infrastructure + per-source extractors (rationale, glossary, user-docs, testbed-miner) + deep deployment parsers + external-context solicitation + bidirectional hints mechanism (since hints + external-context share file-drop infrastructure).
 
-**Scope:** F.3 · H.2 · H.4 · H.5 · H.6 · H.7 · H.8
+**Scope:** F.3.a · H.2 · H.4 · H.5 · H.6 · H.7 · H.8.a/b/c — all landed. **Scope additions during implementation:** Makefile + Justfile recipe parser (`recipe_parser.py`; landed in T9 per Kevin's question during T8). **Deferred from this branch:** `terraform_parser.py` (H.5.a's 4th parser; the regex extractor still surfaces .tf as `infra_resource` modules — re-evaluate when a re-ingest confirms terraform-resource typing carries architect-decision value); F.3.b explicit stage-boundary pauses + F.3.c confidence-driven auto-pause (kept out of this branch as a follow-up if dogfood signal warrants).
 
 ### Branch 3 — `kg/hp-ingest-hierarchical` *(new branch, spawns after Branches 1 + 2 land)*
 
@@ -897,17 +897,14 @@ Same pattern as prior arc catch-ups.
 
 ---
 
-## Proposed implementation order — Branch 2 *(deferred, ~5 commits)*
+## Implementation order — Branch 2 ✅ *(landed in 6 commits, T5–T10)*
 
-Sketched here so the dependency on Branch 1 is visible. Detail-locked when Branch 1 merges.
-
-- **T5** — Shared `docs_walker.py` + the `external-context/` + `intermediate/hints/` directory infrastructure (F.3.a + H.8.b).
-- **T6** — Rationale gatherer (H.2) + emitter fix to surface `provenance.rationale` + richer LLM-emitted prose.
-- **T7** — Glossary extractor + LLM curation pass + per-agent glossary loading (H.4).
-- **T8** — Deep deployment parsers (compose/dockerfile/k8s/terraform) — H.5.
-- **T9** — User-docs gatherer (H.6) + testbed detector + miner (H.7) + external-context solicitation in orchestrator (H.8.a/c).
-
-Then a doc catch-up (T10).
+- **T5** ✅ — Shared `docs_walker.py` + `external-context/` + `intermediate/hints/` infrastructure (F.3.a + H.8.b). Skill markdowns teach every agent to read its stage's slice.
+- **T6** ✅ — Rationale gatherer (`rationale_sources.py`) + emitter fix to surface `provenance.rationale` + LLM-emitted prose extras (H.2.a/b) + skill prompt tightening to demand `design_rationale` / `design_justification` / `required_constraints` / PSPEC `comments` (H.2.c).
+- **T7** ✅ — Deterministic `glossary_extractor.py` + optional `hp-ingest-glossary` curator skill + boundary/processes/leaf/architect read `glossary.curated.json` (H.4.a/b/c).
+- **T8** ✅ — Deep deployment parsers: `compose_parser.py` + `dockerfile_parser.py` + `k8s_parser.py` with typed `CandidateEdge` rows (`compose_depends_on` / `compose_port_exposed` / `compose_volume_mount` / `dockerfile_exposes` / `k8s_service_selector` / `k8s_ingress_target`) + `DeploymentConfig` grouping (H.5.a/b). `terraform_parser.py` deferred.
+- **T9** ✅ — `user_docs_gatherer.py` (H.6) + `testbed_miner.py` (H.7) + `recipe_parser.py` (Makefile / Justfile; T8 followup) + H.8.a orchestrator solicitation phase.
+- **T10** ✅ — Doc catch-up across INGEST_DESIGN.md + this design doc + README + skills/README.
 
 ---
 
