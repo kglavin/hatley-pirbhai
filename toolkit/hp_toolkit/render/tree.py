@@ -108,7 +108,30 @@ def _build_stage2(project: Project) -> TreeNode:
             kind="artifact",
             href="01-level1/dfd.generated.html",
         ))
+        # HIERARCHICAL_INGEST_DESIGN.md: surface per-parent level-N DFDs
+        # for every non-leaf process so the sidebar walks the hierarchy.
+        for parent_proc in _non_leaf_processes(project):
+            slug = parent_proc.id.replace("proc_", "").replace("_", "-")
+            s.add(TreeNode(
+                label=f"{parent_proc.label} (decomp)",
+                kind="artifact",
+                href=f"02-decomp/{slug}/dfd.generated.html",
+            ))
     return s
+
+
+def _non_leaf_processes(project: Project) -> list:
+    """Processes that have child processes (mirrors render_project's helper).
+
+    Used by the sidebar tree builder to expose per-parent level-N DFD
+    pages under Stage 2."""
+    parents: set[str] = set()
+    for e in project.all_entities():
+        if e.kind == EntityKind.PROCESS and e.parent and e.parent != "sys_root":
+            target = project.entities.get(e.parent)
+            if target and target.kind == EntityKind.PROCESS:
+                parents.add(target.id)
+    return [project.entity(pid) for pid in parents]
 
 
 def _build_stage3(project: Project) -> TreeNode:

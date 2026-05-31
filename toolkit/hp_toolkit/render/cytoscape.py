@@ -617,11 +617,16 @@ def render_dfd_elements(
     if parent is None:
         raise ValueError(f"parent {parent_id!r} not in project")
 
+    # Per HIERARCHICAL_INGEST_DESIGN.md: child + boundary levels derive
+    # from parent.level.
+    child_level = parent.level + 1
+    boundary_level = parent.level
+
     elements: list[dict[str, Any]] = []
 
-    # Internal entities — direct children of parent at level 1
+    # Internal entities — direct children of parent at child_level
     internal = [e for e in project.all_entities()
-                if e.parent == parent_id and e.level == 1]
+                if e.parent == parent_id and e.level == child_level]
     processes = [e for e in internal if e.kind == EntityKind.PROCESS]
     stores    = [e for e in internal if e.kind == EntityKind.DATA_STORE]
 
@@ -650,8 +655,8 @@ def render_dfd_elements(
             "description": s.description or "",
         }})
 
-    # Boundary flows (touching parent_id at level 0)
-    boundary_flows = [f for f in project.flows_at_level(0)
+    # Boundary flows (touching parent_id at boundary_level)
+    boundary_flows = [f for f in project.flows_at_level(boundary_level)
                       if f.source == parent_id or f.target == parent_id]
 
     # Terminators referenced by boundary flows + physical edges
@@ -659,7 +664,7 @@ def render_dfd_elements(
     for f in boundary_flows:
         if f.source != parent_id: term_ids.add(f.source)
         if f.target != parent_id: term_ids.add(f.target)
-    for ed in [e for e in project.all_edges() if e.level == 0]:
+    for ed in [e for e in project.all_edges() if e.level == boundary_level]:
         for endpoint in (ed.source, ed.target):
             entity = project.entities.get(endpoint)
             if entity and entity.kind == EntityKind.TERMINATOR:
@@ -687,8 +692,8 @@ def render_dfd_elements(
         if f.notes:  data["notes"]  = f.notes
         elements.append({"data": data})
 
-    # Internal flows at level 1
-    for f in project.flows_at_level(1):
+    # Internal flows at child_level
+    for f in project.flows_at_level(child_level):
         data = {
             "id": f.id, "source": f.source, "target": f.target,
             "label": f.label, "kind": _flow_kind(f),

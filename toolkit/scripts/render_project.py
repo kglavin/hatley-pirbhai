@@ -133,6 +133,11 @@ def main(project_dir: Path, *, pdf_only: bool = False, no_pdf: bool = False) -> 
     if has_internals:
         render_level1_dfd(project_dir, project, tree=tree)
 
+    # ─── Level-N DFDs (one per non-leaf process; HIERARCHICAL_INGEST_DESIGN.md) ───
+    non_leaf = _non_leaf_processes(project)
+    for parent_proc in non_leaf:
+        render_leveln_dfd(project_dir, project, parent_proc, tree=tree)
+
     # ─── CSPECs (one per process flagged needs_cspec) ───
     cspec_processes = [
         e for e in project.all_entities()
@@ -464,6 +469,64 @@ def render_level1_dfd(project_dir: Path, project, *, tree: TreeNode | None = Non
     out = l1_dir / "dfd.generated.html"
     out.write_text(html)
     print(f"  wrote {out.name} ({len(html)} bytes)")
+    print()
+
+
+def _non_leaf_processes(project) -> list:
+    """Per HIERARCHICAL_INGEST_DESIGN.md: a non-leaf process is one with
+    child PROCESSES (state children don't count). Returned in document
+    order so the per-parent DFDs render predictably."""
+    parents: set[str] = set()
+    for e in project.all_entities():
+        if e.kind == EntityKind.PROCESS and e.parent and e.parent != "sys_root":
+            # e is a sub-process; e.parent is the non-leaf
+            target = project.entities.get(e.parent)
+            if target and target.kind == EntityKind.PROCESS:
+                parents.add(target.id)
+    return [project.entity(pid) for pid in parents]
+
+
+def render_leveln_dfd(project_dir: Path, project, parent_proc, *, tree: TreeNode | None = None) -> None:
+    """Render a level-N DFD for one non-leaf process (HIERARCHICAL_INGEST_DESIGN.md).
+
+    Output: <project>/02-decomp/<proc-slug>/dfd.generated.{mmd,d2,html} +
+    accompanying SVGs.
+
+    The underlying mermaid/d2/cytoscape render_dfd functions already accept
+    `parent_id` + derive child + boundary levels from parent.level — this
+    function is a thin wrapper that picks the output path + invokes the
+    three notations per parent."""
+    slug = parent_proc.id.replace("proc_", "").replace("_", "-")
+    out_dir = project_dir / "02-decomp" / slug
+    out_dir.mkdir(parents=True, exist_ok=True)
+    current_path = f"02-decomp/{slug}/dfd.generated.html"
+
+    print(_color(f"==> Level-N DFD for {parent_proc.label} — Mermaid", "1"))
+    src = render_mermaid.render_dfd(project, parent_id=parent_proc.id)
+    out = out_dir / "dfd.generated.mmd"
+    out.write_text(src)
+    print(f"  wrote {out.relative_to(project_dir)} ({len(src)} bytes)")
+    _try_svg(out, out_dir / "dfd.generated-mermaid.svg", "mermaid")
+    print()
+
+    print(_color(f"==> Level-N DFD for {parent_proc.label} — D2", "1"))
+    src = render_d2.render_dfd(project, parent_id=parent_proc.id)
+    out = out_dir / "dfd.generated.d2"
+    out.write_text(src)
+    print(f"  wrote {out.relative_to(project_dir)} ({len(src)} bytes)")
+    _try_svg(out, out_dir / "dfd.generated-d2.svg", "d2")
+    print()
+
+    print(_color(f"==> Level-N DFD for {parent_proc.label} — HTML (Cytoscape)", "1"))
+    html = render_cytoscape.wrap_dfd_html(
+        project,
+        parent_id=parent_proc.id,
+        tree=tree,
+        current_path=current_path,
+    )
+    out = out_dir / "dfd.generated.html"
+    out.write_text(html)
+    print(f"  wrote {out.relative_to(project_dir)} ({len(html)} bytes)")
     print()
 
 

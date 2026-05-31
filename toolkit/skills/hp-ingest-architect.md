@@ -92,8 +92,8 @@ When invoked, conversationally:
 5. **Pick `module_kind` per module.** Default `software`. Use `hardware` for SBCs / embedded controllers / physical sensors-and-actuators (rare in cloud projects; common in fishing-rig-style HW projects). Use `organizational` for modules owned by a team-as-a-service (rare for ingest — usually appears in retrofit cases).
 6. **Draw the interconnect graph.** From compose networks + k8s Services + cross-module imports in the codebase, identify which modules talk. Each unique channel = one interconnect. Be conservative — most modules talk over a single shared interconnect (e.g., "Cluster RPC") plus 1–2 external ones (e.g., "Internet ingress").
 7. **Allocate every Stage 1–4 entity** that has a runtime presence:
-   - Every leaf `process` → exactly one `architecture_module`.
-   - Every state-rich process (`needs_cspec: true`) → as `allocated_cspecs` (HP convention, see 2000 §4.2.5.4).
+   - Every **leaf** `process` → exactly one `architecture_module`. A leaf process is one with no child processes in `hp-graph.json` (HIERARCHICAL_INGEST_DESIGN.md / H.3). On hierarchical-ingest runs the IR may contain level-1 + level-2 + level-3 processes; **only the leaves get allocated**. Non-leaf processes are organizational — they're the parent bubbles in the level-N DFD, not deployment units. The recursion's IR shape carries `parent: <proc-id>` chains; walk every process node + emit `allocates_to` only when no other process has it as `parent`.
+   - Every state-rich process (`needs_cspec: true`) → as `allocated_cspecs` (HP convention, see 2000 §4.2.5.4). State-rich processes are leaves by definition (a non-leaf process can't carry needs_cspec — the validator errors on this; see T11 hierarchy rules).
    - Every `data_store` → the module that owns its persistence (DB pod / cache pod / message queue pod).
    - Terminators DO NOT get allocated — they're external.
 8. **`carries` per interconnect.** For each flow node in `hp-graph.json`, look up its source + target modules. If both endpoints are on the same interconnect's endpoint list, add the flow id to `carries`.

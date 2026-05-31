@@ -162,12 +162,17 @@ def render_dfd(project: Project, parent_id: str = "sys_root") -> str:
     if parent is None:
         raise ValueError(f"Parent {parent_id!r} not in project")
 
+    # Per HIERARCHICAL_INGEST_DESIGN.md: child_level + boundary_level
+    # derive from parent.level instead of being hardcoded to 1 + 0.
+    child_level = parent.level + 1
+    boundary_level = parent.level
+
     internal = [e for e in project.all_entities()
-                if e.parent == parent_id and e.level == 1]
+                if e.parent == parent_id and e.level == child_level]
     processes = [e for e in internal if e.kind == EntityKind.PROCESS]
     stores    = [e for e in internal if e.kind == EntityKind.DATA_STORE]
 
-    boundary_flows = [f for f in project.flows_at_level(0)
+    boundary_flows = [f for f in project.flows_at_level(boundary_level)
                       if f.source == parent_id or f.target == parent_id]
 
     term_ids: set[str] = set()
@@ -176,7 +181,7 @@ def render_dfd(project: Project, parent_id: str = "sys_root") -> str:
             term_ids.add(f.source)
         if f.target != parent_id:
             term_ids.add(f.target)
-    edges_level0 = [ed for ed in project.all_edges() if ed.level == 0]
+    edges_level0 = [ed for ed in project.all_edges() if ed.level == boundary_level]
     for ed in edges_level0:
         if project.entities.get(ed.source) and project.entities[ed.source].kind == EntityKind.TERMINATOR:
             term_ids.add(ed.source)
@@ -185,7 +190,7 @@ def render_dfd(project: Project, parent_id: str = "sys_root") -> str:
     terminators = [project.entity(tid) for tid in term_ids
                    if project.entity(tid).kind == EntityKind.TERMINATOR]
 
-    internal_flows = list(project.flows_at_level(1))
+    internal_flows = list(project.flows_at_level(child_level))
 
     lines: list[str] = ["direction: right", ""]
 

@@ -149,14 +149,22 @@ def render_dfd(project: Project, parent_id: str = "sys_root") -> str:
     if parent is None:
         raise ValueError(f"Parent {parent_id!r} not in project")
 
-    # Internal entities — direct children of parent at level 1
+    # Per HIERARCHICAL_INGEST_DESIGN.md: child_level / boundary_level
+    # derive from the parent's level. sys_root sits at level 0; its
+    # children at level 1; their children at level 2; etc. This is the
+    # only change needed to generalize from "level-1 DFD only" to
+    # "level-N DFD for any non-leaf parent".
+    child_level = parent.level + 1
+    boundary_level = parent.level
+
+    # Internal entities — direct children of parent at child_level
     internal = [e for e in project.all_entities()
-                if e.parent == parent_id and e.level == 1]
+                if e.parent == parent_id and e.level == child_level]
     processes = [e for e in internal if e.kind == EntityKind.PROCESS]
     stores    = [e for e in internal if e.kind == EntityKind.DATA_STORE]
 
-    # Boundary flows (level 0) touching this parent
-    boundary_flows = [f for f in project.flows_at_level(0)
+    # Boundary flows (at the parent's level) touching this parent
+    boundary_flows = [f for f in project.flows_at_level(boundary_level)
                       if f.source == parent_id or f.target == parent_id]
 
     # Terminators that participate in boundary flows
@@ -166,8 +174,9 @@ def render_dfd(project: Project, parent_id: str = "sys_root") -> str:
             term_ids.add(f.source)
         if f.target != parent_id:
             term_ids.add(f.target)
-    # Also any terminator that the parent edges to (e.g., physical AC)
-    edges_level0 = [ed for ed in project.all_edges() if ed.level == 0]
+    # Also any terminator that the parent edges to (e.g., physical AC) —
+    # only meaningful at level 0; level-2+ DFDs don't have edges-to-terminators
+    edges_level0 = [ed for ed in project.all_edges() if ed.level == boundary_level]
     for ed in edges_level0:
         if project.entities.get(ed.source, None) and project.entities[ed.source].kind == EntityKind.TERMINATOR:
             term_ids.add(ed.source)
@@ -176,8 +185,8 @@ def render_dfd(project: Project, parent_id: str = "sys_root") -> str:
     terminators = [project.entity(tid) for tid in term_ids
                    if project.entity(tid).kind == EntityKind.TERMINATOR]
 
-    # Internal flows at level 1
-    internal_flows = [f for f in project.flows_at_level(1)]
+    # Internal flows at child_level
+    internal_flows = [f for f in project.flows_at_level(child_level)]
 
     # ─── Emit ───
     lines: list[str] = ["graph LR"]
