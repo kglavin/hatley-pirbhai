@@ -214,8 +214,8 @@ Add `intermediate/progress.log` — append-only timestamped lines. Every agent (
 2026-05-23T19:33:42Z DONE    stage=0 agent=hp-ingest-scan files_scanned=4012 significant=1551
 2026-05-23T19:34:01Z START   stage=1 agent=hp-ingest-boundary
 2026-05-23T19:40:17Z DONE    stage=1 agent=hp-ingest-boundary terminators=5 flows=8
-2026-05-23T19:57:09Z START   stage=3-4 agent=hp-ingest-leaf process=proc_emit_pulse batch=1/3
-2026-05-23T19:57:42Z DONE    stage=3-4 agent=hp-ingest-leaf process=proc_emit_pulse kind=pspec confidence=0.78
+2026-05-23T19:57:09Z START   stage=3-4 agent=hp-ingest-leaf process=proc_emit_signals batch=1/3
+2026-05-23T19:57:42Z DONE    stage=3-4 agent=hp-ingest-leaf process=proc_emit_signals kind=pspec confidence=0.78
 ...
 ```
 
@@ -398,7 +398,7 @@ Acme-cp example: if a tail of progress.log had shown `Stage 2: emitted 30 proces
 
 **Two design choices, both HP-valid:**
 
-**Option X — Hierarchical single-dictionary** *(recommended for monorepos like acme-cp):* recursively re-run Stage 2+ on each level-1 process whose `implemented_by[]` cluster exceeds a threshold (say >100 files or >5k lines). Produces one `dictionary.yaml` with multi-level decomposition. `proc_prism` (level 1) gets its own level-2 DFD: `proc_prism_resolvers`, `proc_prism_cache`, `proc_prism_ws_lifecycle` (each with `parent: proc_prism`). CSPECs and PSPECs live at the deepest level. Stage 5 architecture allocates leaves of the tree.
+**Option X — Hierarchical single-dictionary** *(recommended for monorepos like acme-cp):* recursively re-run Stage 2+ on each level-1 process whose `implemented_by[]` cluster exceeds a threshold (say >100 files or >5k lines). Produces one `dictionary.yaml` with multi-level decomposition. `proc_svc_query` (level 1) gets its own level-2 DFD: `proc_svc_query_resolvers`, `proc_svc_query_cache`, `proc_svc_query_ws_lifecycle` (each with `parent: proc_svc_query`). CSPECs and PSPECs live at the deepest level. Stage 5 architecture allocates leaves of the tree.
 
 **Option Y — System-of-systems multi-project** *(for multi-repo / multi-team cases):* each subsystem becomes its own HP project. acme-cp decomposes into `examples/acme-cp/dictionary.yaml` (integration view: subsystems as level-1 processes, cross-subsystem interconnects as flows) + `examples/acme-cp/svc-query/dictionary.yaml` (svc-query's own full HP analysis) + one per subsystem. Each independently rendered, validated, reviewable; the top-level is sparse, just the integration story.
 

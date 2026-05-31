@@ -85,11 +85,11 @@ The subagent emits sub-process nodes with `parent: P-id` and `level: <current+1>
 Minimal schema changes — existing fields are already permissive.
 
 **`IRNode.parent`** (already exists, currently used for `sys_root`):
-- Sub-process IR nodes set `parent: <parent-proc-id>` (e.g. `parent: proc_prism`).
+- Sub-process IR nodes set `parent: <parent-proc-id>` (e.g. `parent: proc_svc_query`).
 - Sub-process `level` becomes `parent.level + 1`.
 
 **Flow refinement:** the existing `refined_source` / `refined_target` mechanism on flow edges extends naturally:
-- A level-1 flow `proc_prism → proc_pulse` carries `refined_source: proc_prism_resolvers, refined_target: proc_pulse_ingest` when those sub-processes exist.
+- A level-1 flow `proc_svc_query → proc_svc_c` carries `refined_source: proc_svc_query_resolvers, refined_target: proc_svc_c_ingest` when those sub-processes exist.
 - The renderer reads the refinement chain to pick the right pair for the level it's drawing.
 
 **No new IR fields needed.** The Pydantic schema already supports arbitrary `parent` values + integer `level`. The H.5 `architecture_modules.allocated_processes` lists allocate **leaf processes** (the bottom of the recursion tree) — non-leaf processes are organizational, not deployment units.
@@ -106,14 +106,14 @@ intermediate/
 ├── glossary.curated.json
 ├── boundary.json
 ├── processes.json                  ← level-1 processes
-├── proc_prism/
+├── proc_svc_query/
 │   ├── scan.json                   ← scoped to svc-query's implemented_by[]
 │   ├── process-candidates.json     ← scoped
-│   ├── processes.json              ← level-2 sub-processes (parent: proc_prism)
-│   ├── proc_prism_resolvers/
+│   ├── processes.json              ← level-2 sub-processes (parent: proc_svc_query)
+│   ├── proc_svc_query_resolvers/
 │   │   └── processes.json          ← level-3 (if it recurses further)
 │   └── ...
-├── proc_hramp/
+├── proc_svc_a/
 │   └── ...
 ├── hp-graph.json                   ← merged across all levels
 └── progress.log
@@ -245,7 +245,7 @@ I lean **30 files / 3000 lines**. Both metrics matter (30 small files is a thin 
 
 ### Q5. Sub-process flow refinement — required, or best-effort?
 
-When a level-1 flow `proc_prism → proc_pulse` exists, and both ends recurse to level-2, should we **require** the LLM to emit `refined_source` + `refined_target` pointing at the right sub-processes, or **best-effort** (let the merger flag missing refinements as warnings + the reviewer repair)?
+When a level-1 flow `proc_svc_query → proc_svc_c` exists, and both ends recurse to level-2, should we **require** the LLM to emit `refined_source` + `refined_target` pointing at the right sub-processes, or **best-effort** (let the merger flag missing refinements as warnings + the reviewer repair)?
 
 - [x] **Required at emit time + merger validates** *(recommended)* — same H.1 pattern Branch 1 established for boundary refinements. The LLM emits refinements; the merger warns; the reviewer repairs.
 - [ ] Best-effort (silent); only required at validator time

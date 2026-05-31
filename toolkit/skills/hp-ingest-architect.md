@@ -76,7 +76,7 @@ Output JSON shape:
 
 When invoked, conversationally:
 
-1. **Read the project glossary (H.4.c).** Load `intermediate/glossary.curated.json` (if present). Module + interconnect labels MUST use project vocabulary when a glossary term applies — `am_archi` not `am_query_service`; `ai_pulse_bus` not `ai_event_bus`. The categories `concept` + `process` + `artifact` are most relevant for module naming; `event` for interconnects-that-carry-events.
+1. **Read the project glossary (H.4.c).** Load `intermediate/glossary.curated.json` (if present). Module + interconnect labels MUST use project vocabulary when a glossary term applies — `am_svc_e` not `am_query_service`; `ai_svc_c_bus` not `ai_event_bus`. The categories `concept` + `process` + `artifact` are most relevant for module naming; `event` for interconnects-that-carry-events.
 2. **Read pre-stage file drops (architect guidance + external evidence).**
    - **Hints:** check `intermediate/hints/architect.md`. If present, treat as binding architect guidance — common cases are "split this module" / "collapse these two" / "rename module X to Y" / "this isn't really a module, drop it". Append a `HINT_LOADED` line: `Bash: echo "$(date -u +%Y-%m-%dT%H:%M:%SZ) HINT_LOADED stage=5 agent=hp-ingest-architect path=intermediate/hints/architect.md" >> <intermediate-dir>/progress.log`.
    - **External context:** read every file under `external-context/adrs/` (architecture decision records — authoritative for Stage-5 module + interconnect rationale) and `external-context/design-docs/` (design memos that didn't make it into the repo). When an architecture_module / architecture_interconnect node derives from an external doc, record the source path in its `provenance.external_context_used`.

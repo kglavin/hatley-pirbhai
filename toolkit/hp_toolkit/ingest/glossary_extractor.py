@@ -9,7 +9,7 @@ ubiquitous language already formed in its docs — README headings,
 the project's own naming for the things it does. The current
 boundary / process / architect agents have no access to this; they
 invent generic English (`proc_query_api`) instead of the project's
-own vocabulary (`proc_explore_archi`).
+own vocabulary (`proc_explore_signals`).
 
 This module walks the doc corpus (from `docs_walker.py`) + harvests
 candidate glossary terms deterministically. The output feeds an

@@ -213,7 +213,7 @@ uv run python -m hp_toolkit.ingest.state_machine_detector \
     --output <project-dir>/intermediate/state-machine-candidates.json
 ```
 
-Then for **each leaf process** dispatch one `hp-ingest-leaf` subagent. **Run them in parallel — up to 5 concurrent via the Task tool's parallel-dispatch feature.** Per H.3 hierarchy: a leaf process is one with **no child processes** in the IR — recursion-tree leaves can be at any level (proc_prism_resolvers at level 2 is a leaf if it has no further sub-processes). Collect leaves by walking the full processes.json + every `<parent-proc-id>/processes.json` written by the recursion phase. Each invocation gets:
+Then for **each leaf process** dispatch one `hp-ingest-leaf` subagent. **Run them in parallel — up to 5 concurrent via the Task tool's parallel-dispatch feature.** Per H.3 hierarchy: a leaf process is one with **no child processes** in the IR — recursion-tree leaves can be at any level (proc_svc_query_resolvers at level 2 is a leaf if it has no further sub-processes). Collect leaves by walking the full processes.json + every `<parent-proc-id>/processes.json` written by the recursion phase. Each invocation gets:
 - Its one target process node (from `processes.json`)
 - Path to `scan.json` (for file metadata)
 - Path to `state-machine-candidates.json` (for state extraction hints)

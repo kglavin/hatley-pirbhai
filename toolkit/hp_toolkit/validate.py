@@ -242,8 +242,8 @@ def hierarchy_consistency(project: Project) -> ValidationReport:
     # Flow refinement chain — if a flow has refined_source/refined_target,
     # the refined endpoint must be a descendant of the original endpoint
     # (per H.1.3 + Branch 3 process-level refinement). A level-1 flow
-    # `proc_prism → proc_pulse` refined to `proc_prism_resolvers →
-    # proc_pulse_ingest` requires proc_prism_resolvers.parent == proc_prism.
+    # `proc_svc_query → proc_svc_c` refined to `proc_svc_query_resolvers →
+    # proc_svc_c_ingest` requires proc_svc_query_resolvers.parent == proc_svc_query.
     for f in project.all_flows():
         for end_role, refined, original in (
             ("source", f.refined_source, f.source),
