@@ -73,12 +73,15 @@ def _flow_kind(f: Flow) -> str:
 # Context Diagram — elements list
 # ─────────────────────────────────────────────────────────────────────
 
-def render_context_elements(project: Project) -> list[dict[str, Any]]:
+def render_context_elements(
+    project: Project,
+    drill_target: str | None = "../01-level1/dfd.html",
+) -> list[dict[str, Any]]:
     """Produce the Cytoscape elements list for the level-0 Context Diagram.
 
-    Includes the system bubble (with decomposable + drill-down metadata
-    pointing at the level-1 DFD), terminators at level 0, boundary flows
-    at level 0, and non-data edges (e.g., physical AC power).
+    `drill_target` is the URL the system bubble's double-click navigates to.
+    Set to None if no level-1 DFD exists yet (the system bubble then renders
+    without the decomposable double-border).
     """
     elements: list[dict[str, Any]] = []
 
@@ -90,18 +93,17 @@ def render_context_elements(project: Project) -> list[dict[str, Any]]:
     if system is None:
         raise ValueError("Project has no level-0 system entity")
 
-    # System node — decomposable into the level-1 DFD
-    elements.append({
-        "data": {
-            "id": system.id,
-            "label": system.label,
-            "kind": _node_kind(system),
-            "decomposable": True,
-            "decomposes_to": "../01-level1/dfd.html",
-            "decomposes_label": "Level-1 DFD (internal processes)",
-            "description": system.description or "",
-        }
-    })
+    sys_data: dict[str, Any] = {
+        "id": system.id,
+        "label": system.label,
+        "kind": _node_kind(system),
+        "description": system.description or "",
+    }
+    if drill_target:
+        sys_data["decomposable"] = True
+        sys_data["decomposes_to"] = drill_target
+        sys_data["decomposes_label"] = "Level-1 DFD (internal processes)"
+    elements.append({"data": sys_data})
 
     # Terminators
     for t in [e for e in project.all_entities()
@@ -349,28 +351,62 @@ _CONTEXT_HTML_TEMPLATE = """<!DOCTYPE html>
 """
 
 
-_CONTEXT_LEGEND_HTML = """    <div class="legend-item"><div class="legend-swatch" style="background:#4a90e2; border-radius:50%;"></div>System (what we're designing)</div>
-    <div class="legend-item"><div class="legend-swatch" style="background:#fafafa; border:1px solid #444;"></div>Terminator (external entity)</div>
-    <div class="legend-item"><div class="legend-swatch" style="background:#fafafa; border:1px dashed #888;"></div>Optional terminator</div>
-    <div class="legend-item"><div class="legend-swatch" style="background:#fef0ef; border:1px solid #e74c3c;"></div>Utility grid (physical)</div>"""
+def _build_legend(project: Project) -> str:
+    """Build a legend HTML based on what's actually in the project."""
+    items: list[str] = []
+    items.append('<div class="legend-item"><div class="legend-swatch" style="background:#4a90e2; border-radius:50%;"></div>System (what we\'re designing)</div>')
+    items.append('<div class="legend-item"><div class="legend-swatch" style="background:#fafafa; border:1px solid #444;"></div>Terminator (external entity)</div>')
+
+    if any(e.optional for e in project.all_entities() if e.kind == EntityKind.TERMINATOR):
+        items.append('<div class="legend-item"><div class="legend-swatch" style="background:#fafafa; border:1px dashed #888;"></div>Optional terminator</div>')
+    if any("grid" in e.id for e in project.all_entities() if e.kind == EntityKind.TERMINATOR):
+        items.append('<div class="legend-item"><div class="legend-swatch" style="background:#fef0ef; border:1px solid #e74c3c;"></div>Utility grid (physical)</div>')
+
+    edge_kinds = {ed.kind for ed in project.all_edges()}
+    if EdgeKind.PHYSICAL_AC_POWER in edge_kinds:
+        items.append('<div class="legend-item"><div class="legend-swatch" style="background:#e74c3c; height:3px; margin-top:8px;"></div>Physical AC power</div>')
+    if EdgeKind.PHYSICAL_DC_POWER in edge_kinds:
+        items.append('<div class="legend-item"><div class="legend-swatch" style="background:#2a70c2; height:3px; margin-top:8px;"></div>Physical DC power</div>')
+    if EdgeKind.PHYSICAL_INTERACTION in edge_kinds:
+        items.append('<div class="legend-item"><div class="legend-swatch" style="background:#888; height:2px; margin-top:8px; border-top:1px dashed #888;"></div>Physical interaction</div>')
+
+    return "\n    ".join(items)
 
 
-_CONTEXT_NAV_HTML = """    <p style="margin:4px 0 4px 0;">Level 0 (top of hierarchy). <strong>↓ Drill down:</strong> <a href="../01-level1/dfd.html">Level-1 DFD</a> &middot; <a href="../dictionary.yaml">Dictionary</a> &middot; <a href="../../../toolkit/reference/HP_QUICK_REF.md">HP Reference</a></p>
-    <p style="margin:0 0 12px 0;font-size:11px;color:#888;">Tip: <strong>double-click</strong> any double-bordered bubble to drill into its next level.</p>"""
+def _build_nav(project: Project, drill_target: str | None) -> str:
+    """Build a navigation HTML with drill, dictionary, HP reference."""
+    parts = ["Level 0 (top of hierarchy)."]
+    if drill_target:
+        parts.append(f'<strong>↓ Drill down:</strong> <a href="{drill_target}">Level-1 DFD</a> &middot;')
+    parts.append('<a href="../dictionary.yaml">Dictionary</a> &middot;')
+    parts.append('<a href="../../../toolkit/reference/HP_QUICK_REF.md">HP Reference</a>')
+
+    nav = '<p style="margin:4px 0 4px 0;">' + " ".join(parts) + "</p>"
+    if drill_target:
+        nav += '\n    <p style="margin:0 0 12px 0;font-size:11px;color:#888;">Tip: <strong>double-click</strong> any double-bordered bubble to drill into its next level.</p>'
+    return nav
 
 
-def wrap_context_html(project: Project, elements: list[dict[str, Any]] | None = None) -> str:
+def wrap_context_html(
+    project: Project,
+    elements: list[dict[str, Any]] | None = None,
+    drill_target: str | None = "../01-level1/dfd.html",
+) -> str:
     """Wrap the level-0 Context Diagram's elements list in the full HTML
-    template (Cytoscape script + side panel + legend + navigation).
+    template — Cytoscape script + side panel + legend + navigation.
+
+    `drill_target` controls whether the system bubble is decomposable
+    (and where double-click navigates). Pass None for projects without
+    a level-1 DFD yet.
     """
     if elements is None:
-        elements = render_context_elements(project)
+        elements = render_context_elements(project, drill_target=drill_target)
 
     return _CONTEXT_HTML_TEMPLATE.format(
-        title="Solar Local Stack — Context Diagram v0",
+        title=f"{project.project} — Context Diagram",
         subtitle=f"Level 0 · generated from dictionary.yaml · {project.last_updated}",
-        nav_html=_CONTEXT_NAV_HTML,
-        legend_html=_CONTEXT_LEGEND_HTML,
+        nav_html=_build_nav(project, drill_target),
+        legend_html=_build_legend(project),
         elements_json=json.dumps(elements, indent=2),
         styles_json=json.dumps(_CONTEXT_STYLES_JSON, indent=2),
     )

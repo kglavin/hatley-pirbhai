@@ -1,0 +1,147 @@
+# AutoFishingRig — Naming Dictionary
+#
+# HP's Requirements Dictionary for the second toolkit dogfood project.
+# Tests transferability of the schema and renderers outside the solar
+# domain. Stage 1 (level-0 Context) only; further levels added as the
+# project advances.
+
+project: AutoFishingRig
+version: "0.1"
+last_updated: 2026-05-22
+
+entities:
+
+  # ─── Level 0 — system + external terminators ───
+
+  sys_root:
+    kind: system
+    label: "AutoFishingRig"
+    level: 0
+    description: |
+      An automated fishing rig — a controller + sensor + reel that
+      detects a fish bite via line-tension spike and reels the fish
+      in. Manually cast; automatic from tension-setup through landing.
+
+  term_angler:
+    kind: terminator
+    label: "Angler"
+    level: 0
+    description: |
+      The human operator. Casts the bait manually, places the rod in
+      the holder, configures the system (tension setpoint, bite
+      threshold, hook-set delay), arms it, monitors status, and
+      receives alerts on bite/hook/landed/fault.
+
+  term_line:
+    kind: terminator
+    label: "Hook & Line"
+    level: 0
+    description: |
+      The physical line + hook + bait that connects the system to the
+      fish. The system observes the line via tension feedback (F3) and
+      actuates it via reel torque (F4). The line is also where the
+      fish acts (see edge_fish_to_line).
+
+  term_fish:
+    kind: terminator
+    label: "Fish"
+    level: 0
+    description: |
+      External actor — the thing the system is trying to detect and
+      land. Doesn't communicate with the system directly; acts on the
+      line, which the system observes via tension.
+
+  term_power:
+    kind: terminator
+    label: "Power Source"
+    level: 0
+    description: |
+      Battery or other DC power source. Modeled as a physical edge for
+      context; no data flows about battery state at this level (could
+      be added later if low-battery alerting becomes a requirement).
+
+  term_cloud:
+    kind: terminator
+    label: "Cloud Logger"
+    level: 0
+    optional: true
+    description: |
+      Optional remote logging service for catch records / telemetry.
+      Off by default; angler enables if desired. Same shape as solar's
+      S-Miles Cloud terminator.
+
+flows:
+
+  # ─── Level 0 — boundary flows ───
+
+  flow_f1_angler_config:
+    label: "F1: config, arm/disarm"
+    source: term_angler
+    target: sys_root
+    kind: "data+control"
+    medium: "UI"
+    level: 0
+    notes: |
+      Tension setpoint, bite threshold, hook-set delay, max reel speed,
+      arm/disarm commands. Mostly config; arm/disarm are control events.
+
+  flow_f2_status:
+    label: "F2: status, alerts"
+    source: sys_root
+    target: term_angler
+    kind: data
+    medium: "UI"
+    level: 0
+    notes: "Current state, tension reading, alerts (bite, hooked, landed, fault)."
+
+  flow_f3_tension:
+    label: "F3: tension feedback"
+    source: term_line
+    target: sys_root
+    kind: data
+    medium: "analog sensor → ADC"
+    level: 0
+    notes: "Line tension reading. Primary sensing input for the bite-detection state machine."
+
+  flow_f4_torque:
+    label: "F4: reel torque cmd"
+    source: sys_root
+    target: term_line
+    kind: control
+    medium: "motor driver"
+    level: 0
+    notes: "Reel motor torque + direction. Drives the line in/out per current state."
+
+  flow_f6_catch_log:
+    label: "F6: catch log"
+    source: sys_root
+    target: term_cloud
+    kind: data
+    medium: "HTTPS"
+    level: 0
+    optional: true
+    notes: "Optional telemetry / catch event log."
+
+edges:
+
+  # ─── Level 0 — non-data physical edges ───
+
+  edge_power_to_sys:
+    label: "DC power"
+    source: term_power
+    target: sys_root
+    kind: physical_dc_power
+    level: 0
+    notes: "Battery powers the controller and motor."
+
+  edge_fish_to_line:
+    label: "bite / fight"
+    source: term_fish
+    target: term_line
+    kind: physical_interaction
+    level: 0
+    notes: |
+      The fish pulls/strikes the line; this manifests to the system as
+      a tension change (observed via F3). The system never communicates
+      with the fish directly; this edge is shown for context — it's the
+      world-side phenomenon the system is trying to detect.
