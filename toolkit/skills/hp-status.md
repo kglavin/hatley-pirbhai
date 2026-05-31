@@ -23,10 +23,12 @@ Given a project directory, `hp-status` reports:
 | 1 — Context Diagram | ✅ locked / 🟡 proposal in flight / ⬜ not started | `00-context/proposal.md` Status block + `dictionary.yaml` has `sys_root` + terminators |
 | 2 — Level-1 DFD | ✅ locked / 🟡 in flight / ⬜ not started | `01-level1/proposal.md` Status block + internal processes in dictionary |
 | 3 — CSPECs | ✅ N of M locked / 🟡 in flight / ⬜ not started | For each process with `needs_cspec: true`: `cspecs/<id>/proposal.md` Status block + transitions in dictionary |
-| 4 — PSPECs | planned | (not yet implemented) |
-| 5 — Architecture | planned | (not yet implemented) |
+| 4 — PSPECs | ✅ N of M locked / 🟡 in flight / ⬜ not started | Every leaf process (non-CSPEC) has a `pspec_*` entry in dictionary |
+| 5 — Architecture | ✅ locked / 🟡 in flight / ⬜ not started | All leaf processes / CSPECs / data stores allocated; every module has an AMS |
 
-**Validation status:** runs `hp_toolkit.validate` and reports `VALID` / `N errors` plus the coverage percentages.
+**Modernization layer summary:** one-line counts for each modernization section the project declares (ADRs by status, budgets vs. TPMs that track them, SLOs tied to TPMs, leaf-PSPEC observability + V&V coverage, cross-trust-zone interconnects with STRIDE, bounded contexts + ACLs). Each row reads "none declared" when absent — the modernization layer is optional and incremental.
+
+**Validation status:** runs `hp_toolkit.validate` and reports `VALID` / `N errors` plus the coverage percentages (including modernization metrics: `observability_coverage_pct`, `slo_coverage_pct`, `stride_coverage_pct`, `verification_coverage_pct`, `synchronicity_coverage_pct`, `tpm_within_threshold_pct`, `tpm_growth_safety_pct`, `budget_allocation_completeness_pct`, `alert_runbook_coverage_pct`).
 
 **Artifact freshness:** for each level, compares the modification time of `dictionary.yaml` against the `*.generated.*` artifacts. If dictionary is newer, suggests `python scripts/render_project.py <dir>` to regenerate.
 
@@ -38,27 +40,34 @@ Given a project directory, `hp-status` reports:
 === AutoFishingRig — Project Status ===
 
 Stages
-  ✅ Stage 1 — Context Diagram          (locked 2026-05-22)
-  ✅ Stage 2 — Level-1 DFD              (locked 2026-05-22)
-  ✅ Stage 3 — CSPECs (1/1 locked)       (Bite Detector: locked 2026-05-22)
-  ⬜ Stage 4 — PSPECs                    (not yet started)
-  ⬜ Stage 5 — Architecture              (not yet started)
+  ✅ Stage 1 — Context Diagram          5 terminator(s); proposal locked
+  ✅ Stage 2 — Level-1 DFD              5 internal process(es); proposal locked
+  ✅ Stage 3 — CSPECs                   1 locked CSPEC(s); 9 states + 18 transitions
+  ✅ Stage 4 — PSPECs                   4/4 leaf processes have PSPECs
+  ✅ Stage 5 — Architecture model       2 module(s); 2 flow(s); 1 interconnect(s); 5/5 leaf processes allocated; 2/2 AMS
 
-Dictionary
-  21 entities (6 level-0, 6 level-1, 9 level-2)
-  12 flows · 2 edges · 18 transitions
-  Description coverage: 100%
-  Validates: ✅ no errors
+Modernization layer
+  ADRs                   1 (1 accepted)
+  Budgets / TPMs         2 budget(s); 2 TPM(s) [1/2 budget(s) tracked by TPM]
+  SLOs                   1 SLO(s) [1/1 tied to a TPM]
+  Observability          1/4 leaf PSPEC(s) declare observability
+  V&V plans              1/4 leaf PSPEC(s) declare verification
+  STRIDE                 ✅ 1/1 cross-trust-zone interconnect(s) have STRIDE mitigations
+  Bounded contexts       none declared (single-context project)
 
-Artifacts
-  Context generated:  ✅ fresh (last regen: 2 min ago)
-  Level-1 DFD:        ✅ fresh
-  Bite Detector CSPEC: ✅ fresh
+Validation
+  ✅ no errors
+  ais_coverage_pct                   [████████████████████] 100.0%
+  ...
+  observability_coverage_pct         [███░░░░░░░░░░░░░░░░░]  16.7%
+  slo_coverage_pct                   [██████████░░░░░░░░░░]  50.0%
+  stride_coverage_pct                [████████████████████] 100.0%
+  verification_coverage_pct          [███░░░░░░░░░░░░░░░░░]  16.7%
 
-Open questions: none.
+Artifact freshness
+  ✅ all generated artifacts are fresh
 
-Next action: Stage 4 (PSPECs for leaf bubbles) or apply toolkit to a third
-project for further transferability validation.
+Open questions: ✅ none — all reviewable decisions resolved
 ```
 
 ## Behavior
@@ -89,30 +98,7 @@ uv run python scripts/status.py ../examples/fishing-rig
 
 ## Implementation status
 
-**Skill description: drafted.** Actual `status.py` implementation is not yet written. Until then, the workflow runs by hand:
-
-```bash
-# Manual status check (today)
-ls examples/<project>/00-context/proposal.md            # check Status block
-ls examples/<project>/01-level1/proposal.md             # check Status block  
-ls examples/<project>/01-level1/cspecs/*/proposal.md    # check Status blocks
-cd toolkit && uv run python -m hp_toolkit.validate ../examples/<project>/dictionary.yaml
-```
-
-Sketched implementation:
-
-```python
-# toolkit/hp_toolkit/status.py (planned)
-def status_report(project: Project, project_dir: Path) -> StatusReport:
-    return StatusReport(
-        stage_1=_check_stage_1(project_dir),
-        stage_2=_check_stage_2(project, project_dir),
-        cspec_progress=_check_cspecs(project, project_dir),
-        validation=validate(project),
-        artifact_freshness=_check_freshness(project_dir),
-        open_questions=_scan_unresolved_form_items(project_dir),
-    )
-```
+**Skill description: ✅ drafted.** Backing code: ✅ live in [`hp_toolkit/status.py`](../hp_toolkit/status.py) — Stages 1–5 detection, modernization-layer summary (ADRs / Budgets / TPMs / SLOs / observability / V&V / STRIDE / bounded contexts), validation summary with coverage metrics, artifact-freshness scan, open-questions scan. CLI: `uv run python -m hp_toolkit.status <project-dir>`.
 
 ## See also
 

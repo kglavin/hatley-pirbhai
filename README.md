@@ -30,22 +30,27 @@ hatley-pirbhai/
 
 ## What the toolkit does
 
-Given a project's `dictionary.yaml` — the canonical declaration of every entity, flow, and transition — the toolkit:
+Given a project's `dictionary.yaml` — the canonical declaration of every entity, flow, transition, architecture module, ADR, budget, SLO, bounded context, and more — the toolkit:
 
-1. **Validates** the model (reference integrity, hierarchy consistency, coverage metrics, orphan detection)
+1. **Validates** the model (reference integrity, hierarchy consistency, coverage metrics, orphan detection, PSPEC balancing, Stage 5 allocation, modernization cross-references: STRIDE on cross-trust-zone interconnects, TPM vs budget direction, SLO→TPM resolution, ACL routing on cross-context flows, MITRE/CWE/compliance ID format)
 2. **Renders** the model in three notations:
    - **Mermaid** — `.mmd` + `.svg`
    - **D2** — `.d2` + `.svg`
    - **Cytoscape interactive HTML** — clickable, drag-to-rearrange, double-click drill-down navigation between levels
 3. **Catches drift** — the renderer round-trip (dictionary → diagram → diff against hand-written) surfaces inconsistencies the human eye misses
 
-Three artifact kinds are rendered across all three notations:
+Rendered artifacts span the five HP stages plus a modernization layer:
 
 | Artifact | Source | What it shows |
 |---|---|---|
 | **Context Diagram** (level 0) | from `dictionary.yaml` | The system + its external terminators + boundary flows |
 | **Level-1 DFD** | from `dictionary.yaml` | Internal processes + data stores + refined boundary flows |
-| **CSPEC** (state machine) | from `dictionary.yaml` (`transitions:` section) | The fishing/control sequence for any process flagged `needs_cspec: true` |
+| **CSPEC** (state machine) | from `dictionary.yaml` (`transitions:` section) | Control sequence for any process flagged `needs_cspec: true` |
+| **PSPECs** (Stage 4) | per leaf process | INPUTS / OUTPUTS / TRANSFORMATION + optional V&V + Observability sections |
+| **AFD / AID + AMS / AIS sidecars** (Stage 5) | per architecture module + interconnect | Allocation + design rationale + constraints + Verification + Budgets + TPMs + Observability + SLOs + STRIDE + LINDDUN + Catalog refs |
+| **ADR sidecars** *(modernization #10)* | per `adrs:` entry | Nygard-style record with MITRE/CWE refs |
+| **Context Map** *(modernization #5)* | from `bounded_contexts:` + ACLs | Per-context boundaries with ACL translations |
+| **SLOs summary** *(modernization #32)* | from `service_level_objectives:` | Project-level SLO table |
 
 ## Quick start
 
@@ -73,6 +78,6 @@ Then open any of the `.generated.html` files under `examples/*/` in a browser to
 
 ## Status
 
-End-to-end rendering pipeline live for both dogfood projects. Both have locked Context + level-1 DFD + at least one CSPEC, all generated from their respective `dictionary.yaml` files via the same generic script. **Toolkit transferability has been validated** across two genuinely different domains (solar energy orchestration; automated fishing rig).
+End-to-end rendering pipeline live for both dogfood projects. Both have **all 5 HP stages locked + the modernization layer applied** (ADRs, design-time budgets + runtime TPMs, SLOs anchored to TPMs, per-leaf observability + V&V, STRIDE on cross-trust-zone interconnects + MITRE/CWE/compliance refs; solar additionally declares 2 bounded contexts + an Anti-Corruption Layer). All generated from each project's `dictionary.yaml` via the same generic script. **Toolkit transferability has been validated** across two genuinely different domains (solar energy orchestration; automated fishing rig).
 
-Deferred work tracked in [`PLAN.md`](PLAN.md) > Open Questions: per-level label abbreviation, edge refinement schema, brownfield ingest, more skills (`hp-init`, `hp-propose-context`, etc.).
+Deferred work tracked in [`PLAN.md`](PLAN.md) > Open Questions: per-level label abbreviation, edge refinement schema, brownfield ingest (`hp-ingest`), per-context filtered renderer view (`hp-render-context`), third-project transferability (doorbell).
