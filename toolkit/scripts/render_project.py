@@ -134,8 +134,31 @@ def main(project_dir: Path) -> int:
     if project.adrs:
         render_adrs(project_dir, project)
 
+    # ─── Context Map (Modernization #5) ───
+    if project.bounded_contexts:
+        render_context_map(project_dir, project)
+
     print(_color(f"Done.", "32"))
     return 0
+
+
+def render_context_map(project_dir: Path, project) -> None:
+    """Render the Context Map (Evans 2003) — bounded contexts + ACLs."""
+    print(_color(f"==> Context Map ({len(project.bounded_contexts)} contexts, "
+                 f"{len(project.all_translations())} ACL(s))", "1"))
+
+    src = render_mermaid.render_context_map(project)
+    out = project_dir / "context-map.generated.mmd"
+    out.write_text(src)
+    print(f"  wrote {out.name} ({len(src)} bytes)")
+    _try_svg(out, project_dir / "context-map.generated-mermaid.svg", "mermaid")
+
+    src = render_d2.render_context_map(project)
+    out = project_dir / "context-map.generated.d2"
+    out.write_text(src)
+    print(f"  wrote {out.name} ({len(src)} bytes)")
+    _try_svg(out, project_dir / "context-map.generated-d2.svg", "d2")
+    print()
 
 
 def render_adrs(project_dir: Path, project) -> None:

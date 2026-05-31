@@ -454,3 +454,41 @@ def render_aid(project: Project, parent_id: str | None = None) -> str:
         lines.append(f"    class {m.id} {m.kind.value};")
 
     return "\n".join(lines) + "\n"
+
+
+# ─────────────────────────────────────────────────────────────────────
+# Modernization #5 — Context Map (Evans 2003 / Vernon 2013)
+# ─────────────────────────────────────────────────────────────────────
+
+
+def render_context_map(project: Project) -> str:
+    """Render the Context Map — bounded contexts + ACL translations between them."""
+    if not project.bounded_contexts:
+        return "%% (no bounded_contexts declared)\n"
+
+    lines: list[str] = ["graph LR"]
+    lines.append("    %% Bounded contexts (rounded rectangles)")
+    for ctx in project.all_bounded_contexts():
+        label = _esc(ctx.name)
+        if ctx.owner:
+            label = f"{label}<br/><i>{_esc(ctx.owner)}</i>"
+        lines.append(f'    {ctx.id}("{label}")')
+    lines.append("")
+
+    translations = project.all_translations()
+    if translations:
+        lines.append("    %% Anti-Corruption Layers (translation entities)")
+        for t in translations:
+            if not (t.source_context and t.target_context):
+                continue
+            label = _esc(t.label or t.id)
+            if t.pattern:
+                label = f"{label}<br/><i>{t.pattern.value.replace('_', ' ')}</i>"
+            lines.append(f'    {t.source_context} -- "{label}" --> {t.target_context}')
+        lines.append("")
+
+    lines.append("    classDef bctx fill:#f0f4ff,stroke:#4a90e2,stroke-width:2px;")
+    for ctx in project.all_bounded_contexts():
+        lines.append(f"    class {ctx.id} bctx;")
+
+    return "\n".join(lines) + "\n"

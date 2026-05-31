@@ -38,6 +38,7 @@ from .model import (
     SLO,
     STRIDEMitigations,
     LINDDUNMitigations,
+    BoundedContext,
     EntityKind,
     FlowKind,
     EdgeKind,
@@ -54,6 +55,7 @@ from .model import (
     TPMDirection,
     MetricKind,
     AlertSeverity,
+    ACLPattern,
 )
 from .load import load
 from .validate import (
@@ -98,6 +100,7 @@ __all__ = [
     "SLO",
     "STRIDEMitigations",
     "LINDDUNMitigations",
+    "BoundedContext",
     "EntityKind",
     "FlowKind",
     "EdgeKind",
@@ -114,6 +117,7 @@ __all__ = [
     "TPMDirection",
     "MetricKind",
     "AlertSeverity",
+    "ACLPattern",
     "load",
     "validate",
     "reference_integrity",
