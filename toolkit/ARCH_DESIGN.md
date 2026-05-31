@@ -1,6 +1,6 @@
 # Architecture Model Design — Stage 5 Schema, Validators, and Renderer
 
-**Status:** ✅ design locked 2026-05-22; implementation pending.
+**Status:** ✅ shipped — design locked 2026-05-22; model + validators + renderer landed (`ArchModule`/`ArchFlow`/`ArchInterconnect`/`ArchModuleSpec`/`ArchInterconnectSpec` in [`hp_toolkit/model.py`](hp_toolkit/model.py); [`hp_toolkit/render/architecture.py`](hp_toolkit/render/architecture.py)). Body sections describe the as-locked design; spot-check against current code if reviewing a specific sub-item.
 **Audience:** the implementation pass that adds Stage 5 (Architecture Model) support to the toolkit.
 **Why this exists:** Stage 5 is genuinely larger than Stages 1–4 combined — six new element types (Module, AFD, AID, AMS, AIS, Architecture Dictionary) plus the bridge to the requirements model (allocation). This design doc captures the book-faithful decisions so they don't have to be re-derived during implementation. Same approach as [`PSPEC_DESIGN.md`](PSPEC_DESIGN.md).
 

@@ -1,6 +1,6 @@
 # Bounded Contexts Design — Modernization Item #5
 
-**Status:** ✅ design locked 2026-05-22; implementation pending. Possibly its own follow-up branch given the paradigm-shift scope.
+**Status:** ✅ shipped — design locked 2026-05-22; model + skill landed (`BoundedContext`/`ACLPattern` + translation machinery in [`hp_toolkit/model.py`](hp_toolkit/model.py); [`skills/hp-propose-bounded-contexts.md`](skills/hp-propose-bounded-contexts.md); rendered via context-map.generated-d2.svg in the Modernization sidebar section). Body sections describe the as-locked design; spot-check against current code if reviewing a specific sub-item.
 **Branch (proposed):** `kg/meld-tech-2026` or split into `kg/bounded-contexts`.
 **Audience:** the implementation pass that brings Domain-Driven Design Bounded Contexts into the HP toolkit's Requirements Dictionary.
 **Why this exists:** modernization item #5 from the [`../proposals/MODERNIZATION.md`](../proposals/MODERNIZATION.md) brainstorm is *triple-confirmed* (Kevin's brainstorm + cloud-control-plane project lens + kernel-enforcement project lens). At >50 entities, >5 teams, or multi-language stacks, the global Requirements Dictionary is the wrong shape. This doc captures the paradigm-shift decisions before implementation.

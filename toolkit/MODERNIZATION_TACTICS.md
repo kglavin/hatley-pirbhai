@@ -1,6 +1,6 @@
 # Modernization Tactics — AI-Interaction Layer for the 21st-Century Capabilities
 
-**Status:** ✅ design locked 2026-05-22; implementation pending.
+**Status:** ✅ shipped — design locked 2026-05-22; AI-interaction layer landed. New skills present in [`skills/`](skills/): `hp-capture-adr`, `hp-propose-architecture`, `hp-propose-bounded-contexts`, `hp-propose-budgets-and-tpms`, `hp-propose-observability`, `hp-propose-slos`, `hp-propose-threat-model`. Body sections describe the as-locked design; spot-check against current code if reviewing a specific tactic.
 **Branch:** `kg/meld-tech-2026`.
 **Audience:** the implementation pass that extends existing skills + drafts new skills + updates PLAN.md's Methodology Tactics section, so the AI knows how to use the modernization capabilities (Commits 1–5) during interactions with the architect.
 **Why this exists:** the toolkit now has *schemas and validators* for the 10 modernization items, but the AI-interaction layer (Methodology Tactics in PLAN.md + the 10 skill files) hasn't been updated. An AI running today still works like it's pre-modernization — never asks about observability, never proposes a budget, never captures an ADR mid-decision. Same shape as [`PSPEC_DESIGN.md`](PSPEC_DESIGN.md) and [`ARCH_DESIGN.md`](ARCH_DESIGN.md) but oriented to behavior, not schema.

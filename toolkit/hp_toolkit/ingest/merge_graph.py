@@ -246,8 +246,11 @@ def merge_intermediates(intermediate_dir: Path) -> tuple[IRGraph, MergeReport]:
             report.log("unrecoverable", f"node {nid}: {e}")
 
     # ─── Normalize edges + drop danglers ───
-    edges: list[IREdge] = []
-    seen_edges: set[tuple] = set()
+    # H.1 fix: dedup by (source, target, kind) but MERGE attrs on collision
+    # instead of first-seen-wins. Otherwise boundary.json's unrefined edges
+    # beat processes.json's refined ones (refined_source/refined_target get
+    # silently dropped), and the level-1 DFD renders dangling at sys_root.
+    by_edge_key: dict[tuple, dict] = {}
     for raw in raw_edges:
         canonical = _normalize_edge(raw, report)
         if canonical is None:
@@ -260,11 +263,16 @@ def merge_intermediates(intermediate_dir: Path) -> tuple[IRGraph, MergeReport]:
             report.log("dropped_edges",
                        f"edge {src} -> {tgt} ({canonical.get('kind')}): endpoint not in nodes")
             continue
-        # De-dupe identical edges (same src/tgt/kind)
         key = (src, tgt, canonical.get("kind"))
-        if key in seen_edges:
-            continue
-        seen_edges.add(key)
+        existing = by_edge_key.get(key)
+        if existing is None:
+            by_edge_key[key] = canonical
+        else:
+            by_edge_key[key] = _merge_edges(existing, canonical, report)
+
+    edges: list[IREdge] = []
+    for key, canonical in by_edge_key.items():
+        src, tgt, _ = key
         try:
             edges.append(IREdge.model_validate(canonical))
         except ValidationError as e:
@@ -391,6 +399,41 @@ def _prefer_higher_confidence(a: dict, b: dict, report: MergeReport) -> dict:
                f"node {a['id']}: kept conf={max(a_conf, b_conf):.2f}, "
                f"dropped conf={min(a_conf, b_conf):.2f} (label '{loser.get('label')}')")
     return winner
+
+
+# H.1 fix: when two agents emit the same edge (same source/target/kind),
+# the merger used to keep the first one and drop the rest. That silently
+# discarded refined_source / refined_target / optional flags the later agent
+# added. Now we merge — the side with more refinement signal wins the base,
+# and the loser fills in any fields the winner left blank.
+_REFINEMENT_FIELDS = ("refined_source", "refined_target")
+
+def _merge_edges(a: dict, b: dict, report: MergeReport) -> dict:
+    def refinement_score(d: dict) -> int:
+        return sum(1 for f in _REFINEMENT_FIELDS if d.get(f))
+
+    a_score, b_score = refinement_score(a), refinement_score(b)
+    if a_score != b_score:
+        winner, loser = (a, b) if a_score > b_score else (b, a)
+    else:
+        a_conf = float(a.get("confidence", 0.0))
+        b_conf = float(b.get("confidence", 0.0))
+        winner, loser = (a, b) if a_conf >= b_conf else (b, a)
+
+    merged = dict(winner)
+    for k, v in loser.items():
+        if v is None:
+            continue
+        if merged.get(k) in (None, "", []):
+            merged[k] = v
+
+    if a_score != b_score:
+        src, tgt, kind = winner.get("source"), winner.get("target"), winner.get("kind")
+        report.log("normalizations",
+                   f"edge {src}->{tgt} ({kind}): merged duplicate, kept refined "
+                   f"version (refinement={max(a_score, b_score)} vs "
+                   f"{min(a_score, b_score)})")
+    return merged
 
 
 # ─────────────────────────────────────────────────────────────────────

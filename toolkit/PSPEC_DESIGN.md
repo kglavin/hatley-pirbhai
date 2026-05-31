@@ -1,6 +1,6 @@
 # PSPEC Design — Stage 4 Schema, Validators, and Renderer
 
-**Status:** ✅ design locked 2026-05-22; implementation pending.
+**Status:** ✅ shipped — design locked 2026-05-22; model + validators + renderer landed (`PSpec`/`Transformation`/`ComputationalConstraints`/`VerificationPlan`/`PSpecStyle` in [`hp_toolkit/model.py`](hp_toolkit/model.py); [`hp_toolkit/render/pspec.py`](hp_toolkit/render/pspec.py)). Body sections describe the as-locked design; spot-check against current code if reviewing a specific sub-item.
 **Audience:** the implementation pass that adds PSPEC support to the toolkit.
 **Why this exists:** the first design pass was inferred from modern practice + [`reference/HP_QUICK_REF.md`](reference/HP_QUICK_REF.md). After reading chapter 13 of the 1988 book and §4.3.3.9 + appendix A.2.12 of the 2000 book, several recommendations changed. This document captures the book-faithful design so it doesn't have to be re-derived.
 

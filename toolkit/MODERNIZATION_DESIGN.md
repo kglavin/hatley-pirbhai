@@ -1,6 +1,6 @@
 # Modernization Design — 21st-Century Additions to HP
 
-**Status:** ✅ design locked 2026-05-22; implementation pending.
+**Status:** ✅ shipped — design locked 2026-05-22; all nine items have model classes + validators + renderers landed. Quick map: #2 → `FlowSynchronicity`/`FlowDelivery`; #25 → `VerificationPlan`; #8.1 → `TrustZone`/`AuthRequired`/`Encryption`; #10 → `ADR` + [`render/adr.py`](hp_toolkit/render/adr.py); #21 → `Budget`; #22 → `TPM`/`TPMDirection`; #1 → `Observability`/`SLI`/`Metric`/`Trace`/`LogCategory`/`Alert`; #33 → runbook render path in [`render/markdown_artifact.py`](hp_toolkit/render/markdown_artifact.py); #32 → `SLO`. Body sections describe the as-locked design; spot-check against current code if reviewing a specific sub-item.
 **Branch:** `kg/meld-tech-2026`.
 **Audience:** the implementation pass that adds the top-9-of-10 modernization items to the toolkit.
 **Why this exists:** the brainstorm + analysis lives in [`../proposals/MODERNIZATION.md`](../proposals/MODERNIZATION.md). This doc locks the *implementation* decisions for the 9 items that are additive (item #5 — Bounded Contexts — is a paradigm shift; see [`BOUNDED_CONTEXTS_DESIGN.md`](BOUNDED_CONTEXTS_DESIGN.md)). Same shape as [`PSPEC_DESIGN.md`](PSPEC_DESIGN.md) and [`ARCH_DESIGN.md`](ARCH_DESIGN.md).
