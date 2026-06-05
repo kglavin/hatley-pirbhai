@@ -53,6 +53,12 @@ in the contract (R1), split into machine-checkable (→ layer 1) and qualitative
 
 ## R1 — HP emits archi's DOMAIN CONTRACT (the authoring front-end)
 
+> **Status (2026-06-04): picked up in HP as [`hp-propose-contract`](../toolkit/skills/hp-propose-contract.md)
+> (drafted).** Built consumer-NEUTRAL (an "executable domain contract"; archi is a documented binding, not
+> baked into the schema — mirroring R2's stance). Backing projector/validator is planned next, alongside
+> the first real contract (solar). R2 (`hp-audit`) intentionally deferred until a consumer is actually
+> running a grown corpus to audit — R1 declares the envelope R2 will audit against, so R1 comes first.
+
 **What:** completing an HP analysis for a domain produces a machine-consumable **domain contract**
 archi can ingest and run a loop against, without the human re-stating the domain in code.
 
@@ -90,6 +96,12 @@ artifacts vs newly elicited; whether the red-line split warrants extending `hp-p
 ---
 
 ## R2 — new skill `hp-audit` / `hp-recertify` (periodic governance, layer 3)
+
+> **Status (2026-06-04): drafted as [`../toolkit/skills/hp-audit.md`](../toolkit/skills/hp-audit.md).**
+> Consumer-neutral; composes `hp-ingest`; consumes the R1 contract as the declared envelope. The novel
+> drift-detection core + verdict schema are intentionally NOT yet coded — full proof needs a consumer
+> running a grown corpus to emit operational evidence (archi isn't there yet). The skill spec fixes the
+> WHAT (inputs, drift modes, verdict, the consumer-owns-the-trigger seam) so the code can follow.
 
 **What (general — NOT archi-specific):** a dedicated HP skill that periodically **re-certifies an
 evolving HP-modeled system against its declared concept/envelope, using operational evidence**, and

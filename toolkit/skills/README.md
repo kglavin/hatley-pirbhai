@@ -49,6 +49,8 @@ description: One-line summary used to decide relevance.
 | [`hp-propose-slos`](hp-propose-slos.md) | ✅ drafted | After observability — SLI/SLO/SLA commitments (Modernization #32) |
 | [`hp-propose-threat-model`](hp-propose-threat-model.md) | ✅ drafted | Per cross-trust-zone interconnect — STRIDE + MITRE catalog refs (Modernization #8.2 + #8.3) |
 | [`hp-propose-bounded-contexts`](hp-propose-bounded-contexts.md) | ✅ drafted | When team/vocabulary boundaries become visible — DDD contexts + ACLs (Modernization #5) |
+| [`hp-propose-contract`](hp-propose-contract.md) | ✅ drafted + code live | Post-Stage-5 — project the model into a machine-consumable **executable domain contract** for an autonomous-control consumer (e.g. archi). Mostly serialization; the red-line split (machine-checkable vs qualitative) is the new piece. `python -m hp_toolkit.contract <dictionary.yaml>`. Satisfies archi ask **R1**. |
+| [`hp-audit`](hp-audit.md) | ✅ drafted | Cross-cutting / governance (layer 3) — periodically re-certify an **evolving** system against its declared envelope using operational evidence; classify drift (scope-creep, objective-gaming, compositional, distributional, red-line-margin). Composes `hp-ingest`; consumer-neutral. Satisfies archi ask **R2**. |
 | [`hp-ingest`](hp-ingest.md) | ✅ drafted + code live | Brownfield ingest — codebase → draft dictionary.yaml via the multi-stage pipeline (master orchestrator) |
 | [`hp-ingest-scan`](hp-ingest-scan.md) | ✅ drafted + code live | Stage 0 — file walk + 6-category role-hint classifier (no LLM) |
 | [`hp-ingest-glossary`](hp-ingest-glossary.md) | ✅ drafted + code live | Stage 0c-curate (optional) — LLM curator reduces ~10k deterministic glossary candidates to ~30–60 canonical entries (H.4.b) |

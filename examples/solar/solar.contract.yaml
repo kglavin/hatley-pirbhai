@@ -1,0 +1,207 @@
+contract: Solar Local Stack
+version: '0.1'
+source: dictionary.yaml
+regenerable: true
+note: "Projected by hp-propose-contract from the HP model. A regenerable projection \u2014 do NOT hand-edit;\
+  \ fix dictionary.yaml and re-emit. Consumer-neutral; a consumer (e.g. archi) binds its own constructs\
+  \ onto these fields."
+plant:
+  system:
+    id: sys_root
+    label: Solar Local Stack
+  terminators:
+  - id: term_inverters
+    label: Solar Inverters
+  - id: term_meter
+    label: Net Power Meter
+  - id: term_battery_system
+    label: Battery System
+  - id: term_grid
+    label: Utility Grid
+  - id: term_user
+    label: Owner
+  - id: term_smiles_cloud
+    label: S-Miles Cloud
+  modules:
+  - id: am_controller_host
+    name: Controller Host
+    kind: hardware
+  - id: am_dashboard_app
+    name: Dashboard Web App
+    kind: software
+observation:
+- flow: flow_f1_inverter_telemetry
+  label: 'F1: per-channel telemetry'
+  from: term_inverters
+  into: proc_acquire_telemetry
+  medium: "Sub-1G RF \u2192 DTU-Pro-S or OpenDTU"
+- flow: flow_f3_net_grid_power
+  label: 'F3: net grid power, V/I/PF'
+  from: term_meter
+  into: proc_acquire_telemetry
+  medium: RS485 Modbus RTU
+- flow: flow_f4_battery_state
+  label: 'F4: SoC, mode, AC-in'
+  from: term_battery_system
+  into: proc_acquire_telemetry
+  medium: MQTT / Modbus TCP
+- flow: flow_f6_user_input
+  label: 'F6: config, override'
+  from: term_user
+  into: proc_handle_user_input
+  medium: UI
+action:
+- flow: flow_f2_power_limit
+  label: 'F2: power-limit setpoints'
+  to: term_inverters
+  emitted_by: proc_dispatch_commands
+  kind: control
+  medium: OpenDTU only (not via official DTU)
+- flow: flow_f5_battery_command
+  label: 'F5: max-charge, grid setpoint'
+  to: term_battery_system
+  emitted_by: proc_dispatch_commands
+  kind: control
+  medium: MQTT publish
+- flow: flow_f7_user_view
+  label: 'F7: dashboards, alerts'
+  to: term_user
+  emitted_by: proc_serve_ui
+  kind: data
+  medium: UI
+- flow: flow_f8_cloud_forward
+  label: 'F8: optional telemetry forward'
+  to: term_smiles_cloud
+  emitted_by: proc_cloud_forward
+  kind: data
+  medium: HTTPS
+situation_vocabulary:
+  states:
+  - id: state_initializing
+    label: Initializing
+    machine: proc_compute_balance
+  - id: state_grid_tie
+    label: GridTie
+    machine: proc_compute_balance
+  - id: state_idle
+    label: Idle
+    machine: proc_compute_balance
+  - id: state_diverting
+    label: Diverting
+    machine: proc_compute_balance
+  - id: state_holding
+    label: Holding
+    machine: proc_compute_balance
+  - id: state_discharging
+    label: Discharging
+    machine: proc_compute_balance
+  - id: state_island
+    label: Island
+    machine: proc_compute_balance
+  - id: state_battery_discharge
+    label: BatteryDischarge
+    machine: proc_compute_balance
+  - id: state_ac_coupled_solar
+    label: SolarAssist
+    machine: proc_compute_balance
+  - id: state_fault
+    label: Fault
+    machine: proc_compute_balance
+  - id: state_telemetry_fault
+    label: TelemetryFault
+    machine: proc_compute_balance
+  - id: state_actuator_fault
+    label: ActuatorFault
+    machine: proc_compute_balance
+  - id: state_policy_fault
+    label: PolicyFault
+    machine: proc_compute_balance
+  signals:
+  - 'F1: per-channel telemetry'
+  - 'F2: power-limit setpoints'
+  - 'F3: net grid power, V/I/PF'
+  - 'F4: SoC, mode, AC-in'
+  - 'F5: max-charge, grid setpoint'
+  - 'F6: config, override'
+  - 'F7: dashboards, alerts'
+  - 'F8: optional telemetry forward'
+objective:
+  stated:
+    proficiency:
+    - slo: slo_diversion_loop_latency
+      name: Diversion-loop response latency
+      target: 1.0
+      unit: seconds
+      window: 30d
+    cost:
+    - slo: slo_monthly_cost
+      name: Monthly cloud cost SLO
+      target: 5.0
+      unit: USD
+      window: 30d
+    computational_constraints:
+    - pspec: pspec_acquire_telemetry
+      process: proc_acquire_telemetry
+      accuracy: null
+      timing: "End-to-end ingest \u2192 store_system_state write latency < 1 s"
+      frequency: "\u2265 1 Hz aggregate ingest rate; \u2265 0.5 Hz per source"
+    - pspec: pspec_dispatch_commands
+      process: proc_dispatch_commands
+      accuracy: Translated values honor command to within vendor protocol resolution
+      timing: "Command \u2192 actuator latency < 500 ms"
+      frequency: null
+    - pspec: pspec_serve_ui
+      process: proc_serve_ui
+      accuracy: null
+      timing: null
+      frequency: "Dashboard refresh \u2265 1 Hz; alert latency < 500 ms"
+    - pspec: pspec_handle_user_input
+      process: proc_handle_user_input
+      accuracy: null
+      timing: "Input \u2192 emitted event latency < 200 ms"
+      frequency: null
+    - pspec: pspec_cloud_forward
+      process: proc_cloud_forward
+      accuracy: null
+      timing: Best-effort; not in the diversion-control critical path
+      frequency: Configurable; default 1/min when enabled
+  intended: "<UNSET \u2014 confirm the INTENDED objective in prose. The gap between it and the stated\
+    \ objective above is exactly what an autonomously-grown corpus games; hp-audit (R2) needs it to detect\
+    \ objective-gaming.>"
+red_lines:
+  machine_checkable:
+  - id: rl_tpm_diversion_response_p99
+    source: tpm_diversion_response_p99
+    metric: Diversion loop p99 response latency (measured)
+    predicate: <= 1000.0
+    unit: ms
+    measured_by: histogram_quantile(0.99, diversion_loop_duration_seconds_bucket)
+  - id: rl_tpm_actual_monthly_cost
+    source: tpm_actual_monthly_cost
+    metric: Actual monthly cloud cost (last 30d)
+    predicate: <= 5.0
+    unit: USD
+    measured_by: Sum of AWS cost-explorer line items tagged solar-stack
+  - id: rl_tpm_dashboard_render_p99
+    source: tpm_dashboard_render_p99
+    metric: Dashboard render p99 latency (browser side)
+    predicate: <= 2000.0
+    unit: ms
+    measured_by: browser-side performance.now() span on dashboard mount
+  qualitative:
+  - id: rl_safety_am_controller_host
+    source: ams_controller_host
+    kind: safety
+    statement: Diversion command path must fail-safe to 'zero export' on host failure (Victron's fallback
+      handles outage transfer independently).
+  - id: rl_stride_ai_local_lan_repudiation
+    source: ai_local_lan
+    kind: residual-repudiation
+    statement: "out_of_scope \u2014 single owner; no audit requirement at this tier.\nADR-002 explicitly\
+      \ defers any audit trail to a future cloud\nforwarding option."
+seed_skill:
+  pspec: pspec_dispatch_commands
+  process: proc_dispatch_commands
+  transformation_style: textual
+  note: baseline to beat (seed-and-grow); the consumer matures it
+underspecified: []
